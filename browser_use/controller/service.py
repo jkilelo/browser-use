@@ -65,28 +65,6 @@ Context = TypeVar('Context')
 T = TypeVar('T', bound=BaseModel)
 
 
-def extract_llm_error_message(error: Exception) -> str:
-	"""
-	Extract the clean error message from an exception that may contain <llm_error_msg> tags.
-
-	If the tags are found, returns the content between them.
-	Otherwise, returns the original error string.
-	"""
-	import re
-
-	error_str = str(error)
-
-	# Look for content between <llm_error_msg> tags
-	pattern = r'<llm_error_msg>(.*?)</llm_error_msg>'
-	match = re.search(pattern, error_str, re.DOTALL)
-
-	if match:
-		return match.group(1).strip()
-
-	# Fallback: return the original error string
-	return error_str
-
-
 class Controller(Generic[Context]):
 	def __init__(
 		self,
@@ -180,8 +158,8 @@ class Controller(Generic[Context]):
 				return ActionResult(extracted_content=memory, include_in_memory=True, long_term_memory=memory)
 			except Exception as e:
 				logger.error(f'Failed to search Google: {e}')
-				clean_msg = extract_llm_error_message(e)
-				return ActionResult(error=f'Failed to search Google for "{params.query}": {clean_msg}')
+
+				return ActionResult(error=f'Failed to search Google for "{params.query}": {str(e)}')
 
 		@self.registry.action(
 			'Navigate to URL, set new_tab=True to open in new tab, False to navigate in current tab', param_model=GoToUrlAction
@@ -206,7 +184,7 @@ class Controller(Generic[Context]):
 				error_msg = str(e)
 				# Always log the actual error first for debugging
 				browser_session.logger.error(f'❌ Navigation failed: {error_msg}')
-				clean_msg = extract_llm_error_message(e)
+
 
 				# Check if it's specifically a RuntimeError about CDP client
 				if isinstance(e, RuntimeError) and 'CDP client not initialized' in error_msg:
@@ -228,7 +206,7 @@ class Controller(Generic[Context]):
 					return ActionResult(error=site_unavailable_msg)
 				else:
 					# Return error in ActionResult instead of re-raising
-					return ActionResult(error=f'Navigation failed: {clean_msg}')
+					return ActionResult(error=f'Navigation failed: {error_msg}')
 
 		@self.registry.action('Go back', param_model=NoParamsAction)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
@@ -241,8 +219,8 @@ class Controller(Generic[Context]):
 				return ActionResult(extracted_content=memory)
 			except Exception as e:
 				logger.error(f'Failed to dispatch GoBackEvent: {type(e).__name__}: {e}')
-				clean_msg = extract_llm_error_message(e)
-				error_msg = f'Failed to go back: {clean_msg}'
+
+				error_msg = f'Failed to go back: {str(e)}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
@@ -297,8 +275,8 @@ class Controller(Generic[Context]):
 				)
 			except Exception as e:
 				logger.error(f'Failed to execute ClickElementEvent: {type(e).__name__}: {e}')
-				clean_msg = extract_llm_error_message(e)
-				error_msg = f'Failed to click element {params.index}: {clean_msg}'
+
+				error_msg = f'Failed to click element {params.index}: {str(e)}'
 
 				# If it's a select dropdown error, automatically get the dropdown options
 				if 'dropdown' in str(e) and node:
@@ -504,8 +482,8 @@ class Controller(Generic[Context]):
 				return ActionResult(extracted_content=memory, include_in_memory=True, long_term_memory=memory)
 			except Exception as e:
 				logger.error(f'Failed to switch tab: {type(e).__name__}: {e}')
-				clean_msg = extract_llm_error_message(e)
-				return ActionResult(error=f'Failed to switch to tab {params.tab_id or params.url}: {clean_msg}')
+
+				return ActionResult(error=f'Failed to switch to tab {params.tab_id or params.url}: {str(e)}')
 
 		@self.registry.action('Close an existing tab', param_model=CloseTabAction)
 		async def close_tab(params: CloseTabAction, browser_session: BrowserSession):
@@ -529,8 +507,8 @@ class Controller(Generic[Context]):
 				)
 			except Exception as e:
 				logger.error(f'Failed to close tab: {e}')
-				clean_msg = extract_llm_error_message(e)
-				return ActionResult(error=f'Failed to close tab {params.tab_id}: {clean_msg}')
+
+				return ActionResult(error=f'Failed to close tab {params.tab_id}: {str(e)}')
 
 		# Content Actions
 
@@ -689,8 +667,8 @@ Provide the extracted information in a clear, structured format."""
 				return ActionResult(extracted_content=msg, include_in_memory=True, long_term_memory=long_term_memory)
 			except Exception as e:
 				logger.error(f'Failed to dispatch ScrollEvent: {type(e).__name__}: {e}')
-				clean_msg = extract_llm_error_message(e)
-				error_msg = f'Failed to scroll: {clean_msg}'
+
+				error_msg = f'Failed to scroll: {str(e)}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
@@ -709,8 +687,8 @@ Provide the extracted information in a clear, structured format."""
 				return ActionResult(extracted_content=memory, include_in_memory=True, long_term_memory=memory)
 			except Exception as e:
 				logger.error(f'Failed to dispatch SendKeysEvent: {type(e).__name__}: {e}')
-				clean_msg = extract_llm_error_message(e)
-				error_msg = f'Failed to send keys: {clean_msg}'
+
+				error_msg = f'Failed to send keys: {str(e)}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
@@ -1107,11 +1085,21 @@ Provide the extracted information in a clear, structured format."""
 							context=context,
 						)
 					except Exception as e:
-						# Log the original exception with traceback for observability
-						logger.error(f"Action '{action_name}' failed")
-						# Extract clean error message from llm_error_msg tags if present
-						clean_msg = extract_llm_error_message(e)
-						result = ActionResult(error=clean_msg)
+						from browser_use.browser.views import BrowserError
+						
+						# Log the original exception for observability
+						logger.error(f"Action '{action_name}' failed: {e}")
+						
+						if isinstance(e, BrowserError):
+							# Use structured memory fields from BrowserError
+							result = ActionResult(
+								error=e.long_term_memory,
+								extracted_content=e.short_term_memory,
+								include_extracted_content_only_once=True if e.short_term_memory else False,
+							)
+						else:
+							# For other exceptions, just use the error string
+							result = ActionResult(error=str(e))
 
 					if Laminar is not None:
 						Laminar.set_span_output(result)

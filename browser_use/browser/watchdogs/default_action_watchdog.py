@@ -230,13 +230,20 @@ class DefaultActionWatchdog(BaseWatchdog):
 				self.logger.warning(
 					f'Cannot click on <select> elements. Use get_dropdown_options(index={element_node.element_index}) action instead.'
 				)
-				raise Exception(
-					f'<llm_error_msg>Cannot click on <select> elements. Use get_dropdown_options(index={element_node.element_index}) action instead.</llm_error_msg>'
+				msg = f'Cannot click on <select> elements. Use get_dropdown_options(index={element_node.element_index}) action instead.'
+				self.logger.warning(msg)
+				raise BrowserError(
+					message=msg,
+					short_term_memory=None,
+					long_term_memory=msg,
 				)
 
 			if tag_name == 'input' and element_type == 'file':
-				raise Exception(
-					f'<llm_error_msg>Cannot click on file input element (index={element_node.element_index}). File uploads must be handled using upload_file_to_element action</llm_error_msg>'
+				msg = f"Cannot click on file input element (index={element_node.element_index}). File uploads must be handled using upload_file_to_element action."
+				raise BrowserError(
+					message=msg,
+					short_term_memory=None,
+					long_term_memory=msg,
 				)
 
 			# Get CDP client
@@ -368,7 +375,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 					return None
 				except Exception as js_e:
 					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
-					raise Exception(f'Failed to click element: {js_e}')
+					raise BrowserError(
+						message=f'Failed to click element: {js_e}',
+						short_term_memory=None,
+						long_term_memory=f'Failed to click element - could not get element geometry',
+						details={'backend_node_id': backend_node_id, 'error': str(js_e)}
+					)
 
 			# Find the largest visible quad within the viewport
 			best_quad = None
@@ -522,7 +534,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 					return None
 				except Exception as js_e:
 					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
-					raise Exception(f'Failed to click element: {e}')
+					raise BrowserError(
+						message=f'Failed to click element: {e}',
+						short_term_memory=None,
+						long_term_memory=f'Failed to click element - both CDP and JavaScript methods failed',
+					)
 			finally:
 				# always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.
 				cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
@@ -537,8 +553,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 			if element_node.element_index:
 				element_info += f' index={element_node.element_index}'
 			element_info += '>'
-			raise Exception(
-				f'<llm_error_msg>Failed to click element {element_info}. The element may not be interactable or visible. {type(e).__name__}: {e}</llm_error_msg>'
+			raise BrowserError(
+				message=f'Failed to click element: {e}',
+				short_term_memory=None,  # No additional context needed for generic click failures
+				long_term_memory=f'Failed to click element {element_info}. The element may not be interactable or visible',
+				details={'element_tag': element_node.tag_name, 'index': element_node.element_index, 'original_error': str(e)}
 			)
 
 	async def _type_to_page(self, text: str):
@@ -581,7 +600,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 				await asyncio.sleep(0.018)
 
 		except Exception as e:
-			raise Exception(f'Failed to type to page: {str(e)}')
+			raise BrowserError(
+				message=f'Failed to type to page: {str(e)}',
+				short_term_memory=None,
+				long_term_memory=f'Failed to type text to the page',
+				details={'error': str(e)}
+			)
 
 	async def _check_element_focusability(self, element_node, object_id: str, session_id: str) -> dict[str, Any]:
 		"""
@@ -1269,8 +1293,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 			# Check if it's a file input
 			if not self.browser_session.is_file_input(element_node):
-				raise Exception(
-					f'<llm_error_msg>Element {index_for_logging} is not a file input. Use click_element_by_index for non-file input elements.</llm_error_msg>'
+				raise BrowserError(
+					message=f'Element {index_for_logging} is not a file input',
+					short_term_memory=f'Element {index_for_logging} is not a file input. Use click_element(index={index_for_logging}) for regular elements',
+					long_term_memory=f'Tried to upload file to non-file-input element {index_for_logging}',
+					details={'element_tag': element_node.tag_name, 'index': index_for_logging}
 				)
 
 			# Get CDP client and session
