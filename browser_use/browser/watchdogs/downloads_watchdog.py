@@ -111,7 +111,6 @@ class DownloadsWatchdog(BaseWatchdog):
 		# Check if auto-download is enabled
 		auto_download_enabled = self._is_auto_download_enabled()
 		if not auto_download_enabled:
-			self.logger.debug('[DownloadsWatchdog] Skipping PDF check - auto-download disabled')
 			return
 
 		# Note: Using network-based PDF detection that doesn't require JavaScript
@@ -655,7 +654,7 @@ class DownloadsWatchdog(BaseWatchdog):
 		return False
 
 	async def _check_network_headers_for_pdf(self, target_id: TargetID) -> bool:
-		"""Check network response headers for PDF content-type."""
+		"""Infer PDF via navigation history/URL; headers are not available post-navigation in this context."""
 		try:
 			import asyncio
 
