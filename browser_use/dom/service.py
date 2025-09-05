@@ -326,12 +326,31 @@ class DomService:
 		except Exception as e:
 			self.logger.debug(f'Failed to get iframe scroll positions: {e}')
 
-		# Define CDP request factories to avoid duplication
+		# OPTIMIZATION: Check page complexity first to decide on strategy
+		page_complexity_check = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': 'document.querySelectorAll("*").length'}, 
+			session_id=cdp_session.session_id
+		)
+		
+		total_elements = 0
+		try:
+			if page_complexity_check and 'result' in page_complexity_check and 'value' in page_complexity_check['result']:
+				total_elements = page_complexity_check['result']['value']
+				self.logger.debug(f'🔍 DEBUG: Page has {total_elements} total DOM elements')
+		except Exception as e:
+			self.logger.debug(f'Failed to get element count: {e}')
+
+		# OPTIMIZATION: Use different strategies based on page size
+		is_large_page = total_elements > 5000
+		
+		# Define CDP request factories with optimizations for large pages
 		def create_snapshot_request():
+			# For large pages, reduce computed styles to essential ones only
+			computed_styles = ['cursor', 'display', 'visibility', 'overflow'] if is_large_page else REQUIRED_COMPUTED_STYLES
 			return cdp_session.cdp_client.send.DOMSnapshot.captureSnapshot(
 				params={
-					'computedStyles': REQUIRED_COMPUTED_STYLES,
-					'includePaintOrder': True,
+					'computedStyles': computed_styles,
+					'includePaintOrder': not is_large_page,  # Skip paint order for large pages
 					'includeDOMRects': True,
 					'includeBlendedBackgroundColors': False,
 					'includeTextColorOpacities': False,
@@ -346,16 +365,22 @@ class DomService:
 
 		start = time.time()
 
-		# Create initial tasks
+		# Create initial tasks - skip accessibility tree for very large pages as it's expensive
 		tasks = {
 			'snapshot': asyncio.create_task(create_snapshot_request()),
 			'dom_tree': asyncio.create_task(create_dom_tree_request()),
-			'ax_tree': asyncio.create_task(self._get_ax_tree_for_all_frames(target_id)),
 			'device_pixel_ratio': asyncio.create_task(self._get_viewport_ratio(target_id)),
 		}
+		
+		# OPTIMIZATION: Only get accessibility tree for smaller pages or when explicitly needed
+		if not is_large_page:
+			tasks['ax_tree'] = asyncio.create_task(self._get_ax_tree_for_all_frames(target_id))
+		else:
+			self.logger.debug(f'🔍 DEBUG: Skipping accessibility tree for large page with {total_elements} elements')
 
-		# Wait for all tasks with timeout
-		done, pending = await asyncio.wait(tasks.values(), timeout=10.0)
+		# Wait for all tasks with timeout - increase timeout for large pages
+		timeout = 15.0 if is_large_page else 10.0
+		done, pending = await asyncio.wait(tasks.values(), timeout=timeout)
 
 		# Retry any failed or timed out tasks
 		if pending:
@@ -366,9 +391,12 @@ class DomService:
 			retry_map = {
 				tasks['snapshot']: lambda: asyncio.create_task(create_snapshot_request()),
 				tasks['dom_tree']: lambda: asyncio.create_task(create_dom_tree_request()),
-				tasks['ax_tree']: lambda: asyncio.create_task(self._get_ax_tree_for_all_frames(target_id)),
 				tasks['device_pixel_ratio']: lambda: asyncio.create_task(self._get_viewport_ratio(target_id)),
 			}
+			
+			# Only add ax_tree retry if it was originally requested
+			if 'ax_tree' in tasks:
+				retry_map[tasks['ax_tree']] = lambda: asyncio.create_task(self._get_ax_tree_for_all_frames(target_id))
 
 			# Create new tasks only for the ones that didn't complete
 			for key, task in tasks.items():
@@ -402,7 +430,8 @@ class DomService:
 
 		snapshot = results['snapshot']
 		dom_tree = results['dom_tree']
-		ax_tree = results['ax_tree']
+		# OPTIMIZATION: Use empty ax_tree for large pages to avoid the expensive call
+		ax_tree = results.get('ax_tree', {'nodes': []})
 		device_pixel_ratio = results['device_pixel_ratio']
 		end = time.time()
 		cdp_timing = {'cdp_calls_total': end - start}
@@ -424,6 +453,7 @@ class DomService:
 			ax_tree=ax_tree,
 			device_pixel_ratio=device_pixel_ratio,
 			cdp_timing=cdp_timing,
+			total_elements=total_elements,
 		)
 
 	async def get_dom_tree(
@@ -447,9 +477,12 @@ class DomService:
 		snapshot = trees.snapshot
 		device_pixel_ratio = trees.device_pixel_ratio
 
-		ax_tree_lookup: dict[int, AXNode] = {
-			ax_node['backendDOMNodeId']: ax_node for ax_node in ax_tree['nodes'] if 'backendDOMNodeId' in ax_node
-		}
+		# OPTIMIZATION: Only build ax_tree_lookup if we have accessibility nodes
+		ax_tree_lookup: dict[int, AXNode] = {}
+		if ax_tree['nodes']:
+			ax_tree_lookup = {
+				ax_node['backendDOMNodeId']: ax_node for ax_node in ax_tree['nodes'] if 'backendDOMNodeId' in ax_node
+			}
 
 		enhanced_dom_tree_node_lookup: dict[int, EnhancedDOMTreeNode] = {}
 		""" NodeId (NOT backend node id) -> enhanced dom tree node"""  # way to get the parent/content node
@@ -458,7 +491,7 @@ class DomService:
 		snapshot_lookup = build_snapshot_lookup(snapshot, device_pixel_ratio)
 
 		async def _construct_enhanced_node(
-			node: Node, html_frames: list[EnhancedDOMTreeNode] | None, total_frame_offset: DOMRect | None
+			node: Node, html_frames: list[EnhancedDOMTreeNode] | None, total_frame_offset: DOMRect | None, page_elements_count: int = 0
 		) -> EnhancedDOMTreeNode:
 			"""
 			Recursively construct enhanced DOM tree nodes.
@@ -574,7 +607,7 @@ class DomService:
 
 			if 'contentDocument' in node and node['contentDocument']:
 				dom_tree_node.content_document = await _construct_enhanced_node(
-					node['contentDocument'], updated_html_frames, total_frame_offset
+					node['contentDocument'], updated_html_frames, total_frame_offset, page_elements_count
 				)
 				dom_tree_node.content_document.parent_node = dom_tree_node
 				# forcefully set the parent node to the content document node (helps traverse the tree)
@@ -582,7 +615,7 @@ class DomService:
 			if 'shadowRoots' in node and node['shadowRoots']:
 				dom_tree_node.shadow_roots = []
 				for shadow_root in node['shadowRoots']:
-					shadow_root_node = await _construct_enhanced_node(shadow_root, updated_html_frames, total_frame_offset)
+					shadow_root_node = await _construct_enhanced_node(shadow_root, updated_html_frames, total_frame_offset, page_elements_count)
 					# forcefully set the parent node to the shadow root node (helps traverse the tree)
 					shadow_root_node.parent_node = dom_tree_node
 					dom_tree_node.shadow_roots.append(shadow_root_node)
@@ -591,11 +624,21 @@ class DomService:
 				dom_tree_node.children_nodes = []
 				for child in node['children']:
 					dom_tree_node.children_nodes.append(
-						await _construct_enhanced_node(child, updated_html_frames, total_frame_offset)
+						await _construct_enhanced_node(child, updated_html_frames, total_frame_offset, page_elements_count)
 					)
 
-			# Set visibility using the collected HTML frames
-			dom_tree_node.is_visible = self.is_element_visible_according_to_all_parents(dom_tree_node, updated_html_frames)
+			# OPTIMIZATION: For large pages, use simpler visibility check to save time
+			if page_elements_count > 5000:
+				# Fast visibility check - just check if element has bounds and basic CSS visibility
+				dom_tree_node.is_visible = (
+					snapshot_data is not None and 
+					snapshot_data.bounds is not None and 
+					snapshot_data.bounds.width > 0 and 
+					snapshot_data.bounds.height > 0
+				)
+			else:
+				# Full visibility check for smaller pages
+				dom_tree_node.is_visible = self.is_element_visible_according_to_all_parents(dom_tree_node, updated_html_frames)
 
 			# DEBUG: Log visibility info for form elements in iframes
 			if dom_tree_node.tag_name and dom_tree_node.tag_name.upper() in ['INPUT', 'SELECT', 'TEXTAREA', 'LABEL']:
@@ -651,7 +694,7 @@ class DomService:
 
 			return dom_tree_node
 
-		enhanced_dom_tree_node = await _construct_enhanced_node(dom_tree['root'], initial_html_frames, initial_total_frame_offset)
+		enhanced_dom_tree_node = await _construct_enhanced_node(dom_tree['root'], initial_html_frames, initial_total_frame_offset, trees.total_elements)
 
 		return enhanced_dom_tree_node
 

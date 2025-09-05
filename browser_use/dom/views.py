@@ -68,6 +68,7 @@ class TargetAllTrees:
 	ax_tree: GetFullAXTreeReturns
 	device_pixel_ratio: float
 	cdp_timing: dict[str, float]
+	total_elements: int = 0  # Total element count for optimization decisions
 
 
 @dataclass(slots=True)

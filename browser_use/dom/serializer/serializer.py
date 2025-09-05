@@ -106,7 +106,14 @@ class DOMTreeSerializer:
 			import time
 
 			start_time = time.time()
-			result = ClickableElementDetector.is_interactive(node)
+			
+			# OPTIMIZATION: Fast path for obviously non-interactive elements
+			if (node.node_type != NodeType.ELEMENT_NODE or 
+				node.tag_name in {'html', 'body', 'head', 'meta', 'title', 'script', 'style', 'link'}):
+				result = False
+			else:
+				result = ClickableElementDetector.is_interactive(node)
+			
 			end_time = time.time()
 
 			if 'clickable_detection_time' not in self.timing_info:
