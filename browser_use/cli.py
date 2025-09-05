@@ -1574,7 +1574,7 @@ async def textual_interface(config: dict[str, Any]):
 		raise
 
 
-@click.command()
+@click.group(invoke_without_command=True)
 @click.option('--version', is_flag=True, help='Print version and exit')
 @click.option('--model', type=str, help='Model to use (e.g., gpt-5-mini, claude-4-sonnet, gemini-2.5-flash)')
 @click.option('--debug', is_flag=True, help='Enable verbose startup logging')
@@ -1605,115 +1605,239 @@ def main(ctx: click.Context, debug: bool = False, **kwargs):
 	Use --profile-directory to specify which profile within the user data directory.
 	Examples: "Default", "Profile 1", "Profile 2", etc.
 	"""
+	
+	# Handle invocation without subcommand (default behavior)
+	if ctx.invoked_subcommand is None:
+		if kwargs['version']:
+			from importlib.metadata import version
 
-	if kwargs['version']:
-		from importlib.metadata import version
+			print(version('browser-use'))
+			sys.exit(0)
 
-		print(version('browser-use'))
-		sys.exit(0)
-
-	# Check if MCP server mode is activated
-	if kwargs.get('mcp'):
-		# Capture telemetry for MCP server mode via CLI
-		telemetry = ProductTelemetry()
-		telemetry.capture(
-			CLITelemetryEvent(
-				version=get_browser_use_version(),
-				action='start',
-				mode='mcp_server',
+		# Check if MCP server mode is activated
+		if kwargs.get('mcp'):
+			# Capture telemetry for MCP server mode via CLI
+			telemetry = ProductTelemetry()
+			telemetry.capture(
+				CLITelemetryEvent(
+					version=get_browser_use_version(),
+					action='start',
+					mode='mcp_server',
+				)
 			)
-		)
-		# Run as MCP server
-		from browser_use.mcp.server import main as mcp_main
+			# Run as MCP server
+			from browser_use.mcp.server import main as mcp_main
 
-		asyncio.run(mcp_main())
-		return
+			asyncio.run(mcp_main())
+			return
 
-	# Check if prompt mode is activated
-	if kwargs.get('prompt'):
-		# Set environment variable for prompt mode before running
-		os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'result'
-		# Run in non-interactive mode
-		asyncio.run(run_prompt_mode(kwargs['prompt'], ctx, debug))
-		return
+		# Check if prompt mode is activated
+		if kwargs.get('prompt'):
+			# Set environment variable for prompt mode before running
+			os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'result'
+			# Run in non-interactive mode
+			asyncio.run(run_prompt_mode(kwargs['prompt'], ctx, debug))
+			return
 
-	# Configure console logging
-	console_handler = logging.StreamHandler(sys.stdout)
-	console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%H:%M:%S'))
+		# Configure console logging
+		console_handler = logging.StreamHandler(sys.stdout)
+		console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%H:%M:%S'))
 
-	# Configure root logger
-	root_logger = logging.getLogger()
-	root_logger.setLevel(logging.INFO if not debug else logging.DEBUG)
-	root_logger.addHandler(console_handler)
-
-	logger = logging.getLogger('browser_use.startup')
-	logger.info('Starting Browser-Use initialization')
-	if debug:
-		logger.debug(f'System info: Python {sys.version.split()[0]}, Platform: {sys.platform}')
-
-	logger.debug('Loading environment variables from .env file...')
-	load_dotenv()
-	logger.debug('Environment variables loaded')
-
-	# Load user configuration
-	logger.debug('Loading user configuration...')
-	try:
-		config = load_user_config()
-		logger.debug(f'User configuration loaded from {CONFIG.BROWSER_USE_CONFIG_FILE}')
-	except Exception as e:
-		logger.error(f'Error loading user configuration: {str(e)}', exc_info=True)
-		print(f'Error loading configuration: {str(e)}')
-		sys.exit(1)
-
-	# Update config with command-line arguments
-	logger.debug('Updating configuration with command line arguments...')
-	try:
-		config = update_config_with_click_args(config, ctx)
-		logger.debug('Configuration updated')
-	except Exception as e:
-		logger.error(f'Error updating config with command line args: {str(e)}', exc_info=True)
-		print(f'Error updating configuration: {str(e)}')
-		sys.exit(1)
-
-	# Save updated config
-	logger.debug('Saving user configuration...')
-	try:
-		save_user_config(config)
-		logger.debug('Configuration saved')
-	except Exception as e:
-		logger.error(f'Error saving user configuration: {str(e)}', exc_info=True)
-		print(f'Error saving configuration: {str(e)}')
-		sys.exit(1)
-
-	# Setup handlers for console output before entering Textual UI
-	logger.debug('Setting up handlers for Textual UI...')
-
-	# Log browser and model configuration that will be used
-	browser_type = 'Chromium'  # BrowserSession only supports Chromium
-	model_name = config.get('model', {}).get('name', 'auto-detected')
-	headless = config.get('browser', {}).get('headless', False)
-	headless_str = 'headless' if headless else 'visible'
-
-	logger.info(f'Preparing {browser_type} browser ({headless_str}) with {model_name} LLM')
-
-	try:
-		# Run the Textual UI interface - now all the initialization happens before we go fullscreen
-		logger.debug('Starting Textual UI interface...')
-		asyncio.run(textual_interface(config))
-	except Exception as e:
-		# Restore console logging for error reporting
-		root_logger.setLevel(logging.INFO)
-		for handler in root_logger.handlers:
-			root_logger.removeHandler(handler)
+		# Configure root logger
+		root_logger = logging.getLogger()
+		root_logger.setLevel(logging.INFO if not debug else logging.DEBUG)
 		root_logger.addHandler(console_handler)
 
-		logger.error(f'Error initializing Browser-Use: {str(e)}', exc_info=debug)
-		print(f'\nError launching Browser-Use: {str(e)}')
+		logger = logging.getLogger('browser_use.startup')
+		logger.info('Starting Browser-Use initialization')
 		if debug:
-			import traceback
+			logger.debug(f'System info: Python {sys.version.split()[0]}, Platform: {sys.platform}')
 
-			traceback.print_exc()
-		sys.exit(1)
+		logger.debug('Loading environment variables from .env file...')
+		load_dotenv()
+		logger.debug('Environment variables loaded')
+
+		# Load user configuration
+		logger.debug('Loading user configuration...')
+		try:
+			config = load_user_config()
+			logger.debug(f'User configuration loaded from {CONFIG.BROWSER_USE_CONFIG_FILE}')
+		except Exception as e:
+			logger.error(f'Error loading user configuration: {str(e)}', exc_info=True)
+			print(f'Error loading configuration: {str(e)}')
+			sys.exit(1)
+
+		# Update config with command-line arguments
+		logger.debug('Updating configuration with command line arguments...')
+		try:
+			config = update_config_with_click_args(config, ctx)
+			logger.debug('Configuration updated')
+		except Exception as e:
+			logger.error(f'Error updating config with command line args: {str(e)}', exc_info=True)
+			print(f'Error updating configuration: {str(e)}')
+			sys.exit(1)
+
+		# Save updated config
+		logger.debug('Saving user configuration...')
+		try:
+			save_user_config(config)
+			logger.debug('Configuration saved')
+		except Exception as e:
+			logger.error(f'Error saving user configuration: {str(e)}', exc_info=True)
+			print(f'Error saving configuration: {str(e)}')
+			sys.exit(1)
+
+		# Setup handlers for console output before entering Textual UI
+		logger.debug('Setting up handlers for Textual UI...')
+
+		# Log browser and model configuration that will be used
+		browser_type = 'Chromium'  # BrowserSession only supports Chromium
+		model_name = config.get('model', {}).get('name', 'auto-detected')
+		headless = config.get('browser', {}).get('headless', False)
+		headless_str = 'headless' if headless else 'visible'
+
+		logger.info(f'Preparing {browser_type} browser ({headless_str}) with {model_name} LLM')
+
+		try:
+			# Run the Textual UI interface - now all the initialization happens before we go fullscreen
+			logger.debug('Starting Textual UI interface...')
+			asyncio.run(textual_interface(config))
+		except Exception as e:
+			# Restore console logging for error reporting
+			root_logger.setLevel(logging.INFO)
+			for handler in root_logger.handlers:
+				root_logger.removeHandler(handler)
+			root_logger.addHandler(console_handler)
+
+			logger.error(f'Error initializing Browser-Use: {str(e)}', exc_info=debug)
+			print(f'\nError launching Browser-Use: {str(e)}')
+			if debug:
+				import traceback
+
+				traceback.print_exc()
+			sys.exit(1)
+
+
+@main.command()
+@click.option('--debug', is_flag=True, help='Enable debug logging')
+def auth(debug: bool = False):
+	"""Authenticate with Browser Use Cloud for sync functionality."""
+	import uuid
+	from browser_use.sync.auth import DeviceAuthClient
+	from browser_use.sync.service import CloudSync
+	from browser_use.events import (
+		CreateAgentSessionEvent,
+		CreateAgentTaskEvent,
+		CreateAgentStepEvent,
+		CreateStepResultEvent,
+	)
+	from browser_use.agent.views import BrowserStateSummary, DomState
+	
+	async def run_auth_flow():
+		# Configure logging
+		console_handler = logging.StreamHandler(sys.stdout)
+		console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%H:%M:%S'))
+		
+		root_logger = logging.getLogger()
+		root_logger.setLevel(logging.DEBUG if debug else logging.INFO)
+		root_logger.addHandler(console_handler)
+		
+		logger = logging.getLogger('browser_use.auth')
+		
+		# Check if CLI is installed (we're running it, so it is)
+		logger.info('🔐 Starting Browser Use Cloud authentication...')
+		
+		# Create auth client and cloud sync service
+		auth_client = DeviceAuthClient()
+		cloud_sync = CloudSync(enable_auth=True)
+		
+		# Generate dummy session data
+		session_id = str(uuid.uuid4())
+		agent_session_id = str(uuid.uuid4())
+		task_id = str(uuid.uuid4())
+		
+		logger.info(f'📱 Session ID: {session_id}')
+		
+		# Set session ID on cloud sync
+		cloud_sync.session_id = session_id
+		
+		# Send dummy events to simulate a real agent run
+		try:
+			# 1. Create agent session event
+			session_event = CreateAgentSessionEvent(
+				id=session_id,
+				agent_session_id=agent_session_id,
+				user_id=auth_client.temp_user_id,
+				device_id=auth_client.device_id,
+			)
+			await cloud_sync.handle_event(session_event)
+			
+			# 2. Create agent task event  
+			task_event = CreateAgentTaskEvent(
+				agent_session_id=agent_session_id,
+				llm_model='gpt-4o-mini',
+				task='CLI Authentication Flow - Demo Task',
+				user_id=auth_client.temp_user_id,
+				device_id=auth_client.device_id,
+				done_output=None,
+				user_feedback_type=None,
+				user_comment=None,
+				gif_url=None,
+			)
+			await cloud_sync.handle_event(task_event)
+			
+			# 3. Create first step event to trigger auth flow
+			step_event = CreateAgentStepEvent(
+				agent_session_id=agent_session_id,
+				step=2,  # This triggers the auth flow in CloudSync
+				browser_state_summary=BrowserStateSummary(
+					url='https://example.com',
+					title='CLI Auth Demo',
+					dom_state=DomState(
+						selector_map={},
+						clickable_elements=[],
+						interactable_elements=[],
+						inputs=[],
+						buttons=[],
+						links=[],
+						selects=[],
+						textareas=[],
+					),
+				),
+				user_id=auth_client.temp_user_id,
+				device_id=auth_client.device_id,
+			)
+			await cloud_sync.handle_event(step_event)
+			
+			# 4. Create step result event
+			result_event = CreateStepResultEvent(
+				agent_session_id=agent_session_id,
+				step=2,
+				result='Authentication flow completed successfully',
+				user_id=auth_client.temp_user_id,
+				device_id=auth_client.device_id,
+			)
+			await cloud_sync.handle_event(result_event)
+			
+			# Wait for authentication to complete
+			logger.info('⏳ Waiting for authentication to complete...')
+			await cloud_sync.wait_for_auth()
+			
+			if auth_client.is_authenticated:
+				logger.info('✅ Authentication successful! You can now use Browser Use Cloud sync.')
+				logger.info('🚀 Cloud sync is now enabled for all your browser-use sessions.')
+			else:
+				logger.warning('❌ Authentication was not completed. Please try again.')
+				
+		except KeyboardInterrupt:
+			logger.info('\n⏹️  Authentication cancelled by user.')
+		except Exception as e:
+			logger.error(f'❌ Authentication failed: {e}')
+			if debug:
+				import traceback
+				traceback.print_exc()
+	
+	asyncio.run(run_auth_flow())
 
 
 if __name__ == '__main__':

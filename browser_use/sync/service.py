@@ -58,6 +58,13 @@ class CloudSync:
 	async def _send_event(self, event: BaseEvent) -> None:
 		"""Send event to cloud API"""
 		try:
+			# Only send events if authenticated
+			if not self.auth_client or not self.auth_client.is_authenticated:
+				# Store event for retry after auth
+				if self.auth_client:
+					self.pending_events.append(event)
+				return
+
 			headers = {}
 
 			# override user_id on event with auth client user_id if available
@@ -119,18 +126,12 @@ class CloudSync:
 				logger.info('─' * max(terminal_width - 40, 20) + '\n\n')
 				return
 
-			# Otherwise run full authentication
-			success = await self.auth_client.authenticate(
-				agent_session_id=agent_session_id,
-				show_instructions=True,
-			)
-
-			if success:
-				# Resend any pending events
-				await self._resend_pending_events()
-
-				# Update WAL events with real user_id
-				# await self._update_wal_user_ids(agent_session_id)
+			# Show CLI auth command instead of browser URL for unauthenticated users
+			terminal_width, _terminal_height = shutil.get_terminal_size((80, 20))
+			logger.info('─' * max(terminal_width - 40, 20))
+			logger.info('🔐  To view this run in Browser Use Cloud, please authenticate first:')
+			logger.info('    👉  browser-use auth')
+			logger.info('─' * max(terminal_width - 40, 20) + '\n')
 
 		except Exception as e:
 			logger.debug(f'Cloud sync authentication failed: {e}')
