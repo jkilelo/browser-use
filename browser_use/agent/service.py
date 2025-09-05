@@ -415,12 +415,29 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# wal_path = CONFIG.BROWSER_USE_CONFIG_DIR / 'events' / f'{self.session_id}.jsonl'
 		self.eventbus = EventBus(name=f'Agent_{str(self.id)[-4:]}')
 
-		# Cloud sync service
-		self.enable_cloud_sync = CONFIG.BROWSER_USE_CLOUD_SYNC
-		if self.enable_cloud_sync or cloud_sync is not None:
+		# Cloud sync service - only enable if authenticated or explicitly provided
+		from browser_use.sync.auth import DeviceAuthClient
+		
+		# Check authentication status
+		auth_client = DeviceAuthClient()
+		is_authenticated = auth_client.is_authenticated
+		
+		# Enable sync based on authentication and config
+		self.enable_cloud_sync = CONFIG.BROWSER_USE_CLOUD_SYNC and is_authenticated
+		
+		# If cloud_sync is explicitly provided, use it regardless of auth status
+		if cloud_sync is not None or (CONFIG.BROWSER_USE_CLOUD_SYNC and is_authenticated):
 			self.cloud_sync = cloud_sync or CloudSync()
 			# Register cloud sync handler
 			self.eventbus.on('*', self.cloud_sync.handle_event)
+		elif CONFIG.BROWSER_USE_CLOUD_SYNC and not is_authenticated:
+			# Log that sync is disabled due to lack of authentication
+			import shutil
+			terminal_width, _terminal_height = shutil.get_terminal_size((80, 20))
+			self.logger.info('─' * max(terminal_width - 40, 20))
+			self.logger.info('🔐 Cloud sync is disabled - authentication required')
+			self.logger.info('    👉  Run `browser-use auth` to authenticate and enable sync')
+			self.logger.info('─' * max(terminal_width - 40, 20) + '\n')
 
 		if self.settings.save_conversation_path:
 			self.settings.save_conversation_path = Path(self.settings.save_conversation_path).expanduser().resolve()

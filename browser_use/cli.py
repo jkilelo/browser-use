@@ -1574,7 +1574,7 @@ async def textual_interface(config: dict[str, Any]):
 		raise
 
 
-@click.command()
+@click.group(invoke_without_command=True)
 @click.option('--version', is_flag=True, help='Print version and exit')
 @click.option('--model', type=str, help='Model to use (e.g., gpt-5-mini, claude-4-sonnet, gemini-2.5-flash)')
 @click.option('--debug', is_flag=True, help='Enable verbose startup logging')
@@ -1605,6 +1605,10 @@ def main(ctx: click.Context, debug: bool = False, **kwargs):
 	Use --profile-directory to specify which profile within the user data directory.
 	Examples: "Default", "Profile 1", "Profile 2", etc.
 	"""
+
+	# If a subcommand was invoked, don't run the main logic
+	if ctx.invoked_subcommand is not None:
+		return
 
 	if kwargs['version']:
 		from importlib.metadata import version
@@ -1714,6 +1718,92 @@ def main(ctx: click.Context, debug: bool = False, **kwargs):
 
 			traceback.print_exc()
 		sys.exit(1)
+
+
+@main.command()
+@click.option('--check', is_flag=True, help='Check if CLI is installed and auth status')
+def auth(check: bool = False):
+	"""Authenticate with Browser Use Cloud for sync functionality."""
+	import asyncio
+	from browser_use.sync.auth import DeviceAuthClient
+	from browser_use.sync.service import CloudSync
+	from browser_use.agent.cloud_events import CreateAgentTaskEvent
+	from browser_use.config import CONFIG
+	import uuid
+	import logging
+	
+	async def run_auth():
+		# Set up logging for auth command
+		logging.basicConfig(level=logging.INFO, format='%(message)s')
+		logger = logging.getLogger(__name__)
+		
+		# Check if CLI is installed and show auth status
+		if check:
+			auth_client = DeviceAuthClient()
+			if auth_client.is_authenticated:
+				logger.info('✅ Already authenticated with Browser Use Cloud')
+				logger.info(f'   User ID: {auth_client.user_id}')
+				logger.info(f'   Authorized at: {auth_client.auth_config.authorized_at}')
+			else:
+				logger.info('❌ Not authenticated with Browser Use Cloud')
+				logger.info('   Run `browser-use auth` to authenticate')
+			return
+		
+		logger.info('🔐 Starting Browser Use Cloud authentication...')
+		
+		# Create auth client and cloud sync service
+		auth_client = DeviceAuthClient()
+		cloud_sync = CloudSync(enable_auth=True)
+		cloud_sync.auth_client = auth_client
+		
+		# Check if already authenticated
+		if auth_client.is_authenticated:
+			logger.info('✅ Already authenticated! Testing sync with dummy data...')
+		else:
+			logger.info('🌐 Starting authentication flow...')
+			# Generate a session ID for the auth flow
+			auth_session_id = str(uuid.uuid4())
+			success = await auth_client.authenticate(agent_session_id=auth_session_id, show_instructions=True)
+			if not success:
+				logger.error('❌ Authentication failed')
+				sys.exit(1)
+			logger.info('✅ Authentication successful!')
+		
+		# Send dummy test event to verify sync works
+		logger.info('📡 Testing sync with dummy data...')
+		test_session_id = str(uuid.uuid4())
+		
+		dummy_event = CreateAgentTaskEvent(
+			agent_session_id=test_session_id,
+			llm_model='test-cli-auth',
+			task='CLI Authentication Test - Dummy Task',
+			user_id=auth_client.user_id,
+			done_output=None,
+			user_feedback_type=None,
+			user_comment=None,
+			gif_url=None,
+			device_id=auth_client.device_id,
+		)
+		
+		try:
+			await cloud_sync.handle_event(dummy_event)
+			logger.info('✅ Sync test successful! Authentication is working.')
+			
+			# Show the cloud URL for the test session
+			frontend_url = CONFIG.BROWSER_USE_CLOUD_UI_URL or cloud_sync.base_url.replace('//api.', '//cloud.')
+			session_url = f'{frontend_url.rstrip("/")}/agent/{test_session_id}'
+			logger.info(f'🌐 View test session: {session_url}')
+			
+			logger.info('\n🎉 Authentication complete! Cloud sync is now enabled.')
+			logger.info('   Future browser-use runs will automatically sync to the cloud.')
+			
+		except Exception as e:
+			logger.error(f'❌ Sync test failed: {e}')
+			logger.info('Authentication was successful, but sync testing failed.')
+			logger.info('This may be a temporary network issue.')
+	
+	# Run the async function
+	asyncio.run(run_auth())
 
 
 if __name__ == '__main__':
