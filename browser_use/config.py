@@ -60,7 +60,18 @@ class OldConfig:
 
 	@property
 	def BROWSER_USE_CLOUD_SYNC(self) -> bool:
-		return os.getenv('BROWSER_USE_CLOUD_SYNC', str(self.ANONYMIZED_TELEMETRY)).lower()[:1] in 'ty1'
+		# Default to true if authenticated, otherwise follow ANONYMIZED_TELEMETRY
+		try:
+			from browser_use.sync.auth import DeviceAuthClient
+			auth_client = DeviceAuthClient()
+			if auth_client.is_authenticated:
+				default_value = 'true'
+			else:
+				default_value = str(self.ANONYMIZED_TELEMETRY)
+		except ImportError:
+			# Fallback if sync module is not available
+			default_value = str(self.ANONYMIZED_TELEMETRY)
+		return os.getenv('BROWSER_USE_CLOUD_SYNC', default_value).lower()[:1] in 'ty1'
 
 	@property
 	def BROWSER_USE_CLOUD_API_URL(self) -> str:

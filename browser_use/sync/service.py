@@ -49,8 +49,16 @@ class CloudSync:
 						else:
 							logger.warning('Cannot start auth - session_id not set yet')
 
-			# Send event to cloud
-			await self._send_event(event)
+			# Check if we should send data - only send if authenticated or explicitly enabled
+			should_send = True
+			if self.auth_client and not self.auth_client.is_authenticated:
+				import os
+				# Only send if BROWSER_USE_CLOUD_SYNC is explicitly set to true
+				should_send = os.getenv('BROWSER_USE_CLOUD_SYNC', '').lower()[:1] in 'ty1'
+			
+			if should_send:
+				# Send event to cloud
+				await self._send_event(event)
 
 		except Exception as e:
 			logger.error(f'Failed to handle {event.event_type} event: {type(e).__name__}: {e}', exc_info=True)
@@ -119,11 +127,15 @@ class CloudSync:
 				logger.info('─' * max(terminal_width - 40, 20) + '\n\n')
 				return
 
-			# Otherwise run full authentication
-			success = await self.auth_client.authenticate(
-				agent_session_id=agent_session_id,
-				show_instructions=True,
-			)
+			# Otherwise show CLI auth command instead of running full authentication
+			terminal_width, _terminal_height = shutil.get_terminal_size((80, 20))
+			logger.info('─' * max(terminal_width - 40, 20))
+			logger.info('🔐  To view this run in Browser Use Cloud, authenticate first:')
+			logger.info('    👉  browser-use auth')
+			logger.info('─' * max(terminal_width - 40, 20) + '\n')
+			
+			# Don't run the authentication flow here anymore
+			success = False
 
 			if success:
 				# Resend any pending events
