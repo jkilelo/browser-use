@@ -386,7 +386,7 @@ class TestCloudSync:
 		assert event['task'] == 'Test task'
 
 	async def test_send_event_pre_auth(self, httpserver: HTTPServer, temp_config_dir):
-		"""Test sending event before authentication."""
+		"""Test that events are queued (not sent) before authentication."""
 		requests = []
 
 		def capture_request(request):
@@ -400,7 +400,8 @@ class TestCloudSync:
 
 			return Response('{"processed": 1, "failed": 0}', status=200, mimetype='application/json')
 
-		httpserver.expect_request('/api/v1/events', method='POST').respond_with_handler(capture_request)
+		# Don't expect any requests since events should be queued
+		# httpserver.expect_request('/api/v1/events', method='POST').respond_with_handler(capture_request)
 
 		# Create unauthenticated service
 		auth = DeviceAuthClient(base_url=httpserver.url_for(''))
@@ -425,18 +426,14 @@ class TestCloudSync:
 			)
 		)
 
-		# Check request was made without auth header
-		assert len(requests) == 1
-		request_data = requests[0]
-		assert 'Authorization' not in request_data['headers']
+		# Check that NO request was made (event should be queued instead)
+		assert len(requests) == 0
 
-		# Check event was sent with temp user ID
-		json_data = request_data['json']
-		assert len(json_data['events']) == 1
-		event = json_data['events'][0]
-		assert event['event_type'] == 'CreateAgentTaskEvent'
-		assert event['user_id'] == TEMP_USER_ID
-		assert event['task'] == 'Test task'
+		# Check that event was queued
+		assert len(service.pending_events) == 1
+		queued_event = service.pending_events[0]
+		assert queued_event.event_type == 'CreateAgentTaskEvent'
+		assert queued_event.task == 'Test task'
 
 	async def test_authenticate_and_resend(self, httpserver: HTTPServer, temp_config_dir):
 		"""Test authentication flow with pre-auth event resending."""

@@ -1952,6 +1952,28 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			},
 		}
 
+	async def authenticate_and_sync_logs(self, show_instructions: bool = True) -> bool:
+		"""
+		Authenticate with cloud service and sync all logs after task completion.
+		
+		This is useful when users want to view their logs in the cloud after 
+		a task has already completed and the agent is no longer running.
+		
+		Args:
+			show_instructions: Whether to show authentication instructions to user
+			
+		Returns:
+			bool: True if authentication and sync was successful
+		"""
+		if not hasattr(self, 'cloud_sync') or self.cloud_sync is None:
+			self.logger.warning('Cloud sync is not enabled for this agent')
+			return False
+		
+		return await self.cloud_sync.authenticate_and_sync_pending(
+			agent_session_id=self.session_id,
+			show_instructions=show_instructions
+		)
+
 	def run_sync(
 		self,
 		max_steps: int = 100,

@@ -33,24 +33,24 @@ class CloudSync:
 			# Extract session ID from CreateAgentSessionEvent
 			if event.event_type == 'CreateAgentSessionEvent' and hasattr(event, 'id'):
 				self.session_id = str(event.id)  # type: ignore
-
-			# Start authentication flow on first step (after first LLM response)
-			if event.event_type == 'CreateAgentStepEvent' and 'step' in dict(event):
-				step = dict(event)['step']
-				# logger.debug(f'Got CreateAgentStepEvent with step={step}')
-				# Trigger on the first step (step=2 because n_steps is incremented before actions)
-				if step == 2 and self.enable_auth and self.auth_client:
+				
+				# Start authentication immediately when session is created
+				if self.enable_auth and self.auth_client:
 					if not hasattr(self, 'auth_task') or self.auth_task is None:
-						# Start auth in background
 						if self.session_id:
-							# logger.info('Triggering auth on first step event')
-							# Always run auth to show the cloud URL, even if already authenticated
+							# Start auth in background immediately
 							self.auth_task = asyncio.create_task(self._background_auth(agent_session_id=self.session_id))
 						else:
 							logger.warning('Cannot start auth - session_id not set yet')
 
-			# Send event to cloud
-			await self._send_event(event)
+			# Only send event if authenticated, otherwise queue it
+			if self.enable_auth and self.auth_client and not self.auth_client.is_authenticated:
+				# Queue event for later sending after authentication
+				self.pending_events.append(event)
+				logger.debug(f'Queued event {event.event_type} for sending after authentication')
+			else:
+				# Send event to cloud immediately (either auth disabled or already authenticated)
+				await self._send_event(event)
 
 		except Exception as e:
 			logger.error(f'Failed to handle {event.event_type} event: {type(e).__name__}: {e}', exc_info=True)
@@ -194,3 +194,29 @@ class CloudSync:
 			return False
 
 		return await self.auth_client.authenticate(agent_session_id=self.session_id, show_instructions=show_instructions)
+
+	async def authenticate_and_sync_pending(self, agent_session_id: str | None = None, show_instructions: bool = True) -> bool:
+		"""
+		Authenticate and sync all pending events. 
+		Useful for post-task authentication when users want to view logs.
+		"""
+		if not self.auth_client:
+			logger.warning('Authentication not available - sync service was initialized with enable_auth=False')
+			return False
+		
+		# Set session_id if provided and not already set
+		if agent_session_id and not self.session_id:
+			self.session_id = agent_session_id
+		
+		# Run authentication
+		success = await self.auth_client.authenticate(
+			agent_session_id=agent_session_id or self.session_id,
+			show_instructions=show_instructions
+		)
+		
+		if success:
+			# Send all pending events after successful authentication
+			await self._resend_pending_events()
+			logger.info('✅ Authentication successful and pending events synced to cloud')
+		
+		return success
