@@ -119,18 +119,13 @@ class CloudSync:
 				logger.info('─' * max(terminal_width - 40, 20) + '\n\n')
 				return
 
-			# Otherwise run full authentication
-			success = await self.auth_client.authenticate(
-				agent_session_id=agent_session_id,
-				show_instructions=True,
-			)
-
-			if success:
-				# Resend any pending events
-				await self._resend_pending_events()
-
-				# Update WAL events with real user_id
-				# await self._update_wal_user_ids(agent_session_id)
+			# Show CLI command instead of running authentication
+			terminal_width, _terminal_height = shutil.get_terminal_size((80, 20))
+			logger.info('─' * max(terminal_width - 40, 20))
+			logger.info('🔐  To view this run in Browser Use Cloud, authenticate first:')
+			logger.info('    👉  browser-use auth')
+			logger.info('─' * max(terminal_width - 40, 20) + '\n')
+			return
 
 		except Exception as e:
 			logger.debug(f'Cloud sync authentication failed: {e}')
