@@ -44,8 +44,6 @@ from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.config import CONFIG
 from browser_use.logging_config import addLoggingLevel
 from browser_use.sync.auth import DeviceAuthClient
-from browser_use.sync.service import CloudSync
-from browser_use.agent.cloud_events import CreateAgentSessionEvent, CreateAgentTaskEvent, CreateAgentStepEvent
 from browser_use.telemetry import CLITelemetryEvent, ProductTelemetry
 from browser_use.utils import get_browser_use_version
 
@@ -1583,6 +1581,7 @@ def main(ctx: click.Context, version: bool = False):
 	"""Browser-Use: AI agent that autonomously interacts with the web"""
 	if version:
 		from importlib.metadata import version
+
 		print(version('browser-use'))
 		sys.exit(0)
 
@@ -1726,126 +1725,65 @@ def run(ctx: click.Context, debug: bool = False, **kwargs):
 @click.option('--debug', is_flag=True, help='Enable verbose startup logging')
 def auth(debug: bool = False):
 	"""Authenticate with Browser Use Cloud and keep session open for sync"""
-	
+
 	# Configure logging
 	console_handler = logging.StreamHandler(sys.stdout)
 	console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%H:%M:%S'))
-	
+
 	root_logger = logging.getLogger()
 	root_logger.setLevel(logging.INFO if not debug else logging.DEBUG)
 	root_logger.addHandler(console_handler)
-	
+
 	logger = logging.getLogger('browser_use.auth')
-	
+
 	asyncio.run(run_auth_flow(debug))
 
 
 async def run_auth_flow(debug: bool = False):
-	"""Run the authentication flow with dummy data to keep session open"""
-	from uuid import uuid4
-	from datetime import datetime, timezone
-	import webbrowser
-	
+	"""Run the OAuth device authentication flow"""
+
 	logger = logging.getLogger('browser_use.auth')
-	
+
 	try:
 		# Check if CLI is installed (basic check)
-		import browser_use
 		logger.info('✅ Browser-Use CLI is installed')
-		
+
 		# Create auth client
 		auth_client = DeviceAuthClient()
-		
+
 		# Check if already authenticated
 		if auth_client.is_authenticated:
 			logger.info('✅ Already authenticated with Browser Use Cloud')
-			# Still create a session to show the URL
-		else:
-			logger.info('🔐 Starting authentication flow...')
-		
-		# Create cloud sync service
-		cloud_sync = CloudSync()
-		
-		# Generate dummy session and task IDs
-		session_id = str(uuid4())
-		task_id = str(uuid4())
-		
-		# Create dummy session event
-		session_event = CreateAgentSessionEvent(
-			id=session_id,
-			user_id='',  # Will be filled by cloud handler
-			device_id=auth_client.device_id,
-			browser_session_id=str(uuid4()),
-			browser_session_live_url='',
-			browser_session_cdp_url='',
-			browser_state={'dummy': 'auth_flow'},
-			browser_session_data={'dummy': 'auth_flow'}
-		)
-		
-		# Create dummy task event
-		task_event = CreateAgentTaskEvent(
-			id=task_id,
-			user_id='',  # Will be filled by cloud handler
-			device_id=auth_client.device_id,
-			agent_session_id=session_id,
-			llm_model='gpt-4o',
-			task='Authentication flow - dummy task',
-			agent_state={'dummy': 'auth_flow'},
-			started_at=datetime.now(timezone.utc)
-		)
-		
-		# Create dummy step event
-		step_event = CreateAgentStepEvent(
-			user_id='',  # Will be filled by cloud handler
-			device_id=auth_client.device_id,
-			agent_task_id=task_id,
-			step=2,  # Step 2 to trigger auth flow
-			evaluation_previous_goal='Dummy auth flow step',
-			memory='Authentication flow in progress',
-			next_goal='Complete authentication',
-			actions=[{'type': 'dummy', 'description': 'Authentication flow'}],
-			url='https://browser-use.com'
-		)
-		
-		# Send session event first
-		await cloud_sync.handle_event(session_event)
-		
-		# Send task event
-		await cloud_sync.handle_event(task_event)
-		
-		# Send step event (this will trigger auth flow)
-		await cloud_sync.handle_event(step_event)
-		
-		# Wait for authentication to complete
-		logger.info('🔄 Waiting for authentication to complete...')
-		await cloud_sync.wait_for_auth()
-		
-		if auth_client.is_authenticated:
-			logger.info('✅ Authentication successful!')
-			
-			# Show the cloud URL for this session
-			frontend_url = CONFIG.BROWSER_USE_CLOUD_UI_URL or cloud_sync.base_url.replace('//api.', '//cloud.')
-			session_url = f'{frontend_url.rstrip("/")}/agent/{session_id}'
-			
+			logger.info('💡 Cloud sync is already enabled for all your agent runs!')
+
+			# Show user info and exit
 			terminal_width, _ = shutil.get_terminal_size((80, 20))
 			logger.info('─' * max(terminal_width - 40, 20))
-			logger.info('🌐  Authentication flow session in Browser Use Cloud:')
-			logger.info(f'    👉  {session_url}')
+			logger.info('🌐  Your authenticated device ID:')
+			logger.info(f'    {auth_client.device_id}')
 			logger.info('─' * max(terminal_width - 40, 20))
-			
-			# Open URL automatically
-			try:
-				webbrowser.open(session_url)
-				logger.info('🚀 Opened Browser Use Cloud in your default browser')
-			except Exception as e:
-				logger.debug(f'Could not auto-open browser: {e}')
-			
+			return
+
+		logger.info('🔐 Starting authentication flow...')
+
+		# Perform OAuth device flow directly
+		auth_success = await auth_client.authenticate(show_instructions=True)
+
+		if auth_success and auth_client.is_authenticated:
+			logger.info('✅ Authentication successful!')
+
+			terminal_width, _ = shutil.get_terminal_size((80, 20))
+			logger.info('─' * max(terminal_width - 40, 20))
+			logger.info('🎉  Authentication complete!')
+			logger.info(f'    Device ID: {auth_client.device_id}')
+			logger.info('─' * max(terminal_width - 40, 20))
+
 			logger.info('\n💡 Cloud sync is now enabled for all future agent runs!')
 			logger.info('   Run your agents normally and they will automatically sync to the cloud.')
 		else:
 			logger.error('❌ Authentication failed')
 			sys.exit(1)
-			
+
 	except Exception as e:
 		logger.error(f'Error during authentication: {e}', exc_info=debug)
 		sys.exit(1)

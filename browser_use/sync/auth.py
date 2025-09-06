@@ -128,6 +128,12 @@ class DeviceAuthClient:
 		Start the device authorization flow.
 		Returns device authorization details including user code and verification URL.
 		"""
+		# Generate a UUID if none provided (for standalone auth flows)
+		if agent_session_id is None:
+			from uuid import uuid4
+
+			agent_session_id = str(uuid4())
+
 		if self.http_client:
 			response = await self.http_client.post(
 				f'{self.base_url.rstrip("/")}/api/v1/oauth/device/authorize',
@@ -166,10 +172,18 @@ class DeviceAuthClient:
 		"""
 		start_time = time.time()
 
+		import logging
+
+		logger = logging.getLogger(__name__)
+		poll_count = 0
+
 		if self.http_client:
 			# Use injected client for all requests
 			while time.time() - start_time < timeout:
 				try:
+					poll_count += 1
+					logger.debug(f'OAuth polling attempt {poll_count}...')
+
 					response = await self.http_client.post(
 						f'{self.base_url.rstrip("/")}/api/v1/oauth/device/token',
 						data={
@@ -181,25 +195,31 @@ class DeviceAuthClient:
 
 					if response.status_code == 200:
 						data = response.json()
+						logger.debug(f'OAuth response: {list(data.keys())}')
 
 						# Check for pending authorization
 						if data.get('error') == 'authorization_pending':
+							logger.debug('Still waiting for user authorization...')
 							await asyncio.sleep(interval)
 							continue
 
 						# Check for slow down
 						if data.get('error') == 'slow_down':
 							interval = data.get('interval', interval * 2)
+							logger.debug(f'API requested slow down, new interval: {interval}s')
 							await asyncio.sleep(interval)
 							continue
 
 						# Check for other errors
 						if 'error' in data:
-							print(f'Error: {data.get("error_description", data["error"])}')
+							error_msg = f'OAuth error: {data.get("error_description", data["error"])}'
+							logger.error(error_msg)
+							print(error_msg)
 							return None
 
 						# Success! We have a token
 						if 'access_token' in data:
+							logger.info('✅ OAuth authorization successful!')
 							return data
 
 					elif response.status_code == 400:
@@ -286,8 +306,11 @@ class DeviceAuthClient:
 		logger = logging.getLogger(__name__)
 
 		try:
+			logger.debug('Starting OAuth device authorization flow...')
+
 			# Start device authorization
 			device_auth = await self.start_device_authorization(agent_session_id)
+			logger.debug(f'Device authorization successful. Keys: {list(device_auth.keys())}')
 
 			# Use frontend URL for user-facing links
 			frontend_url = CONFIG.BROWSER_USE_CLOUD_UI_URL or self.base_url.replace('//api.', '//cloud.')
@@ -299,9 +322,14 @@ class DeviceAuthClient:
 			terminal_width, _terminal_height = shutil.get_terminal_size((80, 20))
 			if show_instructions:
 				logger.info('─' * max(terminal_width - 40, 20))
-				logger.info('🌐  View the details of this run in Browser Use Cloud:')
+				logger.info('🔐  To complete authentication, please visit this URL in your browser:')
 				logger.info(f'    👉  {verification_uri_complete}')
+				logger.info('')
+				logger.info('    This will open Browser Use Cloud where you can authorize this device.')
+				logger.info('    The CLI will wait here until you complete the authorization...')
 				logger.info('─' * max(terminal_width - 40, 20) + '\n')
+
+			logger.info(f'Polling for OAuth completion (timeout: {1800.0 / 60:.0f} minutes)...')
 
 			# Poll for token
 			token_data = await self.poll_for_token(
