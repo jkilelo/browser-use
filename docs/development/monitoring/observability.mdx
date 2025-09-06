@@ -9,61 +9,7 @@ mode: "wide"
 
 Browser Use has native integrations with [Lucidic AI](https://lucidic.ai) and [Laminar](https://lmnr.ai) - powerful platforms for tracing, monitoring, and analyzing AI agent executions. These integrations provide comprehensive visibility into browser automation workflows, agent decision-making, and performance metrics.
 
-## Lucidic AI
 
-<Note>
-    Lucidic AI is the all-in-one agent dev platform with tracing, state management, and customizable evaluations.
-</Note>
-
-### Setup
-
-To setup Lucidic AI, you need to install the `lucidicai` package and obtain your API key and agent ID from the [Lucidic AI platform](https://lucidic.ai).
-
-```bash
-pip install lucidicai
-export LUCIDIC_API_KEY=<your-api-key>
-export LUCIDIC_AGENT_ID=<your-agent-id>
-```
-
-You can leave these in your .env file, or pass them in during initialization.
-
-### Usage
-
-Initialize Lucidic AI at the start of your project and it will automatically trace all Browser Use agent steps, including goals, actions, state, and screenshots.
-
-```python {5-6, 8-9}
-from langchain_openai import ChatOpenAI
-from browser_use import Agent
-import asyncio
-
-import lucidicai as lai
-
-# Initialize Lucidic AI session
-lai.init()
-
-async def main():
-    agent = Agent(
-        task="open google, search for AI observability tools",
-        llm=ChatOpenAI(model="gpt-4o-mini"),
-    )
-    result = await agent.run()
-    print(result)
-
-asyncio.run(main())
-```
-
-### Viewing Traces
-
-The Trace View shows a comprehensive timeline of your agent run. It includes all steps and events in sequential order.
-
-It shows:
- - Basic Information: **Status, Model, Start Time, Duration, Cost**
- - **Prettified vs Raw Request/Response** (click the wand/text icon in the top right of Input/Output to toggle)
- - **Screenshots** and multimodal data
-
-> **Pro tip:** **SPEED UP** iteration and debugging time by avoiding rerunning the same failed run with [Time Travels](https://docs.lucidic.ai/features/time-travel). They enable you to freeze time and rerun the event in isolation to see if your error/success is reliable.
-
-<img className="block" src="/images/lucidic.png" alt="Lucidic" />
 
 ## Laminar
 
@@ -74,7 +20,6 @@ It shows:
 
 
 ### Setup
-
 
 
 Register on [Laminar Cloud](https://lmnr.ai) and get the key from your project settings.
@@ -119,3 +64,63 @@ In the trace view, you can also see the agent's current step, the tool it's usin
 To learn more about these platforms:
 - [Lucidic AI Documentation](https://docs.lucidic.ai)
 - [Laminar Documentation](https://docs.lmnr.ai)
+
+
+## Lucidic AI
+
+<Note>
+    Lucidic AI is the all-in-one agent dev platform with tracing, state management, and customizable evaluations.
+</Note>
+
+### Setup
+
+To setup Lucidic AI, you need to install the `lucidicai` package and obtain your API key and agent ID from the [Lucidic AI platform](https://lucidic.ai).
+
+```bash
+pip install lucidicai
+export LUCIDIC_API_KEY=<your-api-key>
+export LUCIDIC_AGENT_ID=<your-agent-id>
+```
+
+You can leave these in your .env file, or pass them in during initialization.
+
+### Usage
+
+Initialize Lucidic AI at the start of your project and it will automatically trace all Browser Use agent steps, including goals, actions, state, and screenshots.
+
+```python {5-6, 8-9}
+from browser_use import Agent, ChatOpenAI
+import asyncio
+
+import lucidicai as lai
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Initialize Lucidic AI session
+# set LUCIDIC_AGENT_ID in your .env file 
+lai.init(agent_id='hi')
+
+async def main():
+    agent = Agent(
+        task="open google, search for AI observability tools",
+        llm=ChatOpenAI(model="gpt-4o-mini"),
+    )
+    result = await agent.run()
+    print(result)
+
+asyncio.run(main())
+```
+
+### Viewing Traces
+
+The Trace View shows a comprehensive timeline of your agent run. It includes all steps and events in sequential order.
+
+It shows:
+ - Basic Information: **Status, Model, Start Time, Duration, Cost**
+ - **Prettified vs Raw Request/Response** (click the wand/text icon in the top right of Input/Output to toggle)
+ - **Screenshots** and multimodal data
+
+> **Pro tip:** **SPEED UP** iteration and debugging time by avoiding rerunning the same failed run with [Time Travels](https://docs.lucidic.ai/features/time-travel). They enable you to freeze time and rerun the event in isolation to see if your error/success is reliable.
+
+<img className="block" src="/images/lucidic.png" alt="Lucidic" />

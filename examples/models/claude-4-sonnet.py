@@ -13,8 +13,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import lucidicai as lai
-lai.init(providers=["anthropic"])
 
 from browser_use import Agent
 from browser_use.llm import ChatAnthropic
