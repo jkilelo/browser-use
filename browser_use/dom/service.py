@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from cdp_use.cdp.accessibility.commands import GetFullAXTreeReturns
 from cdp_use.cdp.accessibility.types import AXNode
 from cdp_use.cdp.dom.types import Node
+from cdp_use.cdp.target import TargetID
 
 from browser_use.dom.enhanced_snapshot import (
 	REQUIRED_COMPUTED_STYLES,
@@ -27,10 +28,6 @@ if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
 
 
-# TODO: enable cross origin iframes -> experimental for now
-ENABLE_CROSS_ORIGIN_IFRAMES = False
-
-
 class DomService:
 	"""
 	Service for getting the DOM tree and other DOM-related information.
@@ -42,9 +39,12 @@ class DomService:
 
 	logger: logging.Logger
 
-	def __init__(self, browser_session: 'BrowserSession', logger: logging.Logger | None = None):
+	def __init__(
+		self, browser_session: 'BrowserSession', logger: logging.Logger | None = None, cross_origin_iframes: bool = False
+	):
 		self.browser_session = browser_session
 		self.logger = logger or browser_session.logger
+		self.cross_origin_iframes = cross_origin_iframes
 
 	async def __aenter__(self):
 		return self
@@ -52,7 +52,7 @@ class DomService:
 	async def __aexit__(self, exc_type, exc_value, traceback):
 		pass  # no need to cleanup anything, browser_session auto handles cleaning up session cache
 
-	async def _get_targets_for_page(self, target_id: str | None = None) -> CurrentPageTargets:
+	async def _get_targets_for_page(self, target_id: TargetID | None = None) -> CurrentPageTargets:
 		"""Get the target info for a specific page.
 
 		Args:
@@ -122,9 +122,9 @@ class DomService:
 		)
 		return enhanced_ax_node
 
-	async def _get_viewport_ratio(self, target_id: str) -> float:
+	async def _get_viewport_ratio(self, target_id: TargetID) -> float:
 		"""Get viewport dimensions, device pixel ratio, and scroll position using CDP."""
-		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
+		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=True)
 
 		try:
 			# Get the layout metrics which includes the visual viewport
@@ -187,7 +187,7 @@ class DomService:
 		for frame in reversed(html_frames):
 			if (
 				frame.node_type == NodeType.ELEMENT_NODE
-				and frame.node_name.upper() == 'IFRAME'
+				and (frame.node_name.upper() == 'IFRAME' or frame.node_name.upper() == 'FRAME')
 				and frame.snapshot_node
 				and frame.snapshot_node.bounds
 			):
@@ -204,29 +204,41 @@ class DomService:
 				and frame.snapshot_node.scrollRects
 				and frame.snapshot_node.clientRects
 			):
-				frame_left = frame.snapshot_node.scrollRects.x
-				frame_top = frame.snapshot_node.scrollRects.y
-				frame_right = frame.snapshot_node.scrollRects.x + frame.snapshot_node.clientRects.width
-				frame_bottom = frame.snapshot_node.scrollRects.y + frame.snapshot_node.clientRects.height
+				# For iframe content, we need to check visibility within the iframe's viewport
+				# The scrollRects represent the current scroll position
+				# The clientRects represent the viewport size
+				# Elements are visible if they fall within the viewport after accounting for scroll
+
+				# The viewport of the frame (what's actually visible)
+				viewport_left = 0  # Viewport always starts at 0 in frame coordinates
+				viewport_top = 0
+				viewport_right = frame.snapshot_node.clientRects.width
+				viewport_bottom = frame.snapshot_node.clientRects.height
+
+				# Adjust element bounds by the scroll offset to get position relative to viewport
+				# When scrolled down, scrollRects.y is positive, so we subtract it from element's y
+				adjusted_x = current_bounds.x - frame.snapshot_node.scrollRects.x
+				adjusted_y = current_bounds.y - frame.snapshot_node.scrollRects.y
 
 				frame_intersects = (
-					current_bounds.x < frame_right
-					and current_bounds.x + current_bounds.width > frame_left
-					and current_bounds.y < frame_bottom
-					and current_bounds.y + current_bounds.height > frame_top
+					adjusted_x < viewport_right
+					and adjusted_x + current_bounds.width > viewport_left
+					and adjusted_y < viewport_bottom
+					and adjusted_y + current_bounds.height > viewport_top
 				)
 
 				if not frame_intersects:
 					return False
 
-				# negate the values added in `_construct_enhanced_node`
+				# Keep the original coordinate adjustment to maintain consistency
+				# This adjustment is needed for proper coordinate transformation
 				current_bounds.x -= frame.snapshot_node.scrollRects.x
 				current_bounds.y -= frame.snapshot_node.scrollRects.y
 
 		# If we reach here, element is visible in main viewport and all containing iframes
 		return True
 
-	async def _get_ax_tree_for_all_frames(self, target_id: str) -> GetFullAXTreeReturns:
+	async def _get_ax_tree_for_all_frames(self, target_id: TargetID) -> GetFullAXTreeReturns:
 		"""Recursively collect all frames and merge their accessibility trees into a single array."""
 
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
@@ -263,7 +275,7 @@ class DomService:
 
 		return {'nodes': merged_nodes}
 
-	async def _get_all_trees(self, target_id: str) -> TargetAllTrees:
+	async def _get_all_trees(self, target_id: TargetID) -> TargetAllTrees:
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
 
 		# Wait for the page to be ready first
@@ -273,39 +285,138 @@ class DomService:
 			)
 		except Exception as e:
 			pass  # Page might not be ready yet
-		snapshot_request = cdp_session.cdp_client.send.DOMSnapshot.captureSnapshot(
-			params={
-				'computedStyles': REQUIRED_COMPUTED_STYLES,
-				'includePaintOrder': True,
-				'includeDOMRects': True,
-				'includeBlendedBackgroundColors': False,
-				'includeTextColorOpacities': False,
-			},
-			session_id=cdp_session.session_id,
-		)
+		# DEBUG: Log before capturing snapshot
+		self.logger.debug(f'🔍 DEBUG: Capturing DOM snapshot for target {target_id}')
 
-		dom_tree_request = cdp_session.cdp_client.send.DOM.getDocument(
-			params={'depth': -1, 'pierce': True}, session_id=cdp_session.session_id
-		)
+		# Get actual scroll positions for all iframes before capturing snapshot
+		iframe_scroll_positions = {}
+		try:
+			scroll_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={
+					'expression': """
+					(() => {
+						const scrollData = {};
+						const iframes = document.querySelectorAll('iframe');
+						iframes.forEach((iframe, index) => {
+							try {
+								const doc = iframe.contentDocument || iframe.contentWindow.document;
+								if (doc) {
+									scrollData[index] = {
+										scrollTop: doc.documentElement.scrollTop || doc.body.scrollTop || 0,
+										scrollLeft: doc.documentElement.scrollLeft || doc.body.scrollLeft || 0
+									};
+								}
+							} catch (e) {
+								// Cross-origin iframe, can't access
+							}
+						});
+						return scrollData;
+					})()
+					""",
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+			if scroll_result and 'result' in scroll_result and 'value' in scroll_result['result']:
+				iframe_scroll_positions = scroll_result['result']['value']
+				for idx, scroll_data in iframe_scroll_positions.items():
+					self.logger.debug(
+						f'🔍 DEBUG: Iframe {idx} actual scroll position - scrollTop={scroll_data.get("scrollTop", 0)}, scrollLeft={scroll_data.get("scrollLeft", 0)}'
+					)
+		except Exception as e:
+			self.logger.debug(f'Failed to get iframe scroll positions: {e}')
 
-		ax_tree_request = self._get_ax_tree_for_all_frames(target_id)
+		# Define CDP request factories to avoid duplication
+		def create_snapshot_request():
+			return cdp_session.cdp_client.send.DOMSnapshot.captureSnapshot(
+				params={
+					'computedStyles': REQUIRED_COMPUTED_STYLES,
+					'includePaintOrder': True,
+					'includeDOMRects': True,
+					'includeBlendedBackgroundColors': False,
+					'includeTextColorOpacities': False,
+				},
+				session_id=cdp_session.session_id,
+			)
 
-		device_pixel_ratio_request = self._get_viewport_ratio(target_id)
+		def create_dom_tree_request():
+			return cdp_session.cdp_client.send.DOM.getDocument(
+				params={'depth': -1, 'pierce': True}, session_id=cdp_session.session_id
+			)
 
 		start = time.time()
-		# Gather all CDP requests with timeout
-		try:
-			snapshot, dom_tree, ax_tree, device_pixel_ratio = await asyncio.wait_for(
-				asyncio.gather(snapshot_request, dom_tree_request, ax_tree_request, device_pixel_ratio_request), timeout=10.0
-			)
-		except TimeoutError:
-			# Try to get them individually to see which one hangs
-			snapshot = await asyncio.wait_for(snapshot_request, timeout=2.0)
-			dom_tree = await asyncio.wait_for(dom_tree_request, timeout=2.0)
-			ax_tree = await asyncio.wait_for(ax_tree_request, timeout=2.0)
-			device_pixel_ratio = await asyncio.wait_for(device_pixel_ratio_request, timeout=2.0)
+
+		# Create initial tasks
+		tasks = {
+			'snapshot': asyncio.create_task(create_snapshot_request()),
+			'dom_tree': asyncio.create_task(create_dom_tree_request()),
+			'ax_tree': asyncio.create_task(self._get_ax_tree_for_all_frames(target_id)),
+			'device_pixel_ratio': asyncio.create_task(self._get_viewport_ratio(target_id)),
+		}
+
+		# Wait for all tasks with timeout
+		done, pending = await asyncio.wait(tasks.values(), timeout=10.0)
+
+		# Retry any failed or timed out tasks
+		if pending:
+			for task in pending:
+				task.cancel()
+
+			# Retry mapping for pending tasks
+			retry_map = {
+				tasks['snapshot']: lambda: asyncio.create_task(create_snapshot_request()),
+				tasks['dom_tree']: lambda: asyncio.create_task(create_dom_tree_request()),
+				tasks['ax_tree']: lambda: asyncio.create_task(self._get_ax_tree_for_all_frames(target_id)),
+				tasks['device_pixel_ratio']: lambda: asyncio.create_task(self._get_viewport_ratio(target_id)),
+			}
+
+			# Create new tasks only for the ones that didn't complete
+			for key, task in tasks.items():
+				if task in pending and task in retry_map:
+					tasks[key] = retry_map[task]()
+
+			# Wait again with shorter timeout
+			done2, pending2 = await asyncio.wait([t for t in tasks.values() if not t.done()], timeout=2.0)
+
+			if pending2:
+				for task in pending2:
+					task.cancel()
+
+		# Extract results, tracking which ones failed
+		results = {}
+		failed = []
+		for key, task in tasks.items():
+			if task.done() and not task.cancelled():
+				try:
+					results[key] = task.result()
+				except Exception as e:
+					self.logger.warning(f'CDP request {key} failed with exception: {e}')
+					failed.append(key)
+			else:
+				self.logger.warning(f'CDP request {key} timed out')
+				failed.append(key)
+
+		# If any required tasks failed, raise an exception
+		if failed:
+			raise TimeoutError(f'CDP requests failed or timed out: {", ".join(failed)}')
+
+		snapshot = results['snapshot']
+		dom_tree = results['dom_tree']
+		ax_tree = results['ax_tree']
+		device_pixel_ratio = results['device_pixel_ratio']
 		end = time.time()
 		cdp_timing = {'cdp_calls_total': end - start}
+
+		# DEBUG: Log snapshot info
+		if snapshot and 'documents' in snapshot:
+			total_nodes = sum(len(doc.get('nodes', [])) for doc in snapshot['documents'])
+			self.logger.debug(
+				f'🔍 DEBUG: Snapshot contains {len(snapshot["documents"])} documents with {total_nodes} total nodes'
+			)
+			# Log iframe-specific info
+			for doc_idx, doc in enumerate(snapshot['documents']):
+				if doc_idx > 0:  # Not the main document
+					self.logger.debug(f'🔍 DEBUG: Document {doc_idx} has {len(doc.get("nodes", []))} nodes')
 
 		return TargetAllTrees(
 			snapshot=snapshot,
@@ -317,14 +428,14 @@ class DomService:
 
 	async def get_dom_tree(
 		self,
-		target_id: str,
+		target_id: TargetID,
 		initial_html_frames: list[EnhancedDOMTreeNode] | None = None,
 		initial_total_frame_offset: DOMRect | None = None,
 	) -> EnhancedDOMTreeNode:
 		"""Get the DOM tree for a specific target.
 
 		Args:
-			target_id: Optional target ID. If None, uses current target.
+			target_id: Target ID of the page to get the DOM tree for.
 			initial_html_frames: List of HTML frame nodes encountered so far
 			initial_total_frame_offset: Accumulated coordinate offset
 		"""
@@ -444,9 +555,17 @@ class DomService:
 				if snapshot_data and snapshot_data.scrollRects:
 					total_frame_offset.x -= snapshot_data.scrollRects.x
 					total_frame_offset.y -= snapshot_data.scrollRects.y
+					# DEBUG: Log iframe scroll information
+					self.logger.debug(
+						f'🔍 DEBUG: HTML frame scroll - scrollY={snapshot_data.scrollRects.y}, scrollX={snapshot_data.scrollRects.x}, frameId={node.get("frameId")}, nodeId={node["nodeId"]}'
+					)
 
 			# Calculate new iframe offset for content documents, accounting for iframe scroll
-			if node['nodeName'].upper() == 'IFRAME' and snapshot_data and snapshot_data.bounds:
+			if (
+				(node['nodeName'].upper() == 'IFRAME' or node['nodeName'].upper() == 'FRAME')
+				and snapshot_data
+				and snapshot_data.bounds
+			):
 				if snapshot_data.bounds:
 					updated_html_frames.append(dom_tree_node)
 
@@ -478,12 +597,29 @@ class DomService:
 			# Set visibility using the collected HTML frames
 			dom_tree_node.is_visible = self.is_element_visible_according_to_all_parents(dom_tree_node, updated_html_frames)
 
+			# DEBUG: Log visibility info for form elements in iframes
+			if dom_tree_node.tag_name and dom_tree_node.tag_name.upper() in ['INPUT', 'SELECT', 'TEXTAREA', 'LABEL']:
+				attrs = dom_tree_node.attributes or {}
+				elem_id = attrs.get('id', '')
+				elem_name = attrs.get('name', '')
+				if (
+					'city' in elem_id.lower()
+					or 'city' in elem_name.lower()
+					or 'state' in elem_id.lower()
+					or 'state' in elem_name.lower()
+					or 'zip' in elem_id.lower()
+					or 'zip' in elem_name.lower()
+				):
+					self.logger.debug(
+						f"🔍 DEBUG: Form element {dom_tree_node.tag_name} id='{elem_id}' name='{elem_name}' - visible={dom_tree_node.is_visible}, bounds={dom_tree_node.snapshot_node.bounds if dom_tree_node.snapshot_node else 'NO_SNAPSHOT'}"
+					)
+
 			# handle cross origin iframe (just recursively call the main function with the proper target if it exists in iframes)
 			# only do this if the iframe is visible (otherwise it's not worth it)
 
 			if (
 				# TODO: hacky way to disable cross origin iframes for now
-				ENABLE_CROSS_ORIGIN_IFRAMES and node['nodeName'].upper() == 'IFRAME' and node.get('contentDocument', None) is None
+				self.cross_origin_iframes and node['nodeName'].upper() == 'IFRAME' and node.get('contentDocument', None) is None
 			):  # None meaning there is no content
 				# Use get_all_frames to find the iframe's target
 				frame_id = node.get('frameId', None)

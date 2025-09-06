@@ -178,6 +178,20 @@ def update_config_with_click_args(config: dict[str, Any], ctx: click.Context) ->
 	if ctx.params.get('cdp_url'):
 		config['browser']['cdp_url'] = ctx.params['cdp_url']
 
+	# Consolidated proxy dict
+	proxy: dict[str, str] = {}
+	if ctx.params.get('proxy_url'):
+		proxy['server'] = ctx.params['proxy_url']
+	if ctx.params.get('no_proxy'):
+		# Store as comma-separated list string to match Chrome flag
+		proxy['bypass'] = ','.join([p.strip() for p in ctx.params['no_proxy'].split(',') if p.strip()])
+	if ctx.params.get('proxy_username'):
+		proxy['username'] = ctx.params['proxy_username']
+	if ctx.params.get('proxy_password'):
+		proxy['password'] = ctx.params['proxy_password']
+	if proxy:
+		config['browser']['proxy'] = proxy
+
 	return config
 
 
@@ -219,11 +233,11 @@ def get_llm(config: dict[str, Any]):
 
 	# Auto-detect based on available API keys
 	if api_key or CONFIG.OPENAI_API_KEY:
-		return ChatOpenAI(model='gpt-4o', temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
+		return ChatOpenAI(model='gpt-5-mini', temperature=temperature, api_key=api_key or CONFIG.OPENAI_API_KEY)
 	elif CONFIG.ANTHROPIC_API_KEY:
-		return ChatAnthropic(model='claude-3-5-sonnet-20241022', temperature=temperature)
+		return ChatAnthropic(model='claude-4-sonnet', temperature=temperature)
 	elif CONFIG.GOOGLE_API_KEY:
-		return ChatGoogle(model='gemini-2.0-flash-exp', temperature=temperature)
+		return ChatGoogle(model='gemini-2.5-pro', temperature=temperature)
 	else:
 		print(
 			'⚠️  No API keys found. Please update your config or set one of: OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY.'
@@ -695,7 +709,7 @@ class BrowserUseApp(App):
 
 			# Hide intro panels if they're visible and show info panels + three-column view
 			if logo_panel.display:
-				logging.info('Hiding intro panels and showing info panels + three-column view')
+				logging.debug('Hiding intro panels and showing info panels + three-column view')
 
 				logo_panel.display = False
 				links_panel.display = False
@@ -708,7 +722,7 @@ class BrowserUseApp(App):
 				# Start updating info panels
 				self.update_info_panels()
 
-				logging.info('Info panels and three-column view should now be visible')
+				logging.debug('Info panels and three-column view should now be visible')
 		except Exception as e:
 			logging.error(f'Error in hide_intro_panels: {str(e)}')
 
@@ -1101,8 +1115,8 @@ class BrowserUseApp(App):
 				window_width = None
 				window_height = None
 				if browser_session.browser_profile.viewport:
-					window_width = browser_session.browser_profile.viewport.get('width')
-					window_height = browser_session.browser_profile.viewport.get('height')
+					window_width = browser_session.browser_profile.viewport.width
+					window_height = browser_session.browser_profile.viewport.height
 
 				# Try to get browser PID
 				browser_pid = 'Unknown'
@@ -1171,9 +1185,8 @@ class BrowserUseApp(App):
 			if self.agent:
 				temp_str = f'{self.llm.temperature}ºC ' if self.llm.temperature else ''
 				vision_str = '+ vision ' if self.agent.settings.use_vision else ''
-				planner_str = '+ planner' if self.agent.settings.planner_llm else ''
 				model_info.write(
-					f'[white]LLM:[/] [blue]{self.llm.__class__.__name__} [yellow]{model_name}[/] {temp_str}{vision_str}{planner_str}'
+					f'[white]LLM:[/] [blue]{self.llm.__class__.__name__} [yellow]{model_name}[/] {temp_str}{vision_str}'
 				)
 			else:
 				model_info.write(f'[white]LLM:[/] [blue]{self.llm.__class__.__name__} [yellow]{model_name}[/]')
@@ -1563,7 +1576,7 @@ async def textual_interface(config: dict[str, Any]):
 
 @click.command()
 @click.option('--version', is_flag=True, help='Print version and exit')
-@click.option('--model', type=str, help='Model to use (e.g., gpt-4o, claude-3-opus-20240229, gemini-pro)')
+@click.option('--model', type=str, help='Model to use (e.g., gpt-5-mini, claude-4-sonnet, gemini-2.5-flash)')
 @click.option('--debug', is_flag=True, help='Enable verbose startup logging')
 @click.option('--headless', is_flag=True, help='Run browser in headless mode', default=None)
 @click.option('--window-width', type=int, help='Browser window width')
@@ -1573,6 +1586,10 @@ async def textual_interface(config: dict[str, Any]):
 )
 @click.option('--profile-directory', type=str, help='Chrome profile directory name (e.g. "Default", "Profile 1")')
 @click.option('--cdp-url', type=str, help='Connect to existing Chrome via CDP URL (e.g. http://localhost:9222)')
+@click.option('--proxy-url', type=str, help='Proxy server for Chromium traffic (e.g. http://host:8080 or socks5://host:1080)')
+@click.option('--no-proxy', type=str, help='Comma-separated hosts to bypass proxy (e.g. localhost,127.0.0.1,*.internal)')
+@click.option('--proxy-username', type=str, help='Proxy auth username')
+@click.option('--proxy-password', type=str, help='Proxy auth password')
 @click.option('-p', '--prompt', type=str, help='Run a single task without the TUI (headless mode)')
 @click.option('--mcp', is_flag=True, help='Run as MCP server (exposes JSON RPC via stdin/stdout)')
 @click.pass_context

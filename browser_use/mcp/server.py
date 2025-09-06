@@ -30,7 +30,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 try:
 	import psutil
@@ -77,11 +77,10 @@ _configure_mcp_server_logging()
 # Import browser_use modules
 from browser_use import ActionModel, Agent
 from browser_use.browser import BrowserProfile, BrowserSession
-from browser_use.browser.events import ClickElementEvent
 from browser_use.config import get_default_llm, get_default_profile, load_browser_use_config
-from browser_use.controller.service import Controller
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.tools.service import Tools
 
 logger = logging.getLogger(__name__)
 
@@ -117,10 +116,16 @@ _ensure_all_loggers_use_stderr()
 
 # Try to import MCP SDK
 try:
+	import contextlib
+
 	import mcp.server.stdio
 	import mcp.types as types
 	from mcp.server import NotificationOptions, Server
 	from mcp.server.models import InitializationOptions
+	from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+	from starlette.applications import Starlette
+	from starlette.routing import Mount
+	from starlette.types import Receive, Scope, Send
 
 	MCP_AVAILABLE = True
 
@@ -181,7 +186,7 @@ class BrowserUseServer:
 		self.config = load_browser_use_config()
 		self.agent: Agent | None = None
 		self.browser_session: BrowserSession | None = None
-		self.controller: Controller | None = None
+		self.tools: Tools | None = None
 		self.llm: ChatOpenAI | None = None
 		self.file_system: FileSystem | None = None
 		self._telemetry = ProductTelemetry()
@@ -304,8 +309,8 @@ class BrowserUseServer:
 					description='Switch to a different tab',
 					inputSchema={
 						'type': 'object',
-						'properties': {'tab_index': {'type': 'integer', 'description': 'Index of the tab to switch to'}},
-						'required': ['tab_index'],
+						'properties': {'tab_id': {'type': 'string', 'description': '4 Character Tab ID of the tab to switch to'}},
+						'required': ['tab_id'],
 					},
 				),
 				types.Tool(
@@ -313,8 +318,8 @@ class BrowserUseServer:
 					description='Close a tab',
 					inputSchema={
 						'type': 'object',
-						'properties': {'tab_index': {'type': 'integer', 'description': 'Index of the tab to close'}},
-						'required': ['tab_index'],
+						'properties': {'tab_id': {'type': 'string', 'description': '4 Character Tab ID of the tab to close'}},
+						'required': ['tab_id'],
 					},
 				),
 				# types.Tool(
@@ -337,7 +342,7 @@ class BrowserUseServer:
 							},
 							'max_steps': {
 								'type': 'integer',
-								'description': 'Maximum number of steps the agent can take',
+								'description': 'Maximum number of steps an agent can take.',
 								'default': 100,
 							},
 							'model': {
@@ -434,10 +439,10 @@ class BrowserUseServer:
 				return await self._list_tabs()
 
 			elif tool_name == 'browser_switch_tab':
-				return await self._switch_tab(arguments['tab_index'])
+				return await self._switch_tab(arguments['tab_id'])
 
 			elif tool_name == 'browser_close_tab':
-				return await self._close_tab(arguments['tab_index'])
+				return await self._close_tab(arguments['tab_id'])
 
 		return f'Unknown tool: {tool_name}'
 
@@ -460,7 +465,6 @@ class BrowserUseServer:
 			'wait_between_actions': 0.5,
 			'keep_alive': True,
 			'user_data_dir': '~/.config/browseruse/profiles/default',
-			'is_mobile': False,
 			'device_scale_factor': 1.0,
 			'disable_security': False,
 			'headless': False,
@@ -482,8 +486,8 @@ class BrowserUseServer:
 		self.browser_session = BrowserSession(browser_profile=profile)
 		await self.browser_session.start()
 
-		# Create controller for direct actions
-		self.controller = Controller()
+		# Create tools for direct actions
+		self.tools = Tools()
 
 		# Initialize LLM from config
 		llm_config = get_default_llm(self.config)
@@ -589,14 +593,11 @@ class BrowserUseServer:
 			return 'Error: No browser session active'
 
 		from browser_use.browser.events import NavigateToUrlEvent
-		
+
 		if new_tab:
 			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url, new_tab=True))
 			await event
-			# Get the current tab count to determine the new tab index
-			tabs = await self.browser_session.get_tabs()
-			tab_index = len(tabs) - 1
-			return f'Opened new tab #{tab_index} with URL: {url}'
+			return f'Opened new tab with URL: {url}'
 		else:
 			event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=url))
 			await event
@@ -630,21 +631,22 @@ class BrowserUseServer:
 
 				# Open link in new tab
 				from browser_use.browser.events import NavigateToUrlEvent
+
 				event = self.browser_session.event_bus.dispatch(NavigateToUrlEvent(url=full_url, new_tab=True))
 				await event
-				tabs = await self.browser_session.get_tabs()
-				tab_index = len(tabs) - 1
-				return f'Clicked element {index} and opened in new tab #{tab_index}'
+				return f'Clicked element {index} and opened in new tab {full_url[:20]}...'
 			else:
 				# For non-link elements, just do a normal click
 				# Opening in new tab without href is not reliably supported
 				from browser_use.browser.events import ClickElementEvent
+
 				event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=element))
 				await event
 				return f'Clicked element {index} (new tab not supported for non-link elements)'
 		else:
 			# Normal click
 			from browser_use.browser.events import ClickElementEvent
+
 			event = self.browser_session.event_bus.dispatch(ClickElementEvent(node=element))
 			await event
 			return f'Clicked element {index}'
@@ -659,6 +661,7 @@ class BrowserUseServer:
 			return f'Element with index {index} not found'
 
 		from browser_use.browser.events import TypeTextEvent
+
 		event = self.browser_session.event_bus.dispatch(TypeTextEvent(node=element, text=text))
 		await event
 		return f"Typed '{text}' into element {index}"
@@ -706,13 +709,13 @@ class BrowserUseServer:
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		if not self.controller:
-			return 'Error: Controller not initialized'
+		if not self.tools:
+			return 'Error: Tools not initialized'
 
 		state = await self.browser_session.get_browser_state_summary()
 
 		# Use the extract_structured_data action
-		# Create a dynamic action model that matches the controller's expectations
+		# Create a dynamic action model that matches the tools's expectations
 		from pydantic import create_model
 
 		# Create action model dynamically
@@ -723,7 +726,7 @@ class BrowserUseServer:
 		)
 
 		action = ExtractAction()
-		action_result = await self.controller.act(
+		action_result = await self.tools.act(
 			action=action,
 			browser_session=self.browser_session,
 			page_extraction_llm=self.llm,
@@ -738,12 +741,14 @@ class BrowserUseServer:
 			return 'Error: No browser session active'
 
 		from browser_use.browser.events import ScrollEvent
-		
+
 		# Scroll by a standard amount (500 pixels)
-		event = self.browser_session.event_bus.dispatch(ScrollEvent(
-			direction=direction,  # type: ignore
-			amount=500
-		))
+		event = self.browser_session.event_bus.dispatch(
+			ScrollEvent(
+				direction=direction,  # type: ignore
+				amount=500,
+			)
+		)
 		await event
 		return f'Scrolled {direction}'
 
@@ -753,6 +758,7 @@ class BrowserUseServer:
 			return 'Error: No browser session active'
 
 		from browser_use.browser.events import GoBackEvent
+
 		event = self.browser_session.event_bus.dispatch(GoBackEvent())
 		await event
 		return 'Navigated back'
@@ -761,10 +767,11 @@ class BrowserUseServer:
 		"""Close the browser session."""
 		if self.browser_session:
 			from browser_use.browser.events import BrowserStopEvent
+
 			event = self.browser_session.event_bus.dispatch(BrowserStopEvent())
 			await event
 			self.browser_session = None
-			self.controller = None
+			self.tools = None
 			return 'Browser closed'
 		return 'No browser session to close'
 
@@ -776,33 +783,34 @@ class BrowserUseServer:
 		tabs_info = await self.browser_session.get_tabs()
 		tabs = []
 		for i, tab in enumerate(tabs_info):
-			tabs.append({'index': i, 'url': tab.url, 'title': tab.title or ''})
+			tabs.append({'tab_id': tab.target_id[-4:], 'url': tab.url, 'title': tab.title or ''})
 		return json.dumps(tabs, indent=2)
 
-	async def _switch_tab(self, tab_index: int) -> str:
+	async def _switch_tab(self, tab_id: str) -> str:
 		"""Switch to a different tab."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
 		from browser_use.browser.events import SwitchTabEvent
-		event = self.browser_session.event_bus.dispatch(SwitchTabEvent(tab_index=tab_index))
+
+		target_id = await self.browser_session.get_target_id_from_tab_id(tab_id)
+		event = self.browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
 		await event
 		state = await self.browser_session.get_browser_state_summary()
-		return f'Switched to tab {tab_index}: {state.url}'
+		return f'Switched to tab {tab_id}: {state.url}'
 
-	async def _close_tab(self, tab_index: int) -> str:
+	async def _close_tab(self, tab_id: str) -> str:
 		"""Close a specific tab."""
 		if not self.browser_session:
 			return 'Error: No browser session active'
 
-		tabs = await self.browser_session.get_tabs()
-		if 0 <= tab_index < len(tabs):
-			url = tabs[tab_index].url
-			from browser_use.browser.events import CloseTabEvent
-			event = self.browser_session.event_bus.dispatch(CloseTabEvent(tab_index=tab_index))
-			await event
-			return f'Closed tab {tab_index}: {url}'
-		return f'Invalid tab index: {tab_index}'
+		from browser_use.browser.events import CloseTabEvent
+
+		target_id = await self.browser_session.get_target_id_from_tab_id(tab_id)
+		event = self.browser_session.event_bus.dispatch(CloseTabEvent(target_id=target_id))
+		await event
+		current_url = await self.browser_session.get_current_page_url()
+		return f'Closed tab # {tab_id}, now on {current_url}'
 
 	async def run(self):
 		"""Run the MCP server."""
@@ -820,15 +828,45 @@ class BrowserUseServer:
 				),
 			)
 
+	async def run_http(self, port: int = 3000, json_response: bool = False):
+		"""Run the MCP server over Streamable HTTP."""
+		session_manager = StreamableHTTPSessionManager(
+			app=self.server,
+			event_store=None,
+			json_response=json_response,
+			stateless=True,
+		)
 
-async def main():
-	"""Main entry point."""
+		async def handle_streamable_http(scope: Scope, receive: Receive, send: Send) -> None:
+			await session_manager.handle_request(scope, receive, send)
+
+		@contextlib.asynccontextmanager
+		async def lifespan(app: Starlette):
+			async with session_manager.run():
+				logger.info('BrowserUseServer started in Streamable HTTP mode')
+				yield
+
+		starlette_app = Starlette(
+			debug=False,
+			routes=[
+				Mount('/mcp', app=handle_streamable_http),
+			],
+			lifespan=lifespan,
+		)
+
+		import uvicorn
+
+		config = uvicorn.Config(starlette_app, host='127.0.0.1', port=port, loop='asyncio')
+		server = uvicorn.Server(config)
+		await server.serve()
+
+
+async def main(http: bool = False, port: int = 3000, json_response: bool = False):
 	if not MCP_AVAILABLE:
 		print('MCP SDK is required. Install with: pip install mcp', file=sys.stderr)
 		sys.exit(1)
 
 	server = BrowserUseServer()
-	# Capture telemetry for server start
 	server._telemetry.capture(
 		MCPServerTelemetryEvent(
 			version=get_browser_use_version(),
@@ -836,10 +874,13 @@ async def main():
 			parent_process_cmdline=get_parent_process_cmdline(),
 		)
 	)
+
 	try:
-		await server.run()
+		if http:
+			await server.run_http(port=port, json_response=json_response)
+		else:
+			await server.run()
 	finally:
-		# Capture telemetry for server stop
 		duration = time.time() - server._start_time
 		server._telemetry.capture(
 			MCPServerTelemetryEvent(
@@ -853,4 +894,12 @@ async def main():
 
 
 if __name__ == '__main__':
-	asyncio.run(main())
+	import argparse
+
+	parser = argparse.ArgumentParser()
+	parser.add_argument('--http', action='store_true', help='Run in Streamable HTTP mode instead of stdio')
+	parser.add_argument('--port', type=int, default=3000, help='HTTP port (only in HTTP mode)')
+	parser.add_argument('--json-response', action='store_true', help='Use JSON responses instead of SSE')
+	args = parser.parse_args()
+
+	asyncio.run(main(http=args.http, port=args.port, json_response=args.json_response))
