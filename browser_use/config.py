@@ -225,6 +225,9 @@ class FlatEnvConfig(BaseSettings):
 	BROWSER_USE_NO_PROXY: str | None = Field(default=None)
 	BROWSER_USE_PROXY_USERNAME: str | None = Field(default=None)
 	BROWSER_USE_PROXY_PASSWORD: str | None = Field(default=None)
+	
+	# DOM processing limits
+	BROWSER_USE_MAX_IFRAMES: int | None = Field(default=None)
 
 
 class DBStyleEntry(BaseModel):

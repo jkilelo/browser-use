@@ -590,6 +590,14 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		default=True,
 		description='Enable cross-origin iframe support (OOPIF/Out-of-Process iframes). When False, only same-origin frames are processed to avoid complexity and hanging.',
 	)
+	max_iframes: int = Field(
+		default_factory=lambda: CONFIG.BROWSER_USE_MAX_IFRAMES or 100,
+		description='Maximum number of iframe documents to process to prevent crashes (default: 100, previous default was 3). Can be set via BROWSER_USE_MAX_IFRAMES environment variable.',
+	)
+	max_iframe_depth: int = Field(
+		default=1,
+		description='Maximum depth for cross-origin iframe recursion (default: 1 level deep).',
+	)
 
 	# --- Page load/wait timings ---
 
