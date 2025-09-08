@@ -226,6 +226,10 @@ class FlatEnvConfig(BaseSettings):
 	BROWSER_USE_PROXY_USERNAME: str | None = Field(default=None)
 	BROWSER_USE_PROXY_PASSWORD: str | None = Field(default=None)
 
+	# DOM/iframe processing limits
+	BROWSER_USE_MAX_TOTAL_IFRAMES: int | None = Field(default=None)
+	BROWSER_USE_MAX_IFRAME_DEPTH: int | None = Field(default=None)
+
 
 class DBStyleEntry(BaseModel):
 	"""Database-style entry with UUID and metadata."""
@@ -481,6 +485,13 @@ class Config:
 
 		if env_config.BROWSER_USE_LLM_MODEL:
 			config['llm']['model'] = env_config.BROWSER_USE_LLM_MODEL
+
+		# DOM/iframe processing limits
+		if env_config.BROWSER_USE_MAX_TOTAL_IFRAMES is not None:
+			config['browser_profile']['max_total_iframes'] = env_config.BROWSER_USE_MAX_TOTAL_IFRAMES
+		
+		if env_config.BROWSER_USE_MAX_IFRAME_DEPTH is not None:
+			config['browser_profile']['max_iframe_depth'] = env_config.BROWSER_USE_MAX_IFRAME_DEPTH
 
 		return config
 

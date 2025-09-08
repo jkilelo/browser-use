@@ -606,6 +606,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	)
 	paint_order_filtering: bool = Field(default=True, description='Enable paint order filtering. Slightly experimental.')
 
+	# --- DOM/iframe processing limits ---
+	max_total_iframes: int = Field(default=3, description='Maximum number of iframe documents to process to prevent crashes.')
+	max_iframe_depth: int = Field(default=1, description='Maximum depth for cross-origin iframe recursion.')
+
 	# --- Downloads ---
 	auto_download_pdfs: bool = Field(default=True, description='Automatically download PDFs when navigating to PDF viewer pages.')
 

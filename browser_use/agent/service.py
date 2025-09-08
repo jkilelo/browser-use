@@ -182,6 +182,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		final_response_after_failure: bool = True,
 		_url_shortening_limit: int = 25,
+		# DOM/iframe processing limits
+		max_total_iframes: int | None = None,
+		max_iframe_depth: int | None = None,
 		**kwargs,
 	):
 		if llm is None:
@@ -217,10 +220,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			raise ValueError('Cannot specify both "browser" and "browser_session" parameters. Use "browser" for the cleaner API.')
 		browser_session = browser or browser_session
 
-		self.browser_session = browser_session or BrowserSession(
-			browser_profile=browser_profile,
-			id=uuid7str()[:-4] + self.id[-4:],  # re-use the same 4-char suffix so they show up together in logs
-		)
+		# Create browser session kwargs for iframe limits if provided
+		browser_session_kwargs = {
+			'browser_profile': browser_profile,
+			'id': uuid7str()[:-4] + self.id[-4:],  # re-use the same 4-char suffix so they show up together in logs
+		}
+		
+		# Add iframe limits if provided
+		if max_total_iframes is not None:
+			browser_session_kwargs['max_total_iframes'] = max_total_iframes
+		if max_iframe_depth is not None:
+			browser_session_kwargs['max_iframe_depth'] = max_iframe_depth
+
+		self.browser_session = browser_session or BrowserSession(**browser_session_kwargs)
 
 		# Initialize available file paths as direct attribute
 		self.available_file_paths = available_file_paths
