@@ -270,6 +270,9 @@ class BrowserSession(BaseModel):
 		cross_origin_iframes: bool | None = None,
 		highlight_elements: bool | None = None,
 		paint_order_filtering: bool | None = None,
+		# Iframe processing limits
+		max_iframes: int | None = None,
+		max_iframe_depth: int | None = None,
 	):
 		# Following the same pattern as AgentSettings in service.py
 		# Only pass non-None values to avoid validation errors
@@ -293,6 +296,8 @@ class BrowserSession(BaseModel):
 		super().__init__(
 			id=id or str(uuid7str()),
 			browser_profile=resolved_browser_profile,
+			max_iframes=max_iframes if max_iframes is not None else resolved_browser_profile.max_iframes,
+			max_iframe_depth=max_iframe_depth if max_iframe_depth is not None else resolved_browser_profile.max_iframe_depth,
 		)
 
 	# Session configuration (session identity only)
@@ -303,6 +308,10 @@ class BrowserSession(BaseModel):
 		default_factory=lambda: DEFAULT_BROWSER_PROFILE,
 		description='BrowserProfile() options to use for the session, otherwise a default profile will be used',
 	)
+	
+	# Iframe processing configuration (can override profile defaults)
+	max_iframes: int = Field(default=100, description='Maximum number of iframe documents to process')
+	max_iframe_depth: int = Field(default=5, description='Maximum depth for cross-origin iframe recursion')
 
 	# Convenience properties for common browser settings
 	@property
