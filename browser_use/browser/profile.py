@@ -392,6 +392,12 @@ class BrowserLaunchArgs(BaseModel):
 	devtools: bool = Field(
 		default=False, description='Whether to open DevTools panel automatically for every page, only works when headless=False.'
 	)
+	background_mode: bool = Field(
+		default=False, 
+		description='Whether to run in background mode without stealing focus from other applications during interactions. '
+		'When enabled, the browser will not activate/foreground itself during typing, clicking, or scrolling operations. '
+		'This allows the browser to work in the background while you use other applications.'
+	)
 
 	# proxy: ProxySettings | None = Field(default=None, description='Proxy settings to use to connect to the browser.')
 	downloads_path: str | Path | None = Field(

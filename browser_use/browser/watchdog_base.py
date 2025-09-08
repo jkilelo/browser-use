@@ -151,6 +151,8 @@ class BaseWatchdog(BaseModel):
 							browser_session.agent_focus = await browser_session.get_or_create_cdp_session(
 								target_id=browser_session.agent_focus.target_id, new_socket=True
 							)
+						# Only activate target if not in background mode
+						if not browser_session.browser_profile.background_mode:
 							await browser_session.agent_focus.cdp_client.send.Target.activateTarget(
 								params={'targetId': browser_session.agent_focus.target_id}
 							)

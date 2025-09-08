@@ -162,11 +162,13 @@ class DefaultActionWatchdog(BaseWatchdog):
 			raise BrowserError(error_msg)
 
 		try:
-			# Convert direction and amount to pixels
-			# Positive pixels = scroll down, negative = scroll up
-			pixels = event.amount if event.direction == 'down' else -event.amount
+		# Convert direction and amount to pixels
+		# Positive pixels = scroll down, negative = scroll up
+		pixels = event.amount if event.direction == 'down' else -event.amount
 
-			# CRITICAL: CDP calls time out without this, even if the target is already active
+		# CRITICAL: CDP calls time out without this, even if the target is already active
+		# Only activate target if not in background mode
+		if not self.browser_session.browser_profile.background_mode:
 			await self.browser_session.agent_focus.cdp_client.send.Target.activateTarget(
 				params={'targetId': self.browser_session.agent_focus.target_id}
 			)
@@ -198,10 +200,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 					return None
 
-			# Perform target-level scroll
-			await self._scroll_with_cdp_gesture(pixels)
+		# Perform target-level scroll
+		await self._scroll_with_cdp_gesture(pixels)
 
-			# CRITICAL: CDP calls time out without this, even if the target is already active
+		# CRITICAL: CDP calls time out without this, even if the target is already active
+		# Only activate target if not in background mode
+		if not self.browser_session.browser_profile.background_mode:
 			await self.browser_session.agent_focus.cdp_client.send.Target.activateTarget(
 				params={'targetId': self.browser_session.agent_focus.target_id}
 			)
@@ -533,7 +537,9 @@ class DefaultActionWatchdog(BaseWatchdog):
 			finally:
 				# always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.
 				cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
-				await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': cdp_session.target_id})
+				# Only activate target if not in background mode
+				if not self.browser_session.browser_profile.background_mode:
+					await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': cdp_session.target_id})
 				await cdp_session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=cdp_session.session_id)
 
 		except URLNotAllowedError as e:
@@ -557,8 +563,10 @@ class DefaultActionWatchdog(BaseWatchdog):
 		This is used when index is 0 or when an element can't be found.
 		"""
 		try:
-			# Get CDP client and session
-			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
+		# Get CDP client and session
+		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=None, focus=True)
+		# Only activate target if not in background mode
+		if not self.browser_session.browser_profile.background_mode:
 			await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': cdp_session.target_id})
 
 			# Type the text character by character to the focused element

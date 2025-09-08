@@ -230,6 +230,7 @@ class BrowserSession(BaseModel):
 		channel: str | None = None,
 		chromium_sandbox: bool | None = None,
 		devtools: bool | None = None,
+		background_mode: bool | None = None,
 		downloads_path: str | Path | None = None,
 		traces_dir: str | Path | None = None,
 		# From BrowserContextArgs
@@ -864,14 +865,16 @@ class BrowserSession(BaseModel):
 		# Check if we already have a session for this target in the pool
 		if target_id in self._cdp_session_pool:
 			session = self._cdp_session_pool[target_id]
-			if focus and self.agent_focus.target_id != target_id:
-				self.logger.debug(
-					f'[get_or_create_cdp_session] Switching agent focus from {self.agent_focus.target_id} to {target_id}'
-				)
-				self.agent_focus = session
-			if focus:
+		if focus and self.agent_focus.target_id != target_id:
+			self.logger.debug(
+				f'[get_or_create_cdp_session] Switching agent focus from {self.agent_focus.target_id} to {target_id}'
+			)
+			self.agent_focus = session
+		if focus:
+			# Only activate target if not in background mode
+			if not self.browser_profile.background_mode:
 				await session.cdp_client.send.Target.activateTarget(params={'targetId': session.target_id})
-				await session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=session.session_id)
+			await session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=session.session_id)
 			# else:
 			# self.logger.debug(f'[get_or_create_cdp_session] Reusing existing session for {target_id} (focus={focus})')
 			return session
@@ -903,7 +906,9 @@ class BrowserSession(BaseModel):
 				f'[get_or_create_cdp_session] Switching agent focus from {self.agent_focus.target_id} to {target_id}'
 			)
 			self.agent_focus = session
-			await session.cdp_client.send.Target.activateTarget(params={'targetId': session.target_id})
+			# Only activate target if not in background mode
+			if not self.browser_profile.background_mode:
+				await session.cdp_client.send.Target.activateTarget(params={'targetId': session.target_id})
 			await session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=session.session_id)
 		else:
 			self.logger.debug(
