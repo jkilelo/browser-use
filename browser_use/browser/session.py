@@ -296,8 +296,6 @@ class BrowserSession(BaseModel):
 		super().__init__(
 			id=id or str(uuid7str()),
 			browser_profile=resolved_browser_profile,
-			max_iframes=max_iframes if max_iframes is not None else resolved_browser_profile.max_iframes,
-			max_iframe_depth=max_iframe_depth if max_iframe_depth is not None else resolved_browser_profile.max_iframe_depth,
 		)
 
 	# Session configuration (session identity only)
@@ -309,9 +307,16 @@ class BrowserSession(BaseModel):
 		description='BrowserProfile() options to use for the session, otherwise a default profile will be used',
 	)
 	
-	# Iframe processing configuration (can override profile defaults)
-	max_iframes: int = Field(default=100, description='Maximum number of iframe documents to process')
-	max_iframe_depth: int = Field(default=5, description='Maximum depth for cross-origin iframe recursion')
+	# Iframe processing configuration (gets values from browser_profile)
+	@property
+	def max_iframes(self) -> int:
+		"""Maximum number of iframe documents to process."""
+		return self.browser_profile.max_iframes
+	
+	@property
+	def max_iframe_depth(self) -> int:
+		"""Maximum depth for cross-origin iframe recursion."""
+		return self.browser_profile.max_iframe_depth
 
 	# Convenience properties for common browser settings
 	@property
