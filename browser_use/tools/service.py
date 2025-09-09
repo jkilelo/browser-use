@@ -995,7 +995,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 				logger.info('✅ CDP execution completed successfully')
 				return ActionResult(
-					long_term_memory=f'Executed JavaScript: {params.javascript_code} Result: {response_msg}',
+					extracted_content=f'Executed JavaScript: {params.javascript_code} Result: {response_msg}',
 				)
 			except Exception as e:
 				logger.error(f'❌ CDP execution failed with exception: {e}')
