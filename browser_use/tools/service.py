@@ -916,7 +916,8 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			"""Execute JavaScript - SINGLE LINE ONLY. Auto-fixes syntax errors.
+			"""Execute JavaScript - Auto-fixes syntax errors.
+Do not use commands, humans dont read that code. Just write the code.
 
 FRAMEWORK-AWARE PATTERNS (evaluation-tested):
 - Basic input: document.querySelector('#firstName').value = 'John'  
