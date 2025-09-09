@@ -916,39 +916,37 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			"""Execute JavaScript - Auto-fixes syntax errors.
-Do not use commands, humans dont read that code. Just write the code.
+			"""Execute JavaScript code in the browser.
 
-FRAMEWORK-AWARE PATTERNS (evaluation-tested):
-- Basic input: document.querySelector('#firstName').value = 'John'  
-- React/MUI input: (el => { el.focus(); el.value = 'John'; el.dispatchEvent(new Event('input', {bubbles: true})); el.blur(); })(document.querySelector('#firstName'))
-- Click button: document.querySelector('#submit-btn').click()
-- Check status: document.body.innerHTML.includes('Success') ? 'success' : 'not submitted'
-- Navigate: window.location.href = 'https://example.com/page'
-- Scroll: window.scrollBy(0, 500)
+WHAT HAPPENS:
+1. Gets CDP session for the current browser tab
+2. Calls cdp_client.send.Runtime.evaluate() with your JavaScript code
+3. JavaScript runs in the browser's main world context (same as console)
+4. Returns the result value, or "Executed successfully" if no return value
+5. If error occurs, returns detailed error with line numbers and stack trace
 
-SPECIAL CONTEXTS:
-- Shadow DOM: element.shadowRoot.querySelector() for elements inside ┌─ SHADOW DOM START ─┐  
-- Iframe: iframe.contentDocument.querySelector() for elements inside ┌─ IFRAME CONTENT START ─┐
+Your code runs directly in the browser - no preprocessing, no restrictions.
 
-Your code will be executed in the browser via cdp runtime.evaluate:
-result = await cdp_session.cdp_client.send.Runtime.evaluate(params={'expression': code}, session_id=cdp_session.session_id)
+Examples:
+- Simple: document.querySelector('#name').value = 'John'
+- Multiline: 
+  const elements = document.querySelectorAll('a');
+  const texts = Array.from(elements).map(el => el.textContent.trim());
+  JSON.stringify(texts);
+- React forms: 
+  const input = document.querySelector('#firstName');
+  input.focus();
+  input.value = 'John'; 
+  input.dispatchEvent(new Event('input', {bubbles: true}));
+  input.blur();
 """,
 			param_model=ExecuteCDPAction,
 		)
 		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):
-			# Pre-process JavaScript to fix common issues
-			original_code = params.javascript_code
-			enhanced_code = self._fix_common_js_issues(original_code)
-
-			# Log the transformation for debugging
-			if enhanced_code != original_code:
-				logger.debug(f'🔧 JS Auto-fix applied:\nOriginal: {original_code[:100]}...\nFixed: {enhanced_code[:100]}...')
-
 			cdp_session = await browser_session.get_or_create_cdp_session()
 			try:
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': enhanced_code}, session_id=cdp_session.session_id
+					params={'expression': params.javascript_code}, session_id=cdp_session.session_id
 				)
 
 				if result.get('exceptionDetails'):
@@ -1044,38 +1042,6 @@ result = await cdp_session.cdp_client.send.Runtime.evaluate(params={'expression'
 			return 'Invalid CSS selector. Check syntax and escape special characters.'
 
 		return ''
-
-	def _fix_common_js_issues(self, code: str) -> str:
-		"""Fix common JavaScript issues that cause SyntaxError: Uncaught."""
-		import re
-
-		# Force single line - replace multiline with simple alternatives
-		if '\n' in code or len(code) > 200:
-			# If code is too complex, simplify to basic operations
-			if 'querySelector' in code and '=' in code and '.value' in code:
-				# Extract field setting pattern
-				match = re.search(r"querySelector\(['\"]([^'\"]+)['\"]\)\.value\s*=\s*['\"]([^'\"]*)['\"]", code)
-				if match:
-					selector, value = match.groups()
-					return f"document.querySelector('{selector}').value = '{value}'; document.querySelector('{selector}').dispatchEvent(new Event('input', {{bubbles: true}}))"
-
-		# Remove optional chaining which isn't supported
-		code = re.sub(r'\?\.\s*', '.', code)
-
-		# Fix missing quotes around selectors
-		code = re.sub(r'querySelectorAll\(([a-zA-Z]\w*)\)', r"querySelectorAll('\1')", code)
-		code = re.sub(r'querySelector\(([a-zA-Z]\w*)\)', r"querySelector('\1')", code)
-
-		# Remove function wrappers for simple operations
-		code = re.sub(r'^\(function\(\)\{([^}]+)\}\)\(\)$', r'\1', code)
-		code = re.sub(r'^\(\(\)\s*=>\s*\{([^}]+)\}\)\(\)$', r'\1', code)
-
-		# Ensure return statement for expressions
-		if not code.strip().startswith('return') and 'JSON.stringify' not in code:
-			if '=' not in code and 'click()' not in code:  # Data extraction
-				code = f'return {code}'
-
-		return code
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
