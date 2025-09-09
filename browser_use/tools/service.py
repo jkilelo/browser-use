@@ -918,20 +918,19 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			"""Execute JavaScript - SINGLE LINE ONLY. Auto-fixes syntax errors.
 
-Use rich attributes from browser_state for precise selectors:
-
-ONE LINE EXAMPLES:
-- By name: document.querySelector('input[name="firstName"]').value
-- By ID: document.querySelector('#submit-btn').click()  
-- By class: document.querySelectorAll('.product-card').length
-- Extract: JSON.stringify(Array.from(document.querySelectorAll('input[required="true"]')).map(el => el.name))
+FRAMEWORK-AWARE PATTERNS (evaluation-tested):
+- Basic input: document.querySelector('#firstName').value = 'John'  
+- React/MUI input: (el => { el.focus(); el.value = 'John'; el.dispatchEvent(new Event('input', {bubbles: true})); el.blur(); })(document.querySelector('#firstName'))
+- Click button: document.querySelector('#submit-btn').click()
+- Check status: document.body.innerHTML.includes('Success') ? 'success' : 'not submitted'
 - Navigate: window.location.href = 'https://example.com/page'
 - Scroll: window.scrollBy(0, 500)
 
 SPECIAL CONTEXTS:
-- Shadow DOM: Use element.shadowRoot.querySelector() for elements inside ┌─ SHADOW DOM START ─┐
-- Iframe: Use iframe.contentDocument.querySelector() for elements inside ┌─ IFRAME CONTENT START ─┐
+- Shadow DOM: element.shadowRoot.querySelector() for elements inside ┌─ SHADOW DOM START ─┐  
+- Iframe: iframe.contentDocument.querySelector() for elements inside ┌─ IFRAME CONTENT START ─┐
 
+SUCCESS VALIDATION: Always check UI changed after actions. No success without visible proof.
 ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never repeat failing code.""",
 			param_model=ExecuteCDPAction,
 		)
@@ -1048,37 +1047,31 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 		"""Fix common JavaScript issues that cause SyntaxError: Uncaught."""
 		import re
 
-		# Remove optional chaining which isn't supported in older CDP
+		# Force single line - replace multiline with simple alternatives
+		if '\n' in code or len(code) > 200:
+			# If code is too complex, simplify to basic operations
+			if 'querySelector' in code and '=' in code and '.value' in code:
+				# Extract field setting pattern
+				match = re.search(r"querySelector\(['\"]([^'\"]+)['\"]\)\.value\s*=\s*['\"]([^'\"]*)['\"]", code)
+				if match:
+					selector, value = match.groups()
+					return f"document.querySelector('{selector}').value = '{value}'; document.querySelector('{selector}').dispatchEvent(new Event('input', {{bubbles: true}}))"
+
+		# Remove optional chaining which isn't supported
 		code = re.sub(r'\?\.\s*', '.', code)
 
 		# Fix missing quotes around selectors
 		code = re.sub(r'querySelectorAll\(([a-zA-Z]\w*)\)', r"querySelectorAll('\1')", code)
 		code = re.sub(r'querySelector\(([a-zA-Z]\w*)\)', r"querySelector('\1')", code)
 
-		# Handle multiline code - convert to single expression or add return
-		lines = [line.strip() for line in code.strip().split('\n') if line.strip()]
+		# Remove function wrappers for simple operations
+		code = re.sub(r'^\(function\(\)\{([^}]+)\}\)\(\)$', r'\1', code)
+		code = re.sub(r'^\(\(\)\s*=>\s*\{([^}]+)\}\)\(\)$', r'\1', code)
 
-		if len(lines) > 1:
-			# Check if last line is already a return or single expression
-			last_line = lines[-1]
-
-			# If last line ends with semicolon, it's a statement not expression
-			if last_line.endswith(';'):
-				# Convert last statement to return
-				if last_line.startswith('JSON.stringify'):
-					lines[-1] = f'return {last_line[:-1]}'  # Remove ; and add return
-				elif not last_line.startswith('return'):
-					lines[-1] = f'return {last_line[:-1]}'  # Remove ; and add return
-
-			# Join with semicolons for multiple statements
-			if any(line.startswith('return') for line in lines):
-				code = '; '.join(lines[:-1]) + '; ' + lines[-1]
-			else:
-				# If no return, make it a single expression
-				if lines[-1].startswith('JSON.stringify'):
-					code = '; '.join(lines)
-				else:
-					code = '; '.join(lines[:-1]) + '; return ' + lines[-1]
+		# Ensure return statement for expressions
+		if not code.strip().startswith('return') and 'JSON.stringify' not in code:
+			if '=' not in code and 'click()' not in code:  # Data extraction
+				code = f'return {code}'
 
 		return code
 
