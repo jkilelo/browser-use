@@ -20,7 +20,7 @@ Input:
 
 JavaScript examples (single line only):
 - Basic: document.querySelector('#firstName').value = 'John'
-- React/MUI: (el => { el.focus(); el.value = 'John'; el.dispatchEvent(new Event('input', {bubbles: true})); el.blur(); })(document.querySelector('#firstName'))
+- React/MUI: (el => {{ el.focus(); el.value = 'John'; el.dispatchEvent(new Event('input', {{bubbles: true}})); el.blur(); }})(document.querySelector('#firstName'))
 - Click: document.querySelector('#submit-btn').click()  
 - Extract: JSON.stringify(Array.from(document.querySelectorAll('.item')).map(el => el.textContent.trim()))
 

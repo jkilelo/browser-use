@@ -16,7 +16,7 @@ Input:
 
 JavaScript examples (KEEP SIMPLE):
 - Basic: document.querySelector('#firstName').value = 'John'
-- for react/mui: (el => { el.focus(); el.value = 'John'; el.dispatchEvent(new Event('input', {bubbles: true})); el.blur(); })(document.querySelector('#firstName'))
+- for react/mui: (el => {{ el.focus(); el.value = 'John'; el.dispatchEvent(new Event('input', {{bubbles: true}})); el.blur(); }})(document.querySelector('#firstName'))
 - Click: document.querySelector('#submit-btn').click()  
 - Extract: JSON.stringify(Array.from(document.querySelectorAll('.item')).map(el => el.textContent.trim()))
 
