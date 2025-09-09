@@ -82,9 +82,30 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 
 
 class Tools(Generic[Context]):
+	# To use only 'done' and 'execute_js' actions, pass this to exclude_actions parameter:
+	MINIMAL_ACTIONS_EXCLUDE_LIST = [
+		'search_google',
+		'go_back',
+		'wait',
+		'click_element_by_index',
+		'input_text',
+		'upload_file_to_element',
+		'switch_tab',
+		'close_tab',
+		'extract_structured_data',
+		'scroll',
+		'send_keys',
+		'scroll_to_text',
+		'get_dropdown_options',
+		'select_dropdown_option',
+		'write_file',
+		'replace_file_str',
+		'read_file',
+	]
+
 	def __init__(
 		self,
-		exclude_actions: list[str] = [],
+		exclude_actions: list[str] = MINIMAL_ACTIONS_EXCLUDE_LIST,
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
@@ -893,9 +914,27 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				include_extracted_content_only_once=True,
 			)
 
+		# Get element selector tool
+		@self.registry.action(
+			'Get the CSS selector for an element by its index. Use this when the model fails to find selectors for items and you need the exact selector.',
+		)
+		async def get_element_selector(index: int, browser_session: BrowserSession):
+			try:
+				node = await browser_session.get_element_by_index(index)
+				if node is None:
+					return ActionResult(error=f'Element with index {index} not found in browser state')
+
+				selector = node.selector if hasattr(node, 'selector') else 'selector not available'
+				return ActionResult(
+					extracted_content=f'Element {index} selector: {selector}',
+					long_term_memory=f'Retrieved selector for element {index}: {selector}',
+				)
+			except Exception as e:
+				return ActionResult(error=f'Failed to get selector for element {index}: {str(e)}')
+
 		# General CDP execution tool
 		@self.registry.action(
-			'Execute arbitrary JavaScript code via CDP Runtime.evaluate. Use this for custom selectors, element interactions, or content extraction that other tools cannot handle.',
+			'Execute arbitrary JavaScript code via CDP Runtime.evaluate. Returns the value result from the JavaScript execution as a string, or "Executed successfully" if no value is returned. If JavaScript throws an error, returns ActionResult with error containing the exception description. Use this for custom selectors, element interactions, or content extraction.',
 			param_model=ExecuteCDPAction,
 		)
 		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):
