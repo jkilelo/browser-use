@@ -458,13 +458,11 @@ class DOMTreeSerializer:
 					# Scrollable container but not clickable
 					line = f'{depth_str}|SCROLL|<{node.original_node.tag_name}'
 				elif node.interactive_index is not None:
-					# Clickable (and possibly scrollable) - show xpath instead of index
+					# Clickable (and possibly scrollable) - show CSS selector instead of index
 					new_prefix = '*' if node.is_new else ''
 					scroll_prefix = '|SCROLL+' if should_show_scroll else '['
-					xpath = node.original_node.xpath
-					line = (
-						f'{depth_str}{new_prefix}{scroll_prefix}{node.interactive_index}: {xpath}]<{node.original_node.tag_name}'
-					)
+					css_selector = node.original_node.css_selector
+					line = f'{depth_str}{new_prefix}{scroll_prefix}{node.interactive_index}: {css_selector}]<{node.original_node.tag_name}'
 				elif node.original_node.tag_name.upper() == 'IFRAME':
 					# Iframe element (not interactive)
 					line = f'{depth_str}|IFRAME|<{node.original_node.tag_name}'

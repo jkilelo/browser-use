@@ -346,6 +346,102 @@ class EnhancedDOMTreeNode:
 
 		return '/'.join(segments)
 
+	@property
+	def css_selector(self) -> str:
+		"""Generate CSS selector for this DOM node - works across iframe boundaries."""
+		current_element = self
+		
+		# Try to find a unique identifier first
+		if current_element.attributes.get('id'):
+			element_id = current_element.attributes['id']
+			# Escape CSS special characters in ID
+			element_id = element_id.replace(':', '\\:').replace('.', '\\.')
+			unique_selector = f'{current_element.tag_name}#{element_id}'
+			
+			# Check if we're in an iframe
+			iframe_path = self._get_iframe_path()
+			if iframe_path:
+				return f'IFRAME({iframe_path}) -> {unique_selector}'
+			return unique_selector
+		
+		# Build selector path
+		segments = []
+		iframe_segments = []
+		
+		while current_element and current_element.node_type == NodeType.ELEMENT_NODE:
+			# Handle iframe boundaries - don't stop, but track them
+			if current_element.parent_node and current_element.parent_node.node_name.lower() == 'iframe':
+				# Add current iframe context
+				iframe_selector = self._build_element_selector(current_element.parent_node)
+				iframe_segments.insert(0, iframe_selector)
+				
+				# Continue with parent's parent (outside iframe)
+				current_element = current_element.parent_node.parent_node
+				continue
+				
+			segment = self._build_element_selector(current_element)
+			segments.insert(0, segment)
+			current_element = current_element.parent_node
+			
+			# Don't go too deep - CSS selectors work best when not overly specific
+			if len(segments) >= 3:
+				break
+		
+		# Combine iframe path with element path
+		element_path = ' > '.join(segments) if segments else self.tag_name
+		
+		if iframe_segments:
+			iframe_path = ' > '.join(iframe_segments)
+			return f'IFRAME({iframe_path}) -> {element_path}'
+		
+		return element_path
+	
+	def _get_iframe_path(self) -> str:
+		"""Get the iframe path for this element if it's inside an iframe."""
+		current = self.parent_node
+		iframe_selectors = []
+		
+		while current:
+			if current.tag_name == 'iframe':
+				iframe_selectors.insert(0, self._build_element_selector(current))
+			current = current.parent_node
+		
+		return ' > '.join(iframe_selectors) if iframe_selectors else ''
+	
+	def _build_element_selector(self, element: 'EnhancedDOMTreeNode') -> str:
+		"""Build a CSS selector segment for a single element."""
+		tag_name = element.tag_name
+		
+		# Prefer ID if available
+		if element.attributes.get('id'):
+			element_id = element.attributes['id']
+			element_id = element_id.replace(':', '\\:').replace('.', '\\.')
+			return f'{tag_name}#{element_id}'
+		
+		# Add classes if available (limit to 2 for readability)
+		classes = element.attributes.get('class', '').strip()
+		if classes:
+			class_list = [cls.strip() for cls in classes.split() if cls.strip()][:2]
+			if class_list:
+				class_str = '.' + '.'.join(class_list)
+				return f'{tag_name}{class_str}'
+		
+		# Add nth-child if element has siblings with same tag
+		if element.parent_node:
+			siblings = [
+				n
+				for n in (element.parent_node.children_nodes or [])
+				if n.node_type == NodeType.ELEMENT_NODE and n.tag_name == element.tag_name
+			]
+			if len(siblings) > 1:
+				try:
+					position = siblings.index(element) + 1
+					return f'{tag_name}:nth-child({position})'
+				except ValueError:
+					pass
+		
+		return tag_name
+
 	def _get_element_position(self, element: 'EnhancedDOMTreeNode') -> int:
 		"""Get the position of an element among its siblings with the same tag name.
 		Returns 0 if it's the only element of its type, otherwise returns 1-based index."""
