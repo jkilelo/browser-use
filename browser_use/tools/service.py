@@ -914,24 +914,6 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				include_extracted_content_only_once=True,
 			)
 
-		# Get element selector tool
-		@self.registry.action(
-			'Get the CSS selector for an element by its index. Use this when the model fails to find selectors for items and you need the exact selector.',
-		)
-		async def get_element_selector(index: int, browser_session: BrowserSession):
-			try:
-				node = await browser_session.get_element_by_index(index)
-				if node is None:
-					return ActionResult(error=f'Element with index {index} not found in browser state')
-
-				selector = node.selector if hasattr(node, 'selector') else 'selector not available'
-				return ActionResult(
-					extracted_content=f'Element {index} selector: {selector}',
-					long_term_memory=f'Retrieved selector for element {index}: {selector}',
-				)
-			except Exception as e:
-				return ActionResult(error=f'Failed to get selector for element {index}: {str(e)}')
-
 		# General CDP execution tool
 		@self.registry.action(
 			'Execute arbitrary JavaScript code via CDP Runtime.evaluate. Returns the value result from the JavaScript execution as a string, or "Executed successfully" if no value is returned. If JavaScript throws an error, returns ActionResult with error containing the exception description. Use this for custom selectors, element interactions, or content extraction.',
@@ -945,21 +927,96 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				)
 
 				if result.get('exceptionDetails'):
-					error_msg = result['exceptionDetails'].get('description', 'Unknown error')
-					logger.error(f'❌ CDP execution failed: {error_msg}')
-					return ActionResult(error=f'JavaScript execution failed: {error_msg}')
+					exception = result['exceptionDetails']
 
-				value = result.get('result', {}).get('value')
-				logger.info('✅ CDP execution completed')
+					# Extract comprehensive error information
+					error_parts = []
+
+					# Basic error info
+					error_type = exception.get('exception', {}).get('className', 'Error')
+					error_description = exception.get('text', exception.get('exception', {}).get('description', 'Unknown error'))
+					error_parts.append(f'{error_type}: {error_description}')
+
+					# Location information
+					line_num = exception.get('lineNumber', 0)
+					column_num = exception.get('columnNumber', 0)
+					if line_num > 0:
+						error_parts.append(f'at line {line_num + 1}, column {column_num + 1}')
+
+					# Stack trace if available
+					stack_trace = exception.get('exception', {}).get('description')
+					if stack_trace and stack_trace != error_description:
+						# Extract just the relevant stack info, not the full trace
+						lines = stack_trace.split('\n')
+						if len(lines) > 1:
+							stack_info = lines[1].strip() if len(lines) > 1 else ''
+							if stack_info and 'at ' in stack_info:
+								error_parts.append(f'Stack: {stack_info}')
+
+					# Script info
+					script_id = exception.get('scriptId')
+					if script_id:
+						error_parts.append(f'Script ID: {script_id}')
+
+					# URL if available
+					url = exception.get('url')
+					if url and url != 'undefined':
+						error_parts.append(f'URL: {url}')
+
+					# Compile comprehensive error message
+					detailed_error = ' | '.join(error_parts)
+
+					# Add context about the code that failed
+					code_preview = params.javascript_code
+					if len(code_preview) > 150:
+						code_preview = code_preview[:150] + '...'
+
+					full_error_msg = f'{detailed_error}\n\nFailed code: {code_preview}'
+
+					logger.error(f'❌ JavaScript execution failed: {detailed_error}')
+					return ActionResult(error=f'JavaScript execution failed: {full_error_msg}')
+
+				# Handle successful execution
+				result_obj = result.get('result', {})
+				value = result_obj.get('value')
+
+				# Check if result was undefined/null and provide more context
+				if value is None:
+					result_type = result_obj.get('type', 'undefined')
+					if result_type == 'undefined':
+						response_msg = 'Executed successfully (returned undefined)'
+					elif result_type == 'object' and result_obj.get('subtype') == 'null':
+						response_msg = 'Executed successfully (returned null)'
+					else:
+						response_msg = f'Executed successfully (returned {result_type})'
+				else:
+					response_msg = str(value)
+
+				logger.info('✅ CDP execution completed successfully')
 				return ActionResult(
-					extracted_content=str(value) if value is not None else 'Executed successfully',
+					extracted_content=response_msg,
 					long_term_memory=f'Executed JavaScript: {params.javascript_code[:100]}...'
 					if len(params.javascript_code) > 100
 					else f'Executed JavaScript: {params.javascript_code}',
 				)
 			except Exception as e:
-				logger.error(f'❌ CDP execution failed with exception: {e}')
-				return ActionResult(error=f'CDP execution failed: {str(e)}')
+				# Improved general exception handling
+				import traceback
+
+				tb_str = traceback.format_exc()
+
+				error_details = f'CDP execution failed with Python exception: {type(e).__name__}: {str(e)}'
+
+				# Add more context for common errors
+				if 'CDP client not initialized' in str(e):
+					error_details += '\n\nThis usually means the browser session is not properly connected. Try refreshing the page or restarting the browser.'
+				elif 'timeout' in str(e).lower():
+					error_details += f'\n\nThe JavaScript execution timed out. Your code might be taking too long to execute:\n{params.javascript_code[:200]}...'
+				elif 'connection' in str(e).lower():
+					error_details += '\n\nBrowser connection lost. The page might have navigated away or the browser closed.'
+
+				logger.error(f'❌ CDP execution failed with exception: {error_details}\nFull traceback: {tb_str}')
+				return ActionResult(error=error_details)
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
