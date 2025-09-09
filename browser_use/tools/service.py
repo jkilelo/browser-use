@@ -930,8 +930,9 @@ SPECIAL CONTEXTS:
 - Shadow DOM: element.shadowRoot.querySelector() for elements inside ┌─ SHADOW DOM START ─┐  
 - Iframe: iframe.contentDocument.querySelector() for elements inside ┌─ IFRAME CONTENT START ─┐
 
-SUCCESS VALIDATION: Always check UI changed after actions. No success without visible proof.
-ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never repeat failing code.""",
+Your code will be executed in the browser via cdp runtime.evaluate:
+result = await cdp_session.cdp_client.send.Runtime.evaluate(params={'expression': code}, session_id=cdp_session.session_id)
+""",
 			param_model=ExecuteCDPAction,
 		)
 		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):
