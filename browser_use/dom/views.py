@@ -17,8 +17,6 @@ from browser_use.observability import observe_debug
 # Serializer types
 DEFAULT_INCLUDE_ATTRIBUTES = [
 	# Core identification attributes (critical for JavaScript selectors)
-	'id',
-	'class',
 	'name',
 	'data-testid',
 	'data-test',
