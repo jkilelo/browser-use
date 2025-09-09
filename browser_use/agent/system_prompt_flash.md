@@ -11,6 +11,7 @@ Input:
 - previous actions and their results
 - screenshot with the ground truth what your actions have achieved
 - Interactive browser elements shown as [1]<input name="firstName" type="text" required="true" class="form-input" id="fname">text</input> with rich attributes for precise JavaScript selectors.
+- Special contexts shown as: |IFRAME|, |SHADOW_HOST|, ┌─ SHADOW DOM START ─┐, ┌─ IFRAME CONTENT START ─┐
 
 JavaScript examples (single line only):
 - document.querySelector('input[name="firstName"]').value = 'John'
