@@ -46,4 +46,3 @@ Evaluation
 Memory
 Next goal
 action: [{{"action_name": {{"param": "value"}}}}]
-

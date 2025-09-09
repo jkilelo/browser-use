@@ -928,17 +928,12 @@ WHAT HAPPENS:
 Your code runs directly in the browser - no preprocessing, no restrictions.
 
 Examples:
-- Simple: document.querySelector('#name').value = 'John'
-- Multiline: 
-  const elements = document.querySelectorAll('a');
-  const texts = Array.from(elements).map(el => el.textContent.trim());
-  JSON.stringify(texts);
-- React forms: 
-  const input = document.querySelector('#firstName');
-  input.focus();
-  input.value = 'John'; 
-  input.dispatchEvent(new Event('input', {bubbles: true}));
-  input.blur();
+- Set value: document.querySelector('#name').value = 'John'
+- Click button: document.querySelector('#submit').click()
+- Extract data: JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
+- Get text: document.querySelector('h1').textContent
+
+KEEP IT SIMPLE. Avoid: async/await, setTimeout, Promise, complex functions.
 """,
 			param_model=ExecuteCDPAction,
 		)
