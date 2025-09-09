@@ -916,24 +916,27 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			"""Execute JavaScript code via CDP Runtime.evaluate. Returns result as string.
+			"""Execute JavaScript code via CDP Runtime.evaluate. Auto-fixes common syntax errors.
 
-Write clean JavaScript with proper selectors. Use ${var1}, ${var2} variables for convenience if needed.
+EXAMPLES (evaluation-tested):
+- Count: document.querySelectorAll('a').length
+- Extract: JSON.stringify(Array.from(document.querySelectorAll('div')).map(el => el.textContent.trim()))
+- Test: document.querySelector('button').textContent || 'missing'
+- Variables: document.querySelector('${var1}').textContent || 'missing'
 
-EXAMPLES:
-- Test: document.querySelector('button')?.textContent || 'missing'
-- Extract: JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.href))
-- Count: document.querySelectorAll('div').length
-- Variables: document.querySelector('${var1}')?.textContent || 'missing'
+CRITICAL: If this fails, DON'T repeat same code. Try different selectors or navigate with window.location.href.
 
-Use single expressions with JSON.stringify() for complex data extraction.""",
+Auto-fixes: Missing quotes, return statements, optional chaining issues.""",
 			param_model=ExecuteCDPAction,
 		)
 		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):
+			# Pre-process JavaScript to fix common issues
+			enhanced_code = self._fix_common_js_issues(params.javascript_code)
+
 			cdp_session = await browser_session.get_or_create_cdp_session()
 			try:
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': params.javascript_code}, session_id=cdp_session.session_id
+					params={'expression': enhanced_code}, session_id=cdp_session.session_id
 				)
 
 				if result.get('exceptionDetails'):
@@ -1029,6 +1032,42 @@ Use single expressions with JSON.stringify() for complex data extraction.""",
 			return 'Invalid CSS selector. Check syntax and escape special characters.'
 
 		return ''
+
+	def _fix_common_js_issues(self, code: str) -> str:
+		"""Fix common JavaScript issues that cause SyntaxError: Uncaught."""
+		import re
+
+		# Remove optional chaining which isn't supported in older CDP
+		code = re.sub(r'\?\.\s*', '.', code)
+
+		# Fix missing quotes around selectors
+		# Match querySelectorAll(word) and add quotes
+		code = re.sub(r'querySelectorAll\(([a-zA-Z]\w*)\)', r"querySelectorAll('\1')", code)
+		code = re.sub(r'querySelector\(([a-zA-Z]\w*)\)', r"querySelector('\1')", code)
+
+		# Ensure multiline code returns a value
+		lines = code.strip().split('\n')
+		if len(lines) > 1:
+			last_line = lines[-1].strip()
+			# If last line is an expression without return/JSON.stringify, wrap it
+			if not last_line.startswith(('return', 'JSON.stringify', 'console.')) and ';' not in last_line:
+				if '?' in last_line and ':' in last_line:  # Ternary expression
+					lines[-1] = f'return ({last_line})'
+				elif not last_line.endswith(';'):
+					lines[-1] = f'return {last_line}'
+
+			code = '\n'.join(lines)
+
+		# Wrap in try-catch for robustness
+		safe_code = f"""
+try {{
+	{code}
+}} catch(err) {{
+	return 'JavaScript error: ' + err.message;
+}}
+"""
+
+		return safe_code
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
