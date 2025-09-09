@@ -916,11 +916,15 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			"""Execute JavaScript - SINGLE LINE ONLY. Auto-fixes syntax errors. 
+			"""Execute JavaScript - SINGLE LINE ONLY. Auto-fixes syntax errors.
+
+Use rich attributes from browser_state for precise selectors:
 
 ONE LINE EXAMPLES:
-- Count: document.querySelectorAll('a').length  
-- Extract: JSON.stringify(Array.from(document.querySelectorAll('div')).map(el => el.textContent.trim()))
+- By name: document.querySelector('input[name="firstName"]').value
+- By ID: document.querySelector('#submit-btn').click()  
+- By class: document.querySelectorAll('.product-card').length
+- Extract: JSON.stringify(Array.from(document.querySelectorAll('input[required="true"]')).map(el => el.name))
 - Navigate: window.location.href = 'https://example.com/page'
 - Scroll: window.scrollBy(0, 500)
 

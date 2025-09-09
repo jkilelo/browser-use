@@ -1144,95 +1144,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	# endregion - URL replacement
 
-	# region - CSS Selector replacement
-
-	async def _get_css_selector_replacements(self) -> dict[str, str]:
-		"""Create CSS selector variable replacements from current browser state."""
-		css_replacements = {}
-
-		# Get current selector map from browser session
-		try:
-			selector_map = await self.browser_session.get_selector_map()
-			for index, node in selector_map.items():
-				css_var = f'${{var{index}}}'
-				actual_selector = node.css_selector if hasattr(node, 'css_selector') else f'[data-index="{index}"]'
-				css_replacements[css_var] = actual_selector
-		except Exception as e:
-			self.logger.debug(f'Failed to get CSS selector replacements: {e}')
-
-		return css_replacements
-
-	@staticmethod
-	def _replace_css_variables_in_string(text: str, css_replacements: dict[str, str]) -> str:
-		"""Replace all CSS selector variables in a string with their actual selectors."""
-		result = text
-		for css_var, actual_selector in css_replacements.items():
-			result = result.replace(css_var, actual_selector)
-		return result
-
-	@staticmethod
-	def _recursive_process_css_variables_in_pydantic_model(model: BaseModel, css_replacements: dict[str, str]) -> None:
-		"""Recursively process all strings inside a Pydantic model, replacing CSS variables with actual selectors."""
-		for field_name, field_value in model.__dict__.items():
-			if isinstance(field_value, str):
-				# Replace CSS variables with actual selectors
-				processed_string = Agent._replace_css_variables_in_string(field_value, css_replacements)
-				setattr(model, field_name, processed_string)
-			elif isinstance(field_value, BaseModel):
-				# Recursively process nested Pydantic models
-				Agent._recursive_process_css_variables_in_pydantic_model(field_value, css_replacements)
-			elif isinstance(field_value, dict):
-				# Process dictionary values in place
-				Agent._recursive_process_css_dict(field_value, css_replacements)
-			elif isinstance(field_value, (list, tuple)):
-				processed_value = Agent._recursive_process_css_list_or_tuple(field_value, css_replacements)
-				setattr(model, field_name, processed_value)
-
-	@staticmethod
-	def _recursive_process_css_dict(dictionary: dict, css_replacements: dict[str, str]) -> None:
-		"""Helper method to process dictionaries for CSS variables."""
-		for k, v in dictionary.items():
-			if isinstance(v, str):
-				dictionary[k] = Agent._replace_css_variables_in_string(v, css_replacements)
-			elif isinstance(v, BaseModel):
-				Agent._recursive_process_css_variables_in_pydantic_model(v, css_replacements)
-			elif isinstance(v, dict):
-				Agent._recursive_process_css_dict(v, css_replacements)
-			elif isinstance(v, (list, tuple)):
-				dictionary[k] = Agent._recursive_process_css_list_or_tuple(v, css_replacements)
-
-	@staticmethod
-	def _recursive_process_css_list_or_tuple(container: list | tuple, css_replacements: dict[str, str]) -> list | tuple:
-		"""Helper method to process lists and tuples for CSS variables."""
-		if isinstance(container, tuple):
-			processed_items = []
-			for item in container:
-				if isinstance(item, str):
-					processed_items.append(Agent._replace_css_variables_in_string(item, css_replacements))
-				elif isinstance(item, BaseModel):
-					Agent._recursive_process_css_variables_in_pydantic_model(item, css_replacements)
-					processed_items.append(item)
-				elif isinstance(item, dict):
-					Agent._recursive_process_css_dict(item, css_replacements)
-					processed_items.append(item)
-				elif isinstance(item, (list, tuple)):
-					processed_items.append(Agent._recursive_process_css_list_or_tuple(item, css_replacements))
-				else:
-					processed_items.append(item)
-			return tuple(processed_items)
-		else:
-			for i, item in enumerate(container):
-				if isinstance(item, str):
-					container[i] = Agent._replace_css_variables_in_string(item, css_replacements)
-				elif isinstance(item, BaseModel):
-					Agent._recursive_process_css_variables_in_pydantic_model(item, css_replacements)
-				elif isinstance(item, dict):
-					Agent._recursive_process_css_dict(item, css_replacements)
-				elif isinstance(item, (list, tuple)):
-					container[i] = Agent._recursive_process_css_list_or_tuple(item, css_replacements)
-			return container
-
-	# endregion - CSS Selector replacement
+	# endregion - CSS Selector replacement (removed - using rich attributes instead)
 
 	@time_execution_async('--get_next_action')
 	@observe_debug(ignore_input=True, ignore_output=True, name='get_model_output')
@@ -1249,10 +1161,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			if urls_replaced:
 				self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
 
-			# Replace CSS selector variables with actual selectors
-			css_replacements = await self._get_css_selector_replacements()
-			if css_replacements:
-				self._recursive_process_css_variables_in_pydantic_model(parsed, css_replacements)
+			# CSS selector variables no longer used - removed for simplicity
 
 			# cut the number of actions to max_actions_per_step if needed
 			if len(parsed.action) > self.settings.max_actions_per_step:
