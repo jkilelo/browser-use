@@ -33,6 +33,7 @@ async def test_focus_vs_all_elements():
 
 	# 10 Sample websites with various interactive elements
 	sample_websites = [
+		'https://browser-use.github.io/stress-tests/challenges/shadow-dom-dblclick.html',
 		'https://www.google.com/travel/flights',
 		'https://browser-use.github.io/stress-tests/challenges/angular-form.html',
 		'https://v0-simple-ui-test-site.vercel.app',

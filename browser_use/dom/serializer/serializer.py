@@ -468,7 +468,10 @@ class DOMTreeSerializer:
 		- Branches that contain text content
 		- Shadow DOM and iframe content if they contain interactive elements or text
 
-		Clickable elements get a highlight-index{INDEX} attribute for identification.
+		Special markers:
+		- |#shadow-root(open/closed)|...|#/shadow-root| for shadow DOM boundaries
+		- |#iframe-content|...|#/iframe-content| for iframe content boundaries
+		- highlight-index{INDEX} attributes for clickable elements
 		"""
 		if not node:
 			return ''
@@ -523,11 +526,21 @@ class DOMTreeSerializer:
 				else:
 					result_parts.append(f'<{tag_name}>')
 
-				# Process children
-				for child in node.children:
-					child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, depth + 1)
-					if child_text:
-						result_parts.append(child_text)
+				# Special handling for iframe elements with content
+				if tag_name in ['iframe', 'frame'] and node.children:
+					result_parts.append('|#iframe-content|')
+					# Process children
+					for child in node.children:
+						child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, depth + 1)
+						if child_text:
+							result_parts.append(child_text)
+					result_parts.append('|#/iframe-content|')
+				else:
+					# Process children normally
+					for child in node.children:
+						child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, depth + 1)
+						if child_text:
+							result_parts.append(child_text)
 
 				# Closing tag
 				result_parts.append(f'</{tag_name}>')
@@ -543,11 +556,18 @@ class DOMTreeSerializer:
 				result_parts.append(clean_text)
 
 		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
-			# Shadow DOM - process children directly
+			# Shadow DOM - add |#shadow-root| marker and process children
+			# Determine if shadow DOM is open or closed
+			shadow_type = getattr(node.original_node, 'shadow_root_type', 'closed')
+			if shadow_type is None:
+				shadow_type = 'closed'  # Default to closed if not specified
+
+			result_parts.append(f'|#shadow-root({shadow_type})|')
 			for child in node.children:
-				child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, depth)
+				child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, depth + 1)
 				if child_text:
 					result_parts.append(child_text)
+			result_parts.append('|#/shadow-root|')
 
 		return ''.join(result_parts)
 
