@@ -916,181 +916,90 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			'Execute robust JavaScript code via CDP Runtime.evaluate. Automatically handles DOM readiness, iframes, and CSP issues. Returns the value result from the JavaScript execution as a string, or "Executed successfully" if no value is returned. JavaScript errors return ActionResult with detailed error analysis.',
+			'Execute JavaScript code via CDP Runtime.evaluate. Returns the value result from the JavaScript execution as a string, or "Executed successfully" if no value is returned. JavaScript errors return ActionResult with detailed error analysis.',
 			param_model=ExecuteCDPAction,
 		)
 		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):
-			# Wrap code with robustness helpers
-			enhanced_code = self._enhance_javascript_code(params.javascript_code)
-
 			cdp_session = await browser_session.get_or_create_cdp_session()
+			try:
+				result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': params.javascript_code}, session_id=cdp_session.session_id
+				)
 
-			# Try execution with retry for transient failures
-			max_retries = 2
-			for attempt in range(max_retries + 1):
-				try:
-					result = await cdp_session.cdp_client.send.Runtime.evaluate(
-						params={
-							'expression': enhanced_code,
-							'awaitPromise': True,  # Handle async/await code
-							'timeout': 30000,  # 30 second timeout
-						},
-						session_id=cdp_session.session_id,
-					)
+				if result.get('exceptionDetails'):
+					exception = result['exceptionDetails']
 
-					if result.get('exceptionDetails'):
-						exception = result['exceptionDetails']
+					# Check for CSP or security policy errors
+					error_text = exception.get('text', '')
+					error_description = exception.get('exception', {}).get('description', '')
+					combined_error = f'{error_text} {error_description}'.lower()
 
-						# Check for CSP or security policy errors
-						error_text = exception.get('text', '')
-						error_description = exception.get('exception', {}).get('description', '')
-						combined_error = f'{error_text} {error_description}'.lower()
-
-						if any(
-							csp_term in combined_error
-							for csp_term in ['content security policy', 'refused to execute', 'unsafe-eval']
-						):
-							return ActionResult(
-								error=f'Content Security Policy (CSP) blocked JavaScript execution. The website prevents running custom JavaScript code.\n\nTip: Try using built-in browser actions instead of custom JavaScript.\n\nFailed code: {params.javascript_code[:150]}...'
-							)
-
-						# Extract comprehensive error information
-						error_parts = []
-
-						# Basic error info
-						error_type = exception.get('exception', {}).get('className', 'Error')
-						error_description = exception.get(
-							'text', exception.get('exception', {}).get('description', 'Unknown error')
+					if any(
+						csp_term in combined_error
+						for csp_term in ['content security policy', 'refused to execute', 'unsafe-eval']
+					):
+						return ActionResult(
+							error=f'Content Security Policy (CSP) blocked JavaScript execution. Website prevents running custom JavaScript.\n\nFailed code: {params.javascript_code[:150]}...'
 						)
-						error_parts.append(f'{error_type}: {error_description}')
 
-						# Location information
-						line_num = exception.get('lineNumber', 0)
-						column_num = exception.get('columnNumber', 0)
-						if line_num > 0:
-							# Adjust line number for our wrapper code
-							actual_line = max(1, line_num - 10)  # Account for wrapper code
-							error_parts.append(f'at line {actual_line}, column {column_num + 1}')
+					# Extract comprehensive error information
+					error_parts = []
 
-						# Stack trace if available
-						stack_trace = exception.get('exception', {}).get('description')
-						if stack_trace and stack_trace != error_description:
-							lines = stack_trace.split('\n')
-							if len(lines) > 1:
-								stack_info = lines[1].strip() if len(lines) > 1 else ''
-								if stack_info and 'at ' in stack_info:
-									error_parts.append(f'Stack: {stack_info}')
+					# Basic error info
+					error_type = exception.get('exception', {}).get('className', 'Error')
+					error_description = exception.get('text', exception.get('exception', {}).get('description', 'Unknown error'))
+					error_parts.append(f'{error_type}: {error_description}')
 
-						# Add common JavaScript debugging tips
-						debugging_tips = self._get_javascript_debugging_tips(
-							error_type, error_description, params.javascript_code
-						)
-						if debugging_tips:
-							error_parts.append(f'Tip: {debugging_tips}')
+					# Location information
+					line_num = exception.get('lineNumber', 0)
+					column_num = exception.get('columnNumber', 0)
+					if line_num > 0:
+						error_parts.append(f'at line {line_num + 1}, column {column_num + 1}')
 
-						# Compile comprehensive error message
-						detailed_error = ' | '.join(error_parts)
-						code_preview = params.javascript_code
-						if len(code_preview) > 150:
-							code_preview = code_preview[:150] + '...'
+					# Stack trace if available
+					stack_trace = exception.get('exception', {}).get('description')
+					if stack_trace and stack_trace != error_description:
+						lines = stack_trace.split('\n')
+						if len(lines) > 1:
+							stack_info = lines[1].strip()
+							if stack_info and 'at ' in stack_info:
+								error_parts.append(f'Stack: {stack_info}')
 
-						full_error_msg = f'{detailed_error}\n\nFailed code: {code_preview}'
-						logger.error(f'❌ JavaScript execution failed: {detailed_error}')
-						return ActionResult(error=f'JavaScript execution failed: {full_error_msg}')
+					# Add debugging tips
+					debugging_tips = self._get_javascript_debugging_tips(error_type, error_description, params.javascript_code)
+					if debugging_tips:
+						error_parts.append(f'Tip: {debugging_tips}')
 
-					# Handle successful execution
-					result_obj = result.get('result', {})
-					value = result_obj.get('value')
+					# Compile error message
+					detailed_error = ' | '.join(error_parts)
+					code_preview = params.javascript_code[:150] + ('...' if len(params.javascript_code) > 150 else '')
+					full_error_msg = f'{detailed_error}\n\nFailed code: {code_preview}'
 
-					# Handle different return types
-					if value is None:
-						result_type = result_obj.get('type', 'undefined')
-						if result_type == 'undefined':
-							response_msg = 'Executed successfully (returned undefined)'
-						elif result_type == 'object' and result_obj.get('subtype') == 'null':
-							response_msg = 'Executed successfully (returned null)'
-						else:
-							response_msg = f'Executed successfully (returned {result_type})'
+					logger.error(f'❌ JavaScript execution failed: {detailed_error}')
+					return ActionResult(error=f'JavaScript execution failed: {full_error_msg}')
+
+				# Handle successful execution
+				result_obj = result.get('result', {})
+				value = result_obj.get('value')
+
+				if value is None:
+					result_type = result_obj.get('type', 'undefined')
+					if result_type == 'undefined':
+						response_msg = 'Executed successfully (returned undefined)'
+					elif result_type == 'object' and result_obj.get('subtype') == 'null':
+						response_msg = 'Executed successfully (returned null)'
 					else:
-						# Handle complex objects
-						if isinstance(value, dict) and len(str(value)) > 500:
-							response_msg = f'Executed successfully (returned large object: {str(value)[:200]}...)'
-						else:
-							response_msg = str(value)
+						response_msg = f'Executed successfully (returned {result_type})'
+				else:
+					response_msg = str(value)
 
-					logger.info('✅ CDP execution completed successfully')
-					return ActionResult(
-						extracted_content=response_msg,
-						long_term_memory=f'Executed JavaScript: {params.javascript_code[:100]}...'
-						if len(params.javascript_code) > 100
-						else f'Executed JavaScript: {params.javascript_code}',
-					)
-
-				except Exception as e:
-					error_str = str(e).lower()
-
-					# Retry on transient failures
-					if attempt < max_retries and ('timeout' in error_str or 'connection' in error_str):
-						logger.warning(f'Retrying JavaScript execution (attempt {attempt + 1}/{max_retries}) due to: {str(e)}')
-						await asyncio.sleep(1)  # Brief delay before retry
-						continue
-
-					# Final failure handling
-					import traceback
-
-					tb_str = traceback.format_exc()
-					error_details = f'CDP execution failed with Python exception: {type(e).__name__}: {str(e)}'
-
-					# Add context for common errors
-					if 'CDP client not initialized' in str(e):
-						error_details += '\n\nBrowser session lost connection. The page may have navigated or browser crashed.'
-					elif 'timeout' in str(e).lower():
-						error_details += f'\n\nJavaScript execution timed out (>30s). Code may be stuck in infinite loop or waiting for user interaction.\n\nCode: {params.javascript_code[:200]}...'
-					elif 'connection' in str(e).lower():
-						error_details += '\n\nBrowser connection lost. Page may have navigated away or browser closed.'
-
-					logger.error(f'❌ CDP execution failed with exception: {error_details}\nFull traceback: {tb_str}')
-					return ActionResult(error=error_details)
-
-			# This shouldn't be reached, but just in case
-			return ActionResult(error='JavaScript execution failed after all retries')
-
-	def _enhance_javascript_code(self, code: str) -> str:
-		"""Enhance JavaScript code with robustness helpers."""
-		# Add helpers for common operations
-		enhanced_code = f"""
-		// Robustness helpers
-		function waitForElement(selector, timeout = 5000) {{
-			return new Promise((resolve) => {{
-				const element = document.querySelector(selector);
-				if (element) return resolve(element);
-				
-				const observer = new MutationObserver(() => {{
-					const element = document.querySelector(selector);
-					if (element) {{
-						observer.disconnect();
-						resolve(element);
-					}}
-				}});
-				
-				observer.observe(document.body, {{ childList: true, subtree: true }});
-				setTimeout(() => {{ observer.disconnect(); resolve(null); }}, timeout);
-			}});
-		}}
-		
-		function getIframeDocument(iframeSelector) {{
-			const iframe = document.querySelector(iframeSelector);
-			return iframe ? iframe.contentDocument || iframe.contentWindow.document : null;
-		}}
-		
-		// Execute user code
-		try {{
-			{code}
-		}} catch (error) {{
-			throw new Error(`User code error: ${{error.message}}`);
-		}}
-		"""
-		return enhanced_code
+				logger.info('✅ CDP execution completed successfully')
+				return ActionResult(
+					long_term_memory=f'Executed JavaScript: {params.javascript_code} Result: {response_msg}',
+				)
+			except Exception as e:
+				logger.error(f'❌ CDP execution failed with exception: {e}')
+				return ActionResult(error=f'CDP execution failed: {str(e)}')
 
 	def _get_javascript_debugging_tips(self, error_type: str, error_description: str, code: str) -> str:
 		"""Provide debugging tips based on the error type."""
