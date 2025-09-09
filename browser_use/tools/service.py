@@ -972,7 +972,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 					# Compile error message
 					detailed_error = ' | '.join(error_parts)
-					code_preview = params.javascript_code[:150] + ('...' if len(params.javascript_code) > 150 else '')
+					code_preview = params.javascript_code[:1000] + ('...' if len(params.javascript_code) > 1000 else '')
 					full_error_msg = f'{detailed_error}\n\nFailed code: {code_preview}'
 
 					logger.error(f'❌ JavaScript execution failed: {detailed_error}')
