@@ -916,7 +916,17 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			'Execute JavaScript code via CDP Runtime.evaluate. Returns the value result from the JavaScript execution as a string, or "Executed successfully" if no value is returned. JavaScript errors return ActionResult with detailed error analysis.',
+			"""Execute JavaScript code via CDP Runtime.evaluate. Returns result as string.
+
+Write clean JavaScript with proper selectors. Use ${var1}, ${var2} variables for convenience if needed.
+
+EXAMPLES:
+- Test: document.querySelector('button')?.textContent || 'missing'
+- Extract: JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.href))
+- Count: document.querySelectorAll('div').length
+- Variables: document.querySelector('${var1}')?.textContent || 'missing'
+
+Use single expressions with JSON.stringify() for complex data extraction.""",
 			param_model=ExecuteCDPAction,
 		)
 		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):

@@ -1146,18 +1146,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	# region - CSS Selector replacement
 
-	def _get_css_selector_replacements(self) -> dict[str, str]:
+	async def _get_css_selector_replacements(self) -> dict[str, str]:
 		"""Create CSS selector variable replacements from current browser state."""
 		css_replacements = {}
 
-		# Get current selector map from browser state
+		# Get current selector map from browser session
 		try:
-			if self.browser_session._cached_selector_map:
-				selector_map = self.browser_session._cached_selector_map
-				for index, node in selector_map.items():
-					css_var = f'${{var{index}}}'
-					actual_selector = node.css_selector if hasattr(node, 'css_selector') else f'[data-index="{index}"]'
-					css_replacements[css_var] = actual_selector
+			selector_map = await self.browser_session.get_selector_map()
+			for index, node in selector_map.items():
+				css_var = f'${{var{index}}}'
+				actual_selector = node.css_selector if hasattr(node, 'css_selector') else f'[data-index="{index}"]'
+				css_replacements[css_var] = actual_selector
 		except Exception as e:
 			self.logger.debug(f'Failed to get CSS selector replacements: {e}')
 
@@ -1251,7 +1250,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
 
 			# Replace CSS selector variables with actual selectors
-			css_replacements = self._get_css_selector_replacements()
+			css_replacements = await self._get_css_selector_replacements()
 			if css_replacements:
 				self._recursive_process_css_variables_in_pydantic_model(parsed, css_replacements)
 
