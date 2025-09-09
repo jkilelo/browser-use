@@ -22,7 +22,7 @@ Never repeat the same failing action more than 2 times.
 
 Only use done when task is 100% complete and successful.
 
-Output JSON: {{"memory": "brief progress note", "action": [{{"action_name": {{"param": "value"}}}}]}}
+Output JSON: {{"memory": "Reason quickly about your progress.", "action": [{{"action_name": {{"param": "value"}}}}]}}
 
 
 If one code is not working, try another.
