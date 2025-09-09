@@ -15,73 +15,40 @@ from browser_use.dom.utils import cap_text_length
 from browser_use.observability import observe_debug
 
 # Serializer types
+
 DEFAULT_INCLUDE_ATTRIBUTES = [
-	# Core identification attributes (critical for JavaScript selectors)
-	'name',
-	'data-testid',
-	'data-test',
-	'data-cy',
-	# Form attributes
+	'title',
 	'type',
+	'checked',
+	'name',
+	'role',
 	'value',
 	'placeholder',
-	'required',
-	'disabled',
-	'checked',
-	'selected',
-	'readonly',
-	'autocomplete',
-	'min',
-	'max',
-	'step',
-	'pattern',
-	'maxlength',
-	'minlength',
-	# Link and media attributes
-	'href',
-	'src',
+	'data-date-format',
 	'alt',
-	'target',
-	'rel',
-	'download',
-	# Semantic and accessibility
-	'role',
 	'aria-label',
 	'aria-expanded',
-	'aria-checked',
-	'aria-selected',
-	'aria-hidden',
-	'aria-describedby',
-	'aria-labelledby',
-	'title',
-	# Interactive states
 	'data-state',
-	'data-active',
-	'data-selected',
-	'data-disabled',
-	'data-loading',
-	# Common framework attributes
-	'data-v-',
-	'ng-',
-	'data-react',
-	'data-component',
-	'data-element',
-	# Content attributes
-	'contenteditable',
-	'spellcheck',
-	'draggable',
-	'tabindex',
-	# Accessibility properties from ax_node
+	'aria-checked',
+	# Accessibility properties from ax_node (ordered by importance for automation)
+	'checked',
+	'selected',
 	'expanded',
 	'pressed',
+	'disabled',
+	# 'invalid',
+	'valuenow',
+	'keyshortcuts',
 	'haspopup',
 	'multiselectable',
-	'valuenow',
+	# Less commonly needed (uncomment if required):
+	# 'readonly',
+	'required',
 	'valuetext',
-	'keyshortcuts',
 	'level',
 	'busy',
 	'live',
+	# Accessibility name (contains text content for StaticText elements)
 	'ax_name',
 ]
 

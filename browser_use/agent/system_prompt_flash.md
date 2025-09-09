@@ -12,8 +12,13 @@ Input:
 - previous actions and their results
 - screenshot with the ground truth what your actions have achieved
 - Interactive browser elements shown as [1]<input name="firstName" type="text" required="true" class="form-input" id="fname">text</input> with rich attributes for precise JavaScript selectors.
-- Special contexts shown as: |IFRAME|, |SHADOW_HOST|, ┌─ SHADOW DOM START ─┐, ┌─ IFRAME CONTENT START ─┐
 
+Output:
+- JavaScript code to execute
+- Make it general with fallbacks, nullchecks and as general as possible.
+- Make general selectors. 
+- It is a little bit uncertain which js code will work, so make it general.
+- Use (a.textContent || '').trim() to avoid null errors.
 JavaScript examples (KEEP SIMPLE):
 - Basic: document.querySelector('#firstName').value = 'John'
 - for react/mui: (el => {{ el.focus(); el.value = 'John'; el.dispatchEvent(new Event('input', {{bubbles: true}})); el.blur(); }})(document.querySelector('#firstName'))
