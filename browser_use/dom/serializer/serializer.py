@@ -453,21 +453,44 @@ class DOMTreeSerializer:
 				# Build attributes string
 				attributes_html_str = DOMTreeSerializer._build_attributes_string(node.original_node, include_attributes, '')
 
-				# Build the line
-				if should_show_scroll and node.interactive_index is None:
+				# Build the line with enhanced boundary markers
+				special_markers = []
+
+				# Check for iframe boundaries
+				if node.original_node.tag_name.upper() in ('IFRAME', 'FRAME'):
+					special_markers.append('IFRAME')
+
+				# Check for shadow root host
+				if node.original_node.shadow_roots:
+					special_markers.append('SHADOW_HOST')
+
+				# Check for content document (iframe content)
+				if node.original_node.content_document:
+					special_markers.append('IFRAME_CONTENT')
+
+				# Build the line based on type and markers
+				if should_show_scroll and node.interactive_index is None and not special_markers:
 					# Scrollable container but not clickable
 					line = f'{depth_str}|SCROLL|<{node.original_node.tag_name}'
 				elif node.interactive_index is not None:
 					# Clickable (and possibly scrollable) - show with rich attributes
 					new_prefix = '*' if node.is_new else ''
-					scroll_prefix = '|SCROLL+' if should_show_scroll else '['
-					line = f'{depth_str}{new_prefix}{scroll_prefix}{node.interactive_index}]<{node.original_node.tag_name}'
-				elif node.original_node.tag_name.upper() == 'IFRAME':
-					# Iframe element (not interactive)
-					line = f'{depth_str}|IFRAME|<{node.original_node.tag_name}'
-				elif node.original_node.tag_name.upper() == 'FRAME':
-					# Frame element (not interactive)
-					line = f'{depth_str}|FRAME|<{node.original_node.tag_name}'
+
+					# Build prefix with special markers
+					if special_markers:
+						marker_str = '+'.join(special_markers)
+						if should_show_scroll:
+							prefix = f'|{marker_str}+SCROLL+['
+						else:
+							prefix = f'|{marker_str}+['
+					else:
+						prefix = '|SCROLL+[' if should_show_scroll else '['
+
+					line = f'{depth_str}{new_prefix}{prefix}{node.interactive_index}]<{node.original_node.tag_name}'
+				elif special_markers:
+					# Special boundary element (iframe, shadow root, etc.)
+					marker_str = '+'.join(special_markers)
+					line = f'{depth_str}|{marker_str}|<{node.original_node.tag_name}'
 				else:
 					line = f'{depth_str}<{node.original_node.tag_name}'
 
@@ -496,11 +519,25 @@ class DOMTreeSerializer:
 				clean_text = node.original_node.node_value.strip()
 				formatted_text.append(f'{depth_str}{clean_text}')
 
+		# Add boundary markers for special contexts
+		if node.original_node.shadow_roots:
+			formatted_text.append(f'{depth_str}  ┌─ SHADOW DOM START ─┐')
+
+		if node.original_node.content_document:
+			formatted_text.append(f'{depth_str}  ┌─ IFRAME CONTENT START ─┐')
+
 		# Process children
 		for child in node.children:
 			child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, next_depth)
 			if child_text:
 				formatted_text.append(child_text)
+
+		# Add end boundary markers
+		if node.original_node.content_document:
+			formatted_text.append(f'{depth_str}  └─ IFRAME CONTENT END ─┘')
+
+		if node.original_node.shadow_roots:
+			formatted_text.append(f'{depth_str}  └─ SHADOW DOM END ─┘')
 
 		return '\n'.join(formatted_text)
 

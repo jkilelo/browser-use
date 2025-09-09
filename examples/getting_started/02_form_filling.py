@@ -21,7 +21,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from lmnr import Laminar
+
 from browser_use import Agent, ChatOpenAI
+
+Laminar.initialize()
 
 
 async def main():
@@ -40,10 +44,11 @@ async def main():
     - Comments: This is a test form submission
     
     Then submit the form and tell me what response you get.
+
     """
 
 	# Create and run the agent
-	agent = Agent(task=task, llm=llm)
+	agent = Agent(task=task, llm=llm, flash_mode=True)
 	await agent.run()
 
 

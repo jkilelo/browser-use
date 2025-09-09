@@ -928,6 +928,10 @@ ONE LINE EXAMPLES:
 - Navigate: window.location.href = 'https://example.com/page'
 - Scroll: window.scrollBy(0, 500)
 
+SPECIAL CONTEXTS:
+- Shadow DOM: Use element.shadowRoot.querySelector() for elements inside ┌─ SHADOW DOM START ─┐
+- Iframe: Use iframe.contentDocument.querySelector() for elements inside ┌─ IFRAME CONTENT START ─┐
+
 ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never repeat failing code.""",
 			param_model=ExecuteCDPAction,
 		)
