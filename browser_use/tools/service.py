@@ -916,22 +916,25 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			"""Execute JavaScript code via CDP Runtime.evaluate. Auto-fixes common syntax errors.
+			"""Execute JavaScript - SINGLE LINE ONLY. Auto-fixes syntax errors. 
 
-EXAMPLES (evaluation-tested):
-- Count: document.querySelectorAll('a').length
+ONE LINE EXAMPLES:
+- Count: document.querySelectorAll('a').length  
 - Extract: JSON.stringify(Array.from(document.querySelectorAll('div')).map(el => el.textContent.trim()))
-- Test: document.querySelector('button').textContent || 'missing'
-- Variables: document.querySelector('${var1}').textContent || 'missing'
+- Navigate: window.location.href = 'https://example.com/page'
+- Scroll: window.scrollBy(0, 500)
 
-CRITICAL: If this fails, DON'T repeat same code. Try different selectors or navigate with window.location.href.
-
-Auto-fixes: Missing quotes, return statements, optional chaining issues.""",
+ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never repeat failing code.""",
 			param_model=ExecuteCDPAction,
 		)
 		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):
 			# Pre-process JavaScript to fix common issues
-			enhanced_code = self._fix_common_js_issues(params.javascript_code)
+			original_code = params.javascript_code
+			enhanced_code = self._fix_common_js_issues(original_code)
+
+			# Log the transformation for debugging
+			if enhanced_code != original_code:
+				logger.debug(f'🔧 JS Auto-fix applied:\nOriginal: {original_code[:100]}...\nFixed: {enhanced_code[:100]}...')
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
 			try:
@@ -1041,33 +1044,35 @@ Auto-fixes: Missing quotes, return statements, optional chaining issues.""",
 		code = re.sub(r'\?\.\s*', '.', code)
 
 		# Fix missing quotes around selectors
-		# Match querySelectorAll(word) and add quotes
 		code = re.sub(r'querySelectorAll\(([a-zA-Z]\w*)\)', r"querySelectorAll('\1')", code)
 		code = re.sub(r'querySelector\(([a-zA-Z]\w*)\)', r"querySelector('\1')", code)
 
-		# Ensure multiline code returns a value
-		lines = code.strip().split('\n')
+		# Handle multiline code - convert to single expression or add return
+		lines = [line.strip() for line in code.strip().split('\n') if line.strip()]
+
 		if len(lines) > 1:
-			last_line = lines[-1].strip()
-			# If last line is an expression without return/JSON.stringify, wrap it
-			if not last_line.startswith(('return', 'JSON.stringify', 'console.')) and ';' not in last_line:
-				if '?' in last_line and ':' in last_line:  # Ternary expression
-					lines[-1] = f'return ({last_line})'
-				elif not last_line.endswith(';'):
-					lines[-1] = f'return {last_line}'
+			# Check if last line is already a return or single expression
+			last_line = lines[-1]
 
-			code = '\n'.join(lines)
+			# If last line ends with semicolon, it's a statement not expression
+			if last_line.endswith(';'):
+				# Convert last statement to return
+				if last_line.startswith('JSON.stringify'):
+					lines[-1] = f'return {last_line[:-1]}'  # Remove ; and add return
+				elif not last_line.startswith('return'):
+					lines[-1] = f'return {last_line[:-1]}'  # Remove ; and add return
 
-		# Wrap in try-catch for robustness
-		safe_code = f"""
-try {{
-	{code}
-}} catch(err) {{
-	return 'JavaScript error: ' + err.message;
-}}
-"""
+			# Join with semicolons for multiple statements
+			if any(line.startswith('return') for line in lines):
+				code = '; '.join(lines[:-1]) + '; ' + lines[-1]
+			else:
+				# If no return, make it a single expression
+				if lines[-1].startswith('JSON.stringify'):
+					code = '; '.join(lines)
+				else:
+					code = '; '.join(lines[:-1]) + '; return ' + lines[-1]
 
-		return safe_code
+		return code
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
