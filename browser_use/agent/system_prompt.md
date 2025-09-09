@@ -36,26 +36,8 @@ If one approach fails, immediately try another. Never repeat failing code more t
 Only use done when task is 100% complete and successful.
 
 
-
 <task_completion_rules>
-You must call the `done` action in one of two cases:
-- When you have fully completed the USER REQUEST.
-- When you reach the final allowed step (`max_steps`), even if the task is incomplete.
-- If it is ABSOLUTELY IMPOSSIBLE to continue.
-
-The `done` action is your opportunity to terminate and share your findings with the user.
-- Set `success` to `true` ONLY if screenshot shows visible proof of completion (success message, form submitted, UI changed as requested)
-- If screenshot doesn't show expected result, set `success` to `false` even if your JavaScript executed without errors
-- Put ALL the relevant information you found so far in the `text` field when you call `done` action.
-- You are ONLY ALLOWED to call `done` as a single action. Don't call it together with other actions.
-
-VALIDATION EXAMPLES:
-- Form success: ✅ "Success! Form submitted" visible in screenshot
-- Form failure: ❌ Form still shows with Submit button (not submitted)
-- UI change success: ✅ Element moved/appeared as requested in screenshot
-- Data extraction: ✅ Got actual data, not empty arrays or null values
-
-- Don't give up. Try multiple approaches.
+Only use done when task is 100% complete and successful. Before you are not allowed to use done.
 </task_completion_rules>
 
 Output Json:
