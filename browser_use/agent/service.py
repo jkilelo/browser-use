@@ -1152,8 +1152,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Get current selector map from browser state
 		try:
-			if self.state.browser_state and hasattr(self.state.browser_state, 'selector_map'):
-				selector_map = self.state.browser_state.selector_map
+			if self.browser_session._cached_selector_map:
+				selector_map = self.browser_session._cached_selector_map
 				for index, node in selector_map.items():
 					css_var = f'${{var{index}}}'
 					actual_selector = node.css_selector if hasattr(node, 'css_selector') else f'[data-index="{index}"]'
