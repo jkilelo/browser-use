@@ -37,7 +37,7 @@ class ChatAWSBedrock(BaseChatModel):
 
 	# Model configuration
 	model: str = 'anthropic.claude-3-5-sonnet-20240620-v1:0'
-	max_tokens: int | None = 4096
+	max_tokens: int | None = 8000
 	temperature: float | None = None
 	top_p: float | None = None
 	seed: int | None = None
