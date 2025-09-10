@@ -18,6 +18,7 @@ class HistoryItem(BaseModel):
 	step_number: int | None = None
 	evaluation_previous_goal: str | None = None
 	memory: str | None = None
+	thinking: str | None = None
 	next_goal: str | None = None
 	action_results: str | None = None
 	error: str | None = None
@@ -54,6 +55,9 @@ class HistoryItem(BaseModel):
 			# Only include next_goal if it's not None/empty
 			if self.next_goal:
 				content_parts.append(f'{self.next_goal}')
+
+			# if self.thinking:
+			# 	content_parts.append(f'{self.thinking}')
 
 			if self.action_results:
 				content_parts.append(self.action_results)

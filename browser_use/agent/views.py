@@ -147,9 +147,9 @@ class AgentOutput(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True, extra='forbid')
 
 	thinking: str | None = None
-	evaluation_previous_goal: str | None = None
-	memory: str | None = None
-	next_goal: str | None = None
+	# evaluation_previous_goal: str | None = None
+	# memory: str | None = None
+	# next_goal: str | None = None
 	action: list[ActionModel] = Field(
 		...,
 		description='List of actions to execute',
@@ -167,9 +167,9 @@ class AgentOutput(BaseModel):
 		"""For backward compatibility - returns an AgentBrain with the flattened properties"""
 		return AgentBrain(
 			thinking=self.thinking,
-			evaluation_previous_goal=self.evaluation_previous_goal if self.evaluation_previous_goal else '',
-			memory=self.memory if self.memory else '',
-			next_goal=self.next_goal if self.next_goal else '',
+			evaluation_previous_goal='',
+			memory='',
+			next_goal='',
 		)
 
 	@staticmethod
@@ -269,13 +269,13 @@ class AgentHistory(BaseModel):
 		"""Custom serialization handling circular references"""
 
 		# Handle action serialization
-		model_output_dump = None
+		model_output_dump: dict[str, Any] | None = None
 		if self.model_output:
 			action_dump = [action.model_dump(exclude_none=True) for action in self.model_output.action]
 			model_output_dump = {
-				'evaluation_previous_goal': self.model_output.evaluation_previous_goal,
-				'memory': self.model_output.memory,
-				'next_goal': self.model_output.next_goal,
+				# 'evaluation_previous_goal': self.model_output.evaluation_previous_goal,
+				# 'memory': self.model_output.memory,
+				# 'next_goal': self.model_output.next_goal,
 				'action': action_dump,  # This preserves the actual action data
 			}
 			# Only include thinking if it's present

@@ -235,6 +235,7 @@ class MessageManager:
 				memory=model_output.current_state.memory,
 				next_goal=model_output.current_state.next_goal,
 				action_results=action_results,
+				thinking=model_output.thinking,
 			)
 			self.state.agent_history_items.append(history_item)
 

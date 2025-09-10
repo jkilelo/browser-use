@@ -1013,6 +1013,10 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 				else:
 					response_msg = str(value)
 
+				# cap the value to 10_000 characters
+				if len(response_msg) > 10_000:
+					response_msg = response_msg[:10_000] + '[... truncated at 10_000 characters for token limit]'
+
 				logger.info('✅ CDP execution completed successfully')
 				return ActionResult(
 					extracted_content=f'Executed JavaScript: {params.javascript_code} Result: {response_msg}',
