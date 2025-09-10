@@ -568,7 +568,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
-	disable_css: bool = Field(default=True, description='Disable CSS loading for faster page loading and cleaner DOM parsing.')
+	disable_css: bool = Field(default=False, description='Disable CSS loading for faster page loading and cleaner DOM parsing.')
 	extend_viewport_px: int = Field(
 		default=1000,
 		description='Extend viewport by X pixels in all directions for DOM visibility detection. Allows capturing more off-screen content.',
