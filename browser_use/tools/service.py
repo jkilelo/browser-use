@@ -92,7 +92,7 @@ class Tools(Generic[Context]):
 		'upload_file_to_element',
 		# 'switch_tab',
 		# 'close_tab',
-		'extract_structured_data',
+		# 'extract_structured_data',
 		'scroll',
 		'send_keys',
 		'scroll_to_text',
@@ -558,14 +558,11 @@ class Tools(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			"""This tool sends the markdown of the current page with the query to an LLM to extract structured, semantic data (e.g. product description, price, all information about XYZ) from the markdown of the current webpage based on a query.
+			"""This tool sends the full-page markdown of the current page with the query to a small LLM to extract structured, semantic data (e.g. product description, price, all information about XYZ) from the markdown of the current webpage based on a query.
 Only use when:
 - You are sure that you are on the right page for the query
 - You know exactly the information you need to extract from the page
 - You did not previously call this tool on the same page
-You can not use this tool to:
-- Get interactive elements like buttons, links, dropdowns, menus, etc.
-- If you previously asked extract_structured_data on the same page with the same query, you should not call it again.
 
 Set extract_links=True only if your query requires extracting links/URLs from the page.
 Use start_from_char to start extraction from a specific character position (use if extraction was previously truncated and you want more content).
