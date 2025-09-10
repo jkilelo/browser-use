@@ -924,15 +924,9 @@ You can also use it to explore the website.
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
 					params={'expression': code, 'returnByValue': True}, session_id=cdp_session.session_id
 				)
-				# Handle the result properly
-				if 'exceptionDetails' in result:
-					error_message = result.get('exceptionDetails', {}).get('text', '')
-					logger.debug(f'❌ JavaScript execution error: {error_message}')
-					return ActionResult(error=f'JavaScript execution failed: {error_message}')
-
-				result_value = result.get('result', {}).get('value', '')
-				logger.debug('✅ JavaScript executed successfully')
-				return ActionResult(extracted_content=result_value)
+				text = f'code: {code}\n\nresult: {result}'
+				logger.debug(text)
+				return ActionResult(extracted_content=text)
 
 			except Exception as e:
 				return ActionResult(error=f'Failed to execute JavaScript: {e}')
