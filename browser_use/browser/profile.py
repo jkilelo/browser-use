@@ -102,6 +102,14 @@ CHROME_DETERMINISTIC_RENDERING_ARGS = [
 	'--force-color-profile=srgb',
 ]
 
+CHROME_DISABLE_CSS_ARGS = [
+	'--disable-remote-fonts',
+	'--disable-background-downloads',
+	'--disable-extensions-http-throttling',
+	'--disable-default-apps',
+	'--aggressive-cache-discard',
+]
+
 CHROME_DEFAULT_ARGS = [
 	# # provided by playwright by default: https://github.com/microsoft/playwright/blob/41008eeddd020e2dee1c540f7c0cdfa337e99637/packages/playwright-core/src/server/chromium/chromiumSwitches.ts#L76
 	'--disable-field-trial-config',  # https://source.chromium.org/chromium/chromium/src/+/main:testing/variations/README.md
@@ -560,6 +568,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 		description='List of allowed domains for navigation e.g. ["*.google.com", "https://example.com", "chrome-extension://*"]',
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
+	disable_css: bool = Field(default=True, description='Disable CSS loading for faster page loading and cleaner DOM parsing.')
 
 	# --- Proxy settings ---
 	# New consolidated proxy config (typed)
@@ -746,6 +755,7 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 			*(CHROME_HEADLESS_ARGS if self.headless else []),
 			*(CHROME_DISABLE_SECURITY_ARGS if self.disable_security else []),
 			*(CHROME_DETERMINISTIC_RENDERING_ARGS if self.deterministic_rendering else []),
+			*(CHROME_DISABLE_CSS_ARGS if self.disable_css else []),
 			*(
 				[f'--window-size={self.window_size["width"]},{self.window_size["height"]}']
 				if self.window_size
