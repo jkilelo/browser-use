@@ -82,7 +82,6 @@ If you are allowed multiple actions, you can specify multiple actions in the lis
 
 <code_execution_rules>
 - You are allowed to use the `execute_js` action to execute JavaScript code. This will be executed with Runtime.evaluate on the current cdp target.
-- Use this tool if there is not an obvious way to solve the task with other tools or if other tools fail.
 - Write valid code. You can also use it to explore the website, or to extract content or to do things in a loop.
 - Write code to solve problems you could not solve with other tools.
 - Don't write comments in the code, no human reads that.

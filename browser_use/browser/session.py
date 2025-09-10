@@ -273,6 +273,7 @@ class BrowserSession(BaseModel):
 		# Iframe processing limits
 		max_iframes: int | None = None,
 		max_iframe_depth: int | None = None,
+		disable_css: bool | None = None,
 	):
 		# Following the same pattern as AgentSettings in service.py
 		# Only pass non-None values to avoid validation errors
@@ -1210,6 +1211,9 @@ class BrowserSession(BaseModel):
 			# Enable proxy authentication handling if configured
 			await self._setup_proxy_auth()
 
+			# Enable CSS blocking if configured
+			await self._setup_css_blocking()
+
 			# Verify the session is working
 			try:
 				if self.agent_focus:
@@ -1390,6 +1394,130 @@ class BrowserSession(BaseModel):
 				self.logger.debug(f'Fetch.enable on focused session failed: {type(e).__name__}: {e}')
 		except Exception as e:
 			self.logger.debug(f'Skipping proxy auth setup: {type(e).__name__}: {e}')
+
+	async def _setup_css_blocking(self) -> None:
+		"""Setup CSS blocking via script injection on every new document."""
+		try:
+			if not self.browser_profile.disable_css:
+				return
+
+			if not self.agent_focus:
+				self.logger.debug('❌ No agent focus available for CSS blocking setup')
+				return
+
+			self.logger.debug('🎨 Setting up CSS blocking via automatic script injection...')
+
+			# CSS blocking script that runs on every new page
+			css_blocking_script = """
+				(function() {
+					// Block CSS by overriding link and style element behavior
+					
+					// 1. Override createElement to neuter style and link elements
+					const originalCreateElement = document.createElement;
+					document.createElement = function(tagName) {
+						const element = originalCreateElement.call(document, tagName);
+						
+						if (tagName.toLowerCase() === 'style') {
+							// Disable style elements
+							element.disabled = true;
+							return element;
+						} else if (tagName.toLowerCase() === 'link') {
+							// Block stylesheets but allow other link types
+							const originalSetAttribute = element.setAttribute;
+							element.setAttribute = function(name, value) {
+								if (name === 'rel' && (value === 'stylesheet' || value === 'preload')) {
+									// Block stylesheet and CSS preload links
+									return;
+								}
+								return originalSetAttribute.call(this, name, value);
+							};
+							return element;
+						}
+						
+						return element;
+					};
+					
+					// 2. Remove existing stylesheets and disable new ones
+					function removeAllCSS() {
+						// Remove existing link[rel="stylesheet"] elements
+						const links = document.querySelectorAll('link[rel="stylesheet"], link[rel="preload"][as="style"]');
+						links.forEach(link => link.remove());
+						
+						// Remove existing style elements except our blocker
+						const styles = document.querySelectorAll('style:not([data-css-blocker])');
+						styles.forEach(style => style.remove());
+						
+						// Add minimal readable styling
+						const blockerStyle = document.createElement('style');
+						blockerStyle.setAttribute('data-css-blocker', 'true');
+						blockerStyle.textContent = `
+							body { 
+								font-family: monospace !important; 
+								font-size: 14px !important; 
+								line-height: 1.4 !important; 
+								color: #000 !important; 
+								background: #fff !important; 
+								margin: 8px !important;
+							}
+							div, p, h1, h2, h3, h4, h5, h6 { 
+								margin: 4px 0 !important; 
+								padding: 0 !important; 
+							}
+							img { max-width: 32px !important; max-height: 32px !important; opacity: 0.5 !important; }
+						`;
+						(document.head || document.documentElement).appendChild(blockerStyle);
+					}
+					
+					// 3. Run CSS removal immediately and on DOM changes
+					if (document.readyState === 'loading') {
+						document.addEventListener('DOMContentLoaded', removeAllCSS);
+					}
+					removeAllCSS();
+					
+					// 4. Watch for new CSS being added dynamically
+					if (typeof MutationObserver !== 'undefined') {
+						const observer = new MutationObserver(function(mutations) {
+							mutations.forEach(function(mutation) {
+								mutation.addedNodes.forEach(function(node) {
+									if (node.nodeType === 1) { // Element node
+										if (node.tagName === 'STYLE' && !node.hasAttribute('data-css-blocker')) {
+											node.remove();
+										} else if (node.tagName === 'LINK') {
+											const rel = node.getAttribute('rel');
+											if (rel === 'stylesheet' || (rel === 'preload' && node.getAttribute('as') === 'style')) {
+												node.remove();
+											}
+										}
+									}
+								});
+							});
+						});
+						
+						observer.observe(document, { childList: true, subtree: true });
+					}
+				})();
+			"""
+
+			try:
+				# Add the script to run on every new document
+				result = await self.agent_focus.cdp_client.send.Page.addScriptToEvaluateOnNewDocument(
+					params={'source': css_blocking_script},
+					session_id=self.agent_focus.session_id,
+				)
+				self.logger.debug('✅ CSS blocking script added to new document evaluation')
+
+				# Also run it on the current page if it's already loaded
+				await self.agent_focus.cdp_client.send.Runtime.evaluate(
+					params={'expression': css_blocking_script, 'returnByValue': True},
+					session_id=self.agent_focus.session_id,
+				)
+				self.logger.debug('✅ CSS blocking script executed on current page')
+
+			except Exception as e:
+				self.logger.debug(f'❌ CSS blocking setup failed: {type(e).__name__}: {e}')
+
+		except Exception as e:
+			self.logger.debug(f'❌ Skipping CSS blocking setup: {type(e).__name__}: {e}')
 
 	async def get_tabs(self) -> list[TabInfo]:
 		"""Get information about all open tabs using CDP Target.getTargetInfo for speed."""
