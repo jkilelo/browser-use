@@ -36,7 +36,7 @@ class ChatOpenAI(BaseChatModel):
 	# Model params
 	temperature: float | None = 0.2
 	frequency_penalty: float | None = 0.3  # this avoids infinite generation of \t for models like 4.1-mini
-	reasoning_effort: ReasoningEffort = 'low'
+	reasoning_effort: ReasoningEffort = 'minimal'
 	seed: int | None = None
 	service_tier: Literal['auto', 'default', 'flex', 'priority', 'scale'] | None = None
 	top_p: float | None = None
@@ -184,7 +184,7 @@ class ChatOpenAI(BaseChatModel):
 			if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
 				model_params['reasoning_effort'] = self.reasoning_effort
 				del model_params['temperature']
-				del model_params['frequency_penalty']
+				# del model_params['frequency_penalty']
 
 			if output_format is None:
 				# Return string response
