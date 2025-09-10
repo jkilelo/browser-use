@@ -923,24 +923,28 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			"""Execute JavaScript - MULTILINE SUPPORTED with framework-independent utilities.
+			"""Execute JavaScript - MULTILINE SUPPORTED with 2 super simple utilities.
 
-PREFERRED UTILITIES (automatically loaded):
-- inputText(selector, text) - Framework-safe text input (React/Vue/Angular + Shadow DOM)
-- clickElement(selector) - Robust clicking with auto-scroll + Shadow DOM support
-- selectOption(selector, value) - Smart select handling by value/text + Shadow DOM  
-- checkBox(selector, checked) - Checkbox/radio with proper events + Shadow DOM
-- submitForm(selector) - Smart form submission (button click → form.submit fallback)
+SUPER SIMPLE UTILITIES (automatically loaded):
+- inputText(selector, text) - Put text in ANY input (text, textarea, select, contenteditable)
+- clickElement(selector) - Click ANY element (buttons, links, checkboxes, etc.)
+
+These 2 functions handle EVERYTHING and work with React/Vue/Angular + Shadow DOM automatically!
 
 EXAMPLES:
-- Form filling: inputText('input[name="firstName"]', 'John')
-- Submit: submitForm('form') or clickElement('button[type="submit"]')
-- Multi-line: 
+- Text input: inputText('#firstName', 'John')
+- Email: inputText('input[type="email"]', 'test@example.com') 
+- Dropdown: inputText('select[name="country"]', 'USA')
+- Textarea: inputText('textarea', 'Long message')
+- Click button: clickElement('button[type="submit"]')
+- Check checkbox: clickElement('input[type="checkbox"]')
+- Multi-line form:
   inputText('#firstName', 'John');
-  inputText('#lastName', 'Doe'); 
-  submitForm();
+  inputText('#lastName', 'Doe');
+  inputText('select[name="state"]', 'California');
+  clickElement('#submit-btn');
 
-Raw DOM still available but utilities are STRONGLY PREFERRED for compatibility.
+Use these 2 utilities instead of direct DOM manipulation for maximum compatibility.
 
 ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never repeat failing code.""",
 			param_model=ExecuteCDPAction,
@@ -1120,153 +1124,97 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 		return code
 
 	def _get_utility_functions(self) -> str:
-		"""Return framework-independent utility functions for robust DOM interaction."""
+		"""Return 2 simple but robust utility functions for DOM interaction."""
 		return """
-// Framework-independent utility functions (React/Vue/Angular compatible)
+// SIMPLE & ROBUST: Just 2 functions that handle everything
 window.inputText = function(selector, text) {
-    let el;
-    if (typeof selector === 'string') {
-        el = document.querySelector(selector);
-    } else {
-        el = selector; // Direct element passed
-    }
+    // Find the element (handles shadow DOM automatically)
+    let el = document.querySelector(selector);
     if (!el) return false;
     
-    // Handle shadow DOM
+    // If it's a shadow host, look inside
     if (el.shadowRoot) {
-        const shadowInput = el.shadowRoot.querySelector('input, textarea');
-        if (shadowInput) {
-            el = shadowInput; // Use shadow input directly
+        const shadowInput = el.shadowRoot.querySelector('input, textarea, select, [contenteditable]');
+        if (shadowInput) el = shadowInput;
+    }
+    
+    // Find the actual input element or use the element itself
+    let target = el;
+    if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && el.tagName !== 'SELECT' && el.contentEditable !== 'true') {
+        target = el.querySelector('input, textarea, select, [contenteditable]') || el;
+    }
+    
+    // Focus first (important for frameworks)
+    target.focus();
+    
+    // Handle different input types
+    if (target.tagName === 'SELECT') {
+        // Handle select dropdowns - find option by value or text
+        const option = Array.from(target.options).find(opt => 
+            opt.value === text || 
+            opt.text.toLowerCase().includes(text.toLowerCase()) ||
+            opt.value.toLowerCase().includes(text.toLowerCase())
+        );
+        if (option) {
+            target.value = option.value;
+            target.selectedIndex = option.index;
+        } else {
+            target.value = text; // Fallback to direct value
+        }
+    } else if (target.contentEditable === 'true') {
+        // Handle contenteditable divs
+        target.textContent = text;
+        target.innerHTML = text;
+    } else {
+        // Handle input/textarea - use native setter to bypass framework control
+        const valueProp = Object.getOwnPropertyDescriptor(target.constructor.prototype, 'value') ||
+                         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
+                         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+        if (valueProp && valueProp.set) {
+            valueProp.set.call(target, text);
+        } else {
+            target.value = text;
         }
     }
     
-    const target = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' ? el : el.querySelector('input, textarea');
-    if (!target) return false;
-    
-    target.focus();
-    
-    // Use native property setter (bypasses React controlled components)
-    const descriptor = Object.getOwnPropertyDescriptor(target.constructor.prototype, 'value') ||
-                      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
-                      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
-    if (descriptor && descriptor.set) {
-        descriptor.set.call(target, text);
-    } else {
-        target.value = text;
-    }
-    
-    // Dispatch events for framework compatibility
+    // Fire ALL the events frameworks might need
+    target.dispatchEvent(new Event('focus', {bubbles: true}));
     target.dispatchEvent(new InputEvent('input', {bubbles: true, cancelable: true, data: text, inputType: 'insertText'}));
     target.dispatchEvent(new Event('change', {bubbles: true, cancelable: true}));
-    target.blur();
+    target.dispatchEvent(new Event('blur', {bubbles: true}));
+    
     return true;
 };
 
 window.clickElement = function(selector) {
-    const el = document.querySelector(selector);
+    // Find the element (handles shadow DOM automatically)  
+    let el = document.querySelector(selector);
     if (!el) return false;
     
-    // Handle shadow DOM - try clicking shadow content first
+    // If it's a shadow host, look inside for clickable elements
     if (el.shadowRoot) {
-        const shadowBtn = el.shadowRoot.querySelector('button, [role="button"], input[type="submit"], [onclick]');
-        if (shadowBtn) {
-            shadowBtn.click();
-            return true;
+        const clickables = el.shadowRoot.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"], a, [onclick], [tabindex]');
+        if (clickables.length > 0) {
+            el = clickables[0]; // Click the first clickable element inside
         }
     }
     
-    // Scroll element into view and click
+    // Make sure it's visible and scroll into view
     el.scrollIntoView({behavior: 'instant', block: 'center'});
+    
+    // Focus first (good practice)
+    try { el.focus(); } catch(e) {}
+    
+    // Fire mouse events (some frameworks need these)
+    el.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}));
+    el.dispatchEvent(new MouseEvent('mouseup', {bubbles: true, cancelable: true}));
+    
+    // The actual click
     el.click();
-    return true;
-};
-
-window.selectOption = function(selector, value) {
-    const el = document.querySelector(selector);
-    if (!el) return false;
     
-    // Handle shadow DOM selects
-    if (el.shadowRoot) {
-        const shadowSelect = el.shadowRoot.querySelector('select');
-        if (shadowSelect) el = shadowSelect;
-    }
+    // Sometimes needed for custom components  
+    el.dispatchEvent(new Event('change', {bubbles: true}));
     
-    const select = el.tagName === 'SELECT' ? el : el.querySelector('select');
-    if (!select) return false;
-    
-    // Find option by value or text
-    const option = Array.from(select.options).find(opt => 
-        opt.value === value || opt.text.toLowerCase().includes(value.toLowerCase())
-    );
-    
-    if (option) {
-        select.value = option.value;
-        select.selectedIndex = option.index;
-    } else {
-        select.value = value; // Try direct value assignment
-    }
-    
-    select.dispatchEvent(new Event('input', {bubbles: true}));
-    select.dispatchEvent(new Event('change', {bubbles: true}));
-    return true;
-};
-
-window.checkBox = function(selector, checked) {
-    const el = document.querySelector(selector);
-    if (!el) return false;
-    
-    // Handle shadow DOM checkboxes
-    if (el.shadowRoot) {
-        const shadowCheck = el.shadowRoot.querySelector('input[type="checkbox"], input[type="radio"]');
-        if (shadowCheck) el = shadowCheck;
-    }
-    
-    const checkbox = el.type === 'checkbox' || el.type === 'radio' ? el : el.querySelector('input[type="checkbox"], input[type="radio"]');
-    if (!checkbox) return false;
-    
-    // Use native property setter
-    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked');
-    if (descriptor && descriptor.set) {
-        descriptor.set.call(checkbox, !!checked);
-    } else {
-        checkbox.checked = !!checked;
-    }
-    
-    checkbox.dispatchEvent(new Event('input', {bubbles: true}));
-    checkbox.dispatchEvent(new Event('change', {bubbles: true}));
-    return true;
-};
-
-window.submitForm = function(selector) {
-    const el = selector ? document.querySelector(selector) : document.querySelector('form');
-    if (!el) return false;
-    
-    // Handle shadow DOM forms
-    if (el.shadowRoot) {
-        const shadowForm = el.shadowRoot.querySelector('form');
-        if (shadowForm) {
-            const submitBtn = shadowForm.querySelector('button[type="submit"], input[type="submit"]');
-            if (submitBtn) {
-                submitBtn.click();
-                return true;
-            }
-            shadowForm.submit();
-            return true;
-        }
-    }
-    
-    const form = el.tagName === 'FORM' ? el : el.closest('form') || document.querySelector('form');
-    if (!form) return false;
-    
-    // Try clicking submit button first (better for React forms)
-    const submitBtn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
-    if (submitBtn) {
-        submitBtn.click();
-        return true;
-    }
-    
-    // Fallback to form.submit()
-    form.submit();
     return true;
 };
 """

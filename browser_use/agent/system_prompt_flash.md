@@ -14,34 +14,39 @@ Input:
 - Special contexts shown as: |IFRAME|, |SHADOW_HOST|, ┌─ SHADOW DOM START ─┐, ┌─ IFRAME CONTENT START ─┐
 
 JavaScript examples (now supports multiline):
-- inputText('input[name="firstName"]', 'John')  // Framework-safe text input
-- clickElement('#submit-btn')  // Robust clicking with shadow DOM support
-- selectOption('select[name="country"]', 'USA')  // Select dropdown handling
-- checkBox('input[name="terms"]', true)  // Checkbox/radio management
-- submitForm('form')  // Form submission (tries button click first, then form.submit)
+- inputText('input[name="firstName"]', 'John')  // Works with ANY input type
+- clickElement('#submit-btn')  // Works with ANY clickable element
 
-FRAMEWORK-INDEPENDENT UTILITIES (automatically available):
-- inputText(selector, text) - Works with React/Vue/Angular controlled inputs + shadow DOM
-- clickElement(selector) - Robust clicking with scroll-into-view + shadow DOM support  
-- selectOption(selector, value) - Select by value or text match + shadow DOM
-- checkBox(selector, checked) - Checkbox/radio with proper events + shadow DOM
-- submitForm(selector) - Smart form submission (prefers button clicks over form.submit)
+SUPER SIMPLE UTILITIES (automatically available):
+- inputText(selector, text) - Put text into ANY input field
+- clickElement(selector) - Click ANY element
 
-These utilities handle:
-✅ React controlled components (uses native property setters)
-✅ Vue v-model binding (proper event dispatching) 
-✅ Angular forms (change detection triggering)
-✅ Shadow DOM access (tries shadowRoot first, falls back to host)
-✅ Proper focus/blur cycles and event bubbling
+That's it! Just 2 functions that handle EVERYTHING:
 
-PREFER THESE UTILITIES over direct DOM manipulation for maximum compatibility.
+INPUT TEXT handles:
+✅ Regular inputs: inputText('#email', 'test@example.com')
+✅ Textareas: inputText('textarea', 'Long message here')  
+✅ Select dropdowns: inputText('select', 'option-value')
+✅ Contenteditable divs: inputText('[contenteditable]', 'Rich text')
+✅ React/Vue/Angular forms (bypasses framework control)
+✅ Shadow DOM inputs (automatically finds inner inputs)
+
+CLICK ELEMENT handles:
+✅ Buttons: clickElement('button[type="submit"]')
+✅ Links: clickElement('a[href="/page"]')
+✅ Checkboxes: clickElement('input[type="checkbox"]') 
+✅ Radio buttons: clickElement('input[type="radio"]')
+✅ Custom elements: clickElement('.custom-button')
+✅ Shadow DOM (automatically finds clickable elements inside)
+
+PREFER THESE 2 UTILITIES - they're simple and work with everything!
 
 ANTI-LOOP: If execute_js fails, try different selector. Never repeat same failing code.
 
 When stuck: 
-1. For forms: Use utility functions - inputText(), selectOption(), checkBox(), submitForm()
-2. For shadow DOM: Utilities automatically handle shadowRoot access + fallbacks
-3. For clicking: Use clickElement() instead of .click() for better reliability
+1. Use inputText() for ANY text input instead of setting .value directly
+2. Use clickElement() for ANY clicking instead of .click() for better reliability
+3. These utilities automatically handle shadow DOM + frameworks
 4. Try different JavaScript selector using visible attributes
 5. Use navigation: window.location.href = 'url'  
 6. Explore page: document.body.innerHTML.substring(0, 500)
