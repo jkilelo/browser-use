@@ -212,6 +212,9 @@ class MessageManager:
 
 		self.state.read_state_description = self.state.read_state_description.strip('\n')
 
+		# Collect images from action results and create context messages for them
+		self._add_action_result_images_to_context(result)
+
 		if action_results:
 			action_results = f'Result:\n{action_results}'
 		action_results = action_results.strip('\n') if action_results else None
@@ -264,6 +267,47 @@ class MessageManager:
 
 		return ''
 
+	def _add_action_result_images_to_context(self, action_results: list[ActionResult]) -> None:
+		"""Add images from action results as context messages"""
+		from browser_use.llm.messages import ContentPartImageParam, ContentPartTextParam, ImageURL, UserMessage
+
+		for action_result in action_results:
+			if action_result.images:
+				# Create multipart content with text and images
+				content_parts = []
+
+				# For ActionResults with include_extracted_content_only_once=True,
+				# don't duplicate the extracted_content in the context message since it's already in read_state
+				if action_result.include_extracted_content_only_once:
+					# Only add minimal context for images without duplicating content
+					content_parts.append(ContentPartTextParam(text='Action result screenshot:'))
+				else:
+					# Add description text if available for regular action results
+					description = None
+					if action_result.extracted_content:
+						description = action_result.extracted_content
+					elif action_result.long_term_memory:
+						description = action_result.long_term_memory
+
+					if description:
+						content_parts.append(ContentPartTextParam(text=description))
+					else:
+						content_parts.append(ContentPartTextParam(text='Action result images:'))
+
+				# Add all images
+				for image_base64 in action_result.images:
+					# Ensure the image data has proper data URL format
+					if not image_base64.startswith('data:'):
+						image_base64 = f'data:image/png;base64,{image_base64}'
+
+					image_url = ImageURL(url=image_base64, detail='auto')
+					content_parts.append(ContentPartImageParam(image_url=image_url))
+
+				# Create and add the context message
+				image_message = UserMessage(content=content_parts, name='action_result_images')
+				self._add_context_message(image_message)
+				logger.debug(f'Added {len(action_result.images)} images from action result to context')
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='create_state_messages')
 	@time_execution_sync('--create_state_messages')
 	def create_state_messages(
@@ -276,8 +320,9 @@ class MessageManager:
 		page_filtered_actions: str | None = None,
 		sensitive_data=None,
 		available_file_paths: list[str] | None = None,  # Always pass current available_file_paths
+		include_browser_state_in_prompt: bool = False,  # New parameter to control browser state display
 	) -> None:
-		"""Create single state message with all content"""
+		"""Create single state message, optionally hiding browser state from LLM (browser state available via get_browser_state tool)"""
 
 		# Clear contextual messages from previous steps to prevent accumulation
 		self.state.history.context_messages.clear()
@@ -292,15 +337,15 @@ class MessageManager:
 			self.sensitive_data = effective_sensitive_data
 			self.sensitive_data_description = self._get_sensitive_data_description(browser_state_summary.url)
 
-		# Use only the current screenshot
+		# Use only the current screenshot if browser state should be included
 		screenshots = []
-		if browser_state_summary.screenshot:
+		if include_browser_state_in_prompt and browser_state_summary.screenshot:
 			screenshots.append(browser_state_summary.screenshot)
 
 		# Create single state message with all content
 		assert browser_state_summary
 		state_message = AgentMessagePrompt(
-			browser_state_summary=browser_state_summary,
+			browser_state_summary=browser_state_summary if include_browser_state_in_prompt else None,
 			file_system=self.file_system,
 			agent_history_description=self.agent_history_description,
 			read_state_description=self.state.read_state_description,

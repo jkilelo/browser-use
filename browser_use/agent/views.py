@@ -108,6 +108,9 @@ class ActionResult(BaseModel):
 	# Metadata for observability (e.g., click coordinates)
 	metadata: dict | None = None
 
+	# Image support - list of base64 encoded images to display alongside content
+	images: list[str] | None = None  # Base64 encoded images (data:image/png;base64,...)
+
 	# Deprecated
 	include_in_memory: bool = False  # whether to include in extracted_content inside long_term_memory
 
@@ -147,9 +150,7 @@ class AgentOutput(BaseModel):
 	model_config = ConfigDict(arbitrary_types_allowed=True, extra='forbid')
 
 	thinking: str | None = None
-	# evaluation_previous_goal: str | None = None
-	# memory: str | None = None
-	# next_goal: str | None = None
+	memory: str | None = Field(None, description='Important information to remember for future steps')
 	action: list[ActionModel] = Field(
 		...,
 		description='List of actions to execute',
@@ -159,7 +160,7 @@ class AgentOutput(BaseModel):
 	@classmethod
 	def model_json_schema(cls, **kwargs):
 		schema = super().model_json_schema(**kwargs)
-		schema['required'] = ['evaluation_previous_goal', 'memory', 'next_goal', 'action']
+		schema['required'] = ['action']  # Only action is required, memory is optional
 		return schema
 
 	@property
@@ -168,7 +169,7 @@ class AgentOutput(BaseModel):
 		return AgentBrain(
 			thinking=self.thinking,
 			evaluation_previous_goal='',
-			memory='',
+			memory=self.memory or '',
 			next_goal='',
 		)
 
@@ -221,12 +222,10 @@ class AgentOutput(BaseModel):
 			@classmethod
 			def model_json_schema(cls, **kwargs):
 				schema = super().model_json_schema(**kwargs)
-				# Remove thinking, evaluation_previous_goal, and next_goal fields
+				# Remove thinking field (keep memory and action)
 				del schema['properties']['thinking']
-				del schema['properties']['evaluation_previous_goal']
-				del schema['properties']['next_goal']
-				# Update required fields to only include remaining properties
-				schema['required'] = ['memory', 'action']
+				# Update required fields
+				schema['required'] = ['action']
 				return schema
 
 		model = create_model(
@@ -273,14 +272,14 @@ class AgentHistory(BaseModel):
 		if self.model_output:
 			action_dump = [action.model_dump(exclude_none=True) for action in self.model_output.action]
 			model_output_dump = {
-				# 'evaluation_previous_goal': self.model_output.evaluation_previous_goal,
-				# 'memory': self.model_output.memory,
-				# 'next_goal': self.model_output.next_goal,
 				'action': action_dump,  # This preserves the actual action data
 			}
 			# Only include thinking if it's present
 			if self.model_output.thinking is not None:
 				model_output_dump['thinking'] = self.model_output.thinking
+			# Only include memory if it's present
+			if self.model_output.memory is not None:
+				model_output_dump['memory'] = self.model_output.memory
 
 		return {
 			'model_output': model_output_dump,

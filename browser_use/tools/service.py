@@ -38,6 +38,7 @@ from browser_use.tools.views import (
 	CloseTabAction,
 	DoneAction,
 	ExecuteCDPAction,
+	GetBrowserStateAction,
 	GetDropdownOptionsAction,
 	GoToUrlAction,
 	InputTextAction,
@@ -87,20 +88,20 @@ class Tools(Generic[Context]):
 		'search_google',
 		# 'go_back',
 		'wait',
-		# 'click_element_by_index',
-		# 'input_text',
+		'click_element_by_index',
+		'input_text',
 		'upload_file_to_element',
 		# 'switch_tab',
 		# 'close_tab',
-		# 'extract_structured_data',
+		'extract_structured_data',
 		'scroll',
 		'send_keys',
 		'scroll_to_text',
 		'get_dropdown_options',
 		'select_dropdown_option',
-		'write_file',
-		'replace_file_str',
-		'read_file',
+		# 'write_file',
+		# 'replace_file_str',
+		# 'read_file',
 	]
 
 	def __init__(
@@ -911,6 +912,68 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				include_extracted_content_only_once=True,
 			)
 
+		# Browser State Inspection Tool
+		@self.registry.action(
+			"""Get the current browser state including DOM elements, screenshots, and page info. Use this to understand what is currently visible on the page.
+			
+- screenshot with the ground truth what your actions have achieved
+- Interactive browser elements shown as "normal" but filtered html as current page representation (it removes obvious irrelevant items, and anything that's NOT on screen. To get more state you should scroll.)
+			""",
+			param_model=GetBrowserStateAction,
+		)
+		async def get_browser_state(params: GetBrowserStateAction, browser_session: BrowserSession):
+			"""Get current browser state on demand instead of having it automatically included in every message."""
+			try:
+				# Get the current browser state summary - this is the same data that was previously
+				# automatically included in every message
+				browser_state_summary = await browser_session.get_browser_state_summary(
+					include_screenshot=params.include_screenshot
+				)
+
+				# Format the response similar to how it would appear in browser_state
+				state_content = []
+
+				if browser_state_summary.url:
+					state_content.append(f'URL: {browser_state_summary.url}')
+
+				if browser_state_summary.title:
+					state_content.append(f'Title: {browser_state_summary.title}')
+
+				if params.include_dom_elements and browser_state_summary.dom_state:
+					llm_representation = browser_state_summary.dom_state.llm_representation()
+					if llm_representation:
+						state_content.append('Interactive elements:')
+						state_content.append(llm_representation)
+
+				if browser_state_summary.tabs:
+					tab_info = []
+					for tab in browser_state_summary.tabs:
+						tab_id = tab.target_id[-4:] if hasattr(tab, 'target_id') else 'Unknown'
+						tab_info.append(f'Tab {tab_id}: {tab.title} ({tab.url})')
+					state_content.append('Open tabs:')
+					state_content.extend(tab_info)
+
+				response_text = '\n'.join(state_content)
+				memory = f'Retrieved browser state for {browser_state_summary.url or "current page"}'
+
+				logger.info(f'🔍 {memory}')
+
+				# Create action result with images if screenshot was requested
+				action_result = ActionResult(
+					extracted_content=response_text, long_term_memory=memory, include_extracted_content_only_once=True
+				)
+
+				# Add screenshot as image if requested and available
+				if params.include_screenshot and browser_state_summary.screenshot:
+					action_result.images = [browser_state_summary.screenshot]
+
+				return action_result
+
+			except Exception as e:
+				error_msg = f'Failed to get browser state: {str(e)}'
+				logger.error(f'❌ {error_msg}')
+				return ActionResult(error=error_msg)
+
 		# General CDP execution tool
 		@self.registry.action(
 			"""Execute JavaScript - SINGLE LINE ONLY. Auto-fixes syntax errors.
@@ -1326,6 +1389,50 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 				else:
 					raise ValueError(f'Invalid action result type: {type(result)} of {result}')
 		return ActionResult()
+
+	def __repr__(self):
+		"""Display all registered actions with their parameters and descriptions"""
+		if not self.registry.registry.actions:
+			return 'Tools(no actions registered)'
+
+		lines = ['Tools(']
+
+		for action_name, registered_action in self.registry.registry.actions.items():
+			# Get parameter info from the model schema
+			param_info = []
+			if registered_action.param_model:
+				schema = registered_action.param_model.model_json_schema()
+				properties = schema.get('properties', {})
+
+				for param_name, param_details in properties.items():
+					param_type = param_details.get('type', 'unknown')
+					if param_type == 'array':
+						items = param_details.get('items', {})
+						item_type = items.get('type', 'unknown')
+						param_type = f'list[{item_type}]'
+					elif param_type == 'object':
+						param_type = 'dict'
+
+					# Check if parameter is required
+					required = param_name in schema.get('required', [])
+					param_str = f'{param_name}: {param_type}'
+					if not required:
+						param_str += ' = None'
+					param_info.append(param_str)
+
+			# Shorten description to first sentence or 80 chars max
+			description = registered_action.description
+			if '. ' in description:
+				description = description.split('. ')[0] + '.'
+			elif len(description) > 80:
+				description = description[:77] + '...'
+
+			# Format the action entry
+			param_str = ', '.join(param_info) if param_info else 'no params'
+			lines.append(f'  {action_name}({param_str}) - {description}')
+
+		lines.append(')')
+		return '\n'.join(lines)
 
 
 # Alias for backwards compatibility

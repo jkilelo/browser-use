@@ -683,7 +683,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Get page-specific filtered actions
 		page_filtered_actions = self.tools.registry.get_prompt_description(browser_state_summary.url)
 
-		# Page-specific actions will be included directly in the browser_state message
+		# Create state messages with browser state hidden from LLM (LLM can get browser state using get_browser_state tool)
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
 		self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
@@ -694,6 +694,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
 			sensitive_data=self.sensitive_data,
 			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
+			include_browser_state_in_prompt=False,  # Hide browser state from LLM, available via get_browser_state tool
 		)
 
 		await self._force_done_after_last_step(step_info)

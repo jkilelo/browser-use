@@ -95,3 +95,10 @@ class SelectDropdownOptionAction(BaseModel):
 
 class ExecuteCDPAction(BaseModel):
 	javascript_code: str = Field(description='JavaScript code to execute via CDP Runtime.evaluate')
+
+
+class GetBrowserStateAction(BaseModel):
+	"""Get the current browser state including DOM elements, screenshots, and page info"""
+
+	include_screenshot: bool = Field(default=True, description='Whether to include a screenshot of the current page')
+	include_dom_elements: bool = Field(default=True, description='Whether to include indexed DOM elements for interaction')

@@ -79,7 +79,7 @@ class AgentMessagePrompt:
 
 	def __init__(
 		self,
-		browser_state_summary: 'BrowserStateSummary',
+		browser_state_summary: 'BrowserStateSummary | None',
 		file_system: 'FileSystem',
 		agent_history_description: str | None = None,
 		read_state_description: str | None = None,
@@ -95,7 +95,8 @@ class AgentMessagePrompt:
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 	):
-		self.browser_state: 'BrowserStateSummary' = browser_state_summary
+		# Keep browser_state for internal use but only display if not None
+		self.browser_state: 'BrowserStateSummary | None' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
 		self.agent_history_description: str | None = agent_history_description
 		self.read_state_description: str | None = read_state_description
@@ -110,10 +111,14 @@ class AgentMessagePrompt:
 		self.vision_detail_level = vision_detail_level
 		self.include_recent_events = include_recent_events
 		self.sample_images = sample_images or []
-		assert self.browser_state
+		# Browser state is kept for internal use but only displayed to LLM if not None (LLM can get it on demand using get_browser_state tool)
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='_get_browser_state_description')
 	def _get_browser_state_description(self) -> str:
+		# Browser state display is controlled by whether it's None - return empty string if not available
+		if not self.browser_state:
+			return ''
+
 		elements_text = self.browser_state.dom_state.llm_representation(include_attributes=self.include_attributes)
 
 		if len(elements_text) > self.max_clickable_elements_length:
@@ -164,31 +169,34 @@ class AgentMessagePrompt:
 			elements_text = 'empty page'
 
 		tabs_text = ''
-		current_tab_candidates = []
-
-		# Find tabs that match both URL and title to identify current tab more reliably
-		for tab in self.browser_state.tabs:
-			if tab.url == self.browser_state.url and tab.title == self.browser_state.title:
-				current_tab_candidates.append(tab.target_id)
-
-		# If we have exactly one match, mark it as current
-		# Otherwise, don't mark any tab as current to avoid confusion
-		current_target_id = current_tab_candidates[0] if len(current_tab_candidates) == 1 else None
-
-		for tab in self.browser_state.tabs:
-			tabs_text += f'Tab {tab.target_id[-4:]}: {tab.url} - {tab.title[:30]}\n'
-
-		current_tab_text = f'Current tab: {current_target_id[-4:]}' if current_target_id is not None else ''
-
-		# Check if current page is a PDF viewer and add appropriate message
+		current_tab_text = ''
 		pdf_message = ''
-		if self.browser_state.is_pdf_viewer:
-			pdf_message = 'PDF viewer cannot be rendered. In this page, DO NOT use the extract_structured_data action as PDF content cannot be rendered. Use the read_file action on the downloaded PDF in available_file_paths to read the full content.\n\n'
-
-		# Add recent events if available and requested
 		recent_events_text = ''
-		if self.include_recent_events and self.browser_state.recent_events:
-			recent_events_text = f'Recent browser events: {self.browser_state.recent_events}\n'
+
+		if self.browser_state:
+			current_tab_candidates = []
+
+			# Find tabs that match both URL and title to identify current tab more reliably
+			for tab in self.browser_state.tabs:
+				if tab.url == self.browser_state.url and tab.title == self.browser_state.title:
+					current_tab_candidates.append(tab.target_id)
+
+			# If we have exactly one match, mark it as current
+			# Otherwise, don't mark any tab as current to avoid confusion
+			current_target_id = current_tab_candidates[0] if len(current_tab_candidates) == 1 else None
+
+			for tab in self.browser_state.tabs:
+				tabs_text += f'Tab {tab.target_id[-4:]}: {tab.url} - {tab.title[:30]}\n'
+
+			current_tab_text = f'Current tab: {current_target_id[-4:]}' if current_target_id is not None else ''
+
+			# Check if current page is a PDF viewer and add appropriate message
+			if self.browser_state.is_pdf_viewer:
+				pdf_message = 'PDF viewer cannot be rendered. In this page, DO NOT use the extract_structured_data action as PDF content cannot be rendered. Use the read_file action on the downloaded PDF in available_file_paths to read the full content.\n\n'
+
+			# Add recent events if available and requested
+			if self.include_recent_events and self.browser_state.recent_events:
+				recent_events_text = f'Recent browser events: {self.browser_state.recent_events}\n'
 
 		browser_state = f"""{current_tab_text}
 Available tabs:
@@ -240,7 +248,8 @@ Available tabs:
 		"""Get complete state as a single cached message"""
 		# Don't pass screenshot to model if page is a new tab page, step is 0, and there's only one tab
 		if (
-			is_new_tab_page(self.browser_state.url)
+			self.browser_state is not None
+			and is_new_tab_page(self.browser_state.url)
 			and self.step_info is not None
 			and self.step_info.step_number == 0
 			and len(self.browser_state.tabs) == 1
@@ -254,7 +263,7 @@ Available tabs:
 			+ '\n</agent_history>\n\n'
 		)
 		state_description += '<agent_state>\n' + self._get_agent_state_description().strip('\n') + '\n</agent_state>\n'
-		state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
+		# state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
 		# Only add read_state if it has content
 		read_state_description = self.read_state_description.strip('\n').strip() if self.read_state_description else ''
 		if read_state_description:

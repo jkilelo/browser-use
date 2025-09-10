@@ -568,3 +568,20 @@ class Registry(Generic[Context]):
 		based on their domain filters
 		"""
 		return self.registry.get_prompt_description(page_url=page_url)
+
+
+if __name__ == '__main__':
+	"""Display the registry when run directly"""
+	from browser_use.tools.service import Tools
+
+	# Create Tools instance with default actions to populate the registry
+	tools = Tools()
+
+	print('Registry Contents:')
+	print('=' * 50)
+	print(repr(tools))
+
+	print(f'\nTotal actions registered: {len(tools.registry.registry.actions)}')
+
+	# Also show the raw registry structure for debugging
+	print(f'\nRaw registry actions: {list(tools.registry.registry.actions.keys())}')
