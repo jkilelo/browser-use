@@ -569,6 +569,10 @@ class BrowserProfile(BrowserConnectArgs, BrowserLaunchPersistentContextArgs, Bro
 	)
 	keep_alive: bool | None = Field(default=None, description='Keep browser alive after agent run.')
 	disable_css: bool = Field(default=True, description='Disable CSS loading for faster page loading and cleaner DOM parsing.')
+	extend_viewport_px: int = Field(
+		default=1000,
+		description='Extend viewport by X pixels in all directions for DOM visibility detection. Allows capturing more off-screen content.',
+	)
 
 	# --- Proxy settings ---
 	# New consolidated proxy config (typed)

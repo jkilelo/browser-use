@@ -49,6 +49,7 @@ class DomService:
 		paint_order_filtering: bool = True,
 		max_iframes: int = 100,
 		max_iframe_depth: int = 5,
+		extend_viewport_px: int = 1000,
 	):
 		self.browser_session = browser_session
 		self.logger = logger or browser_session.logger
@@ -56,6 +57,7 @@ class DomService:
 		self.paint_order_filtering = paint_order_filtering
 		self.max_iframes = max_iframes
 		self.max_iframe_depth = max_iframe_depth
+		self.extend_viewport_px = extend_viewport_px
 
 	async def __aenter__(self):
 		return self
@@ -164,7 +166,7 @@ class DomService:
 
 	@classmethod
 	def is_element_visible_according_to_all_parents(
-		cls, node: EnhancedDOMTreeNode, html_frames: list[EnhancedDOMTreeNode]
+		cls, node: EnhancedDOMTreeNode, html_frames: list[EnhancedDOMTreeNode], extend_viewport_px: int = 0
 	) -> bool:
 		"""Check if the element is visible according to all its parent HTML frames."""
 
@@ -220,17 +222,18 @@ class DomService:
 				# The clientRects represent the viewport size
 				# Elements are visible if they fall within the viewport after accounting for scroll
 
-				# The viewport of the frame (what's actually visible)
-				viewport_left = 0  # Viewport always starts at 0 in frame coordinates
-				viewport_top = 0
-				viewport_right = frame.snapshot_node.clientRects.width
-				viewport_bottom = frame.snapshot_node.clientRects.height
+				# The viewport of the frame (what's actually visible) - extended by extend_viewport_px
+				viewport_left = 0 - extend_viewport_px  # Extend left
+				viewport_top = 0 - extend_viewport_px  # Extend up
+				viewport_right = frame.snapshot_node.clientRects.width + extend_viewport_px  # Extend right
+				viewport_bottom = frame.snapshot_node.clientRects.height + extend_viewport_px  # Extend down
 
 				# Adjust element bounds by the scroll offset to get position relative to viewport
 				# When scrolled down, scrollRects.y is positive, so we subtract it from element's y
 				adjusted_x = current_bounds.x - frame.snapshot_node.scrollRects.x
 				adjusted_y = current_bounds.y - frame.snapshot_node.scrollRects.y
 
+				# Check if element intersects with the extended viewport
 				frame_intersects = (
 					adjusted_x < viewport_right
 					and adjusted_x + current_bounds.width > viewport_left
@@ -616,7 +619,9 @@ class DomService:
 					)
 
 			# Set visibility using the collected HTML frames
-			dom_tree_node.is_visible = self.is_element_visible_according_to_all_parents(dom_tree_node, updated_html_frames)
+			dom_tree_node.is_visible = self.is_element_visible_according_to_all_parents(
+				dom_tree_node, updated_html_frames, extend_viewport_px=self.extend_viewport_px
+			)
 
 			# DEBUG: Log visibility info for form elements in iframes
 			if dom_tree_node.tag_name and dom_tree_node.tag_name.upper() in ['INPUT', 'SELECT', 'TEXTAREA', 'LABEL']:
