@@ -95,3 +95,8 @@ class SelectDropdownOptionAction(BaseModel):
 
 class ExecuteCDPAction(BaseModel):
 	javascript_code: str = Field(description='JavaScript code to execute via CDP Runtime.evaluate')
+
+
+class ClickCoordinatesAction(BaseModel):
+	x: int = Field(description='X coordinate to click')
+	y: int = Field(description='Y coordinate to click')

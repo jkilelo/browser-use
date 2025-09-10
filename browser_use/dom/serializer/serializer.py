@@ -624,6 +624,14 @@ class DOMTreeSerializer:
 		if interactive_index is not None:
 			filtered_attrs[f'highlight-index{interactive_index}'] = ''
 
+			# Add coordinate information for clickable elements
+			if node.snapshot_node and node.snapshot_node.clientRects:
+				rect = node.snapshot_node.clientRects
+				center_x = int(rect.x + rect.width / 2)
+				center_y = int(rect.y + rect.height / 2)
+				filtered_attrs['x'] = str(center_x)
+				filtered_attrs['y'] = str(center_y)
+
 		# Only add regular attributes for clickable elements (when interactive_index is not None)
 		if interactive_index is not None and node.attributes:
 			for key, value in node.attributes.items():

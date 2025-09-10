@@ -34,6 +34,7 @@ from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.views import (
+	ClickCoordinatesAction,
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
@@ -327,6 +328,58 @@ class Tools(Generic[Context]):
 				return handle_browser_error(e)
 			except Exception as e:
 				error_msg = f'Failed to click element {params.index}: {str(e)}'
+				return ActionResult(error=error_msg)
+
+		@self.registry.action(
+			'Click at specific coordinates on the page. Most general clicking method - works when element selectors fail.',
+			param_model=ClickCoordinatesAction,
+		)
+		async def click_coordinates(params: ClickCoordinatesAction, browser_session: BrowserSession):
+			try:
+				cdp_session = await browser_session.get_or_create_cdp_session()
+				session_id = cdp_session.session_id
+
+				# Move mouse to coordinates
+				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+					params={
+						'type': 'mouseMoved',
+						'x': params.x,
+						'y': params.y,
+					},
+					session_id=session_id,
+				)
+
+				# Mouse down
+				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+					params={
+						'type': 'mousePressed',
+						'x': params.x,
+						'y': params.y,
+						'button': 'left',
+						'clickCount': 1,
+					},
+					session_id=session_id,
+				)
+
+				# Mouse up
+				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+					params={
+						'type': 'mouseReleased',
+						'x': params.x,
+						'y': params.y,
+						'button': 'left',
+					},
+					session_id=session_id,
+				)
+
+				memory = f'Clicked at coordinates ({params.x}, {params.y})'
+				logger.info(f'🖱️ {memory}')
+
+				return ActionResult(
+					extracted_content=memory, long_term_memory=memory, metadata={'click_x': params.x, 'click_y': params.y}
+				)
+			except Exception as e:
+				error_msg = f'Failed to click coordinates ({params.x}, {params.y}): {str(e)}'
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
@@ -923,33 +976,20 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			"""Execute JavaScript - MULTILINE SUPPORTED with smart form utilities.
-
-UTILITIES (automatically loaded):
-- inputText(selector, text) - Put text in ANY input (text, textarea, select, contenteditable, MUI portals)
-- clickElement(selector) - Click ANY element (auto-scrolls for submit buttons, handles shadow DOM)
-
-These utilities handle React/Vue/Angular + Shadow DOM + MUI portals automatically!
-
-RECOMMENDED FORM WORKFLOW:
-1. Fill visible fields: inputText('#firstName', 'John'); inputText('#email', 'test@example.com');
-2. Scroll to bottom: window.scrollTo(0, document.body.scrollHeight); 
-3. Fill any new fields: inputText('#newField', 'value');
-4. Submit: clickElement('button[type="submit"]');
-5. Check success: document.body.innerText.toLowerCase().includes('success')
+			"""Execute JavaScript - Write ANY code you need. Be creative and solve problems.
 
 EXAMPLES:
-- Complete form: 
-  inputText('#firstName', 'John');
-  inputText('select[name="state"]', 'California');
-  window.scrollTo(0, document.body.scrollHeight);
-  clickElement('button[type="submit"]');
-  
-- MUI selects: inputText('div[role="button"][aria-labelledby*="gender"]', 'Male')
-- Any clicking: clickElement('button[type="submit"]')
-- Any input: inputText('input[name="field"]', 'value')
+- Set input: document.querySelector('#firstName').value = 'John'
+- Click button: document.querySelector('button[type="submit"]').click()
+- Scroll: window.scrollTo(0, document.body.scrollHeight)
+- Multiline:
+  const input = document.querySelector('#firstName');
+  input.focus();
+  input.value = 'John';
+  input.dispatchEvent(new Event('input', {bubbles: true}));
+  document.querySelector('button').click();
 
-Use these utilities instead of direct DOM manipulation for maximum compatibility.
+Write whatever JavaScript works. No restrictions or required patterns.
 
 ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never repeat failing code.""",
 			param_model=ExecuteCDPAction,
@@ -959,9 +999,7 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 			original_code = params.javascript_code
 			enhanced_code = self._fix_common_js_issues(original_code)
 
-			# Inject framework-independent utility functions
-			utility_functions = self._get_utility_functions()
-			enhanced_code = f'{utility_functions}\n\n{enhanced_code}'
+			# Keep code clean - no utility injections
 
 			# Log the transformation for debugging
 			if enhanced_code != original_code:
@@ -1125,146 +1163,6 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 			code = f'(function(){{{"; ".join(statements)}}})()'
 
 		return code
-
-	def _get_utility_functions(self) -> str:
-		"""Return 2 simple but robust utility functions for DOM interaction."""
-		return """
-// SIMPLE & ROBUST: Just 2 functions that handle everything
-window.inputText = function(selector, text) {
-    // Find the element (handles shadow DOM automatically)
-    let el = document.querySelector(selector);
-    if (!el) return false;
-    
-    // If it's a shadow host, look inside
-    if (el.shadowRoot) {
-        const shadowInput = el.shadowRoot.querySelector('input, textarea, select, [contenteditable]');
-        if (shadowInput) el = shadowInput;
-    }
-    
-    // Find the actual input element or use the element itself
-    let target = el;
-    if (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && el.tagName !== 'SELECT' && el.contentEditable !== 'true') {
-        target = el.querySelector('input, textarea, select, [contenteditable]') || el;
-    }
-    
-    // Focus first (important for frameworks)
-    target.focus();
-    
-    // Handle different input types
-    if (target.tagName === 'SELECT') {
-        // Handle select dropdowns - find option by value or text
-        const option = Array.from(target.options).find(opt => 
-            opt.value === text || 
-            opt.text.toLowerCase().includes(text.toLowerCase()) ||
-            opt.value.toLowerCase().includes(text.toLowerCase())
-        );
-        if (option) {
-            target.value = option.value;
-            target.selectedIndex = option.index;
-        } else {
-            target.value = text; // Fallback to direct value
-        }
-    } else if (target.getAttribute('role') === 'button' && target.getAttribute('aria-labelledby')) {
-        // Handle MUI-style selects (Material-UI portal components)
-        target.focus();
-        target.click(); // Open the dropdown
-        
-        // Wait and poll for portal menu options (they render in document.body)
-        let attempts = 0;
-        const checkForOptions = () => {
-            attempts++;
-            const portalOptions = Array.from(document.querySelectorAll(
-                '[role="option"], li[role="menuitem"], .MuiMenuItem-root, .MuiList-root li'
-            )).filter(opt => opt.offsetParent !== null && opt.textContent && opt.textContent.trim().length > 0);
-            
-            if (portalOptions.length > 0) {
-                // Try to find matching option by text, fallback to first
-                const matchingOption = portalOptions.find(opt => 
-                    opt.textContent.toLowerCase().includes(text.toLowerCase())
-                ) || portalOptions[0];
-                matchingOption.click();
-            } else if (attempts < 10) {
-                setTimeout(checkForOptions, 50);
-            }
-        };
-        setTimeout(checkForOptions, 100);
-        return true;
-    } else if (target.contentEditable === 'true') {
-        // Handle contenteditable divs
-        target.textContent = text;
-        target.innerHTML = text;
-    } else {
-        // Handle input/textarea - use native setter to bypass framework control
-        const valueProp = Object.getOwnPropertyDescriptor(target.constructor.prototype, 'value') ||
-                         Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
-                         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
-        if (valueProp && valueProp.set) {
-            valueProp.set.call(target, text);
-        } else {
-            target.value = text;
-        }
-    }
-    
-    // Fire ALL the events frameworks might need
-    target.dispatchEvent(new Event('focus', {bubbles: true}));
-    target.dispatchEvent(new InputEvent('input', {bubbles: true, cancelable: true, data: text, inputType: 'insertText'}));
-    target.dispatchEvent(new Event('change', {bubbles: true, cancelable: true}));
-    target.dispatchEvent(new Event('blur', {bubbles: true}));
-    
-    return true;
-};
-
-window.clickElement = function(selector) {
-    // If looking for submit button, scroll to bottom first (most are below viewport)
-    if (selector.includes('submit') || selector.includes('button[type="submit"]')) {
-        window.scrollTo(0, document.body.scrollHeight);
-    }
-    
-    // Find the element (handles shadow DOM automatically)  
-    let el = document.querySelector(selector);
-    if (!el) {
-        // If submit button not found, try broader search after scrolling
-        if (selector.includes('submit')) {
-            const submitButtons = Array.from(document.querySelectorAll(
-                'button[type="submit"], input[type="submit"], button:not([type]), button'
-            )).filter(btn => btn.offsetParent !== null);
-            if (submitButtons.length > 0) {
-                el = submitButtons.find(btn => 
-                    /submit|save|register|create|complete|finish/i.test(btn.textContent || btn.value || '')
-                ) || submitButtons[0];
-            }
-        }
-        if (!el) return false;
-    }
-    
-    // If it's a shadow host, look inside for clickable elements
-    if (el.shadowRoot) {
-        const clickables = el.shadowRoot.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"], a, [onclick], [tabindex]');
-        if (clickables.length > 0) {
-            el = clickables[0]; // Click the first clickable element inside
-        }
-    }
-    
-    // Make sure it's visible and scroll into view
-    el.scrollIntoView({behavior: 'instant', block: 'center'});
-    
-    // Focus first (good practice)
-    try { el.focus(); } catch(e) {}
-    
-    // Fire mouse events (some frameworks need these)
-    el.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}));
-    el.dispatchEvent(new MouseEvent('mouseup', {bubbles: true, cancelable: true}));
-    
-    // The actual click
-    el.click();
-    
-    // Sometimes needed for custom components  
-    el.dispatchEvent(new Event('change', {bubbles: true}));
-    
-    return true;
-};
-
-"""
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(

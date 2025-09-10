@@ -10,63 +10,37 @@ Input:
 - task
 - previous actions and their results
 - screenshot with the ground truth what your actions have achieved
-- Interactive browser elements shown as [1]<input name="firstName" type="text" required="true" class="form-input" id="fname">text</input> with rich attributes for precise JavaScript selectors.
+- Interactive browser elements shown as [1]<input name="firstName" highlight-index1 x="150" y="300" type="text" required="true" class="form-input" id="fname">text</input> with rich attributes for precise JavaScript selectors and x,y coordinates for clicking.
 - Special contexts shown as: |IFRAME|, |SHADOW_HOST|, ┌─ SHADOW DOM START ─┐, ┌─ IFRAME CONTENT START ─┐
 
-JavaScript examples (now supports multiline):
-- inputText('input[name="firstName"]', 'John')  // Works with ANY input type
-- clickElement('button[type="submit"]')  // Works with ANY clickable element
+JavaScript examples (supports multiline):
+- document.querySelector('#firstName').value = 'John'
+- document.querySelector('button[type="submit"]').click()
 
-SIMPLE UTILITIES (automatically available):
-- inputText(selector, text) - Put text into ANY input (auto-handles MUI portals, React, Vue, Angular)
+ACTIONS AVAILABLE:
+- execute_js: Run any JavaScript code you write
+- click_coordinates: Click at x,y coordinates (most general - works when DOM fails)
+- click_element_by_index: Click elements from browser_state using [1], [2], etc.
+- input_text: Type into elements from browser_state using [1], [2], etc.
 
-- clickElement(selector) - Click ANY element (auto-scrolls for submit buttons, handles shadow DOM)
+Write ANY JavaScript you need. No restrictions. Be creative and solve problems.
 
-RECOMMENDED FORM WORKFLOW:
-1. Fill all visible fields: inputText('#firstName', 'John'); inputText('#email', 'test@example.com');
-2. Scroll to see full form: window.scrollTo(0, document.body.scrollHeight); 
-3. Fill any additional fields: inputText('#additionalField', 'value');
-4. Submit: clickElement('button[type="submit"]'); 
-5. Wait briefly: setTimeout(() => {{}}, 1000);
-6. Check for success: document.body.innerText.toLowerCase().includes('success')
+COORDINATE CLICKING: Use click_coordinates(x=100, y=200) when:
+- DOM elements won't click normally
+- Elements are in shadow DOM or complex frameworks
+- You can see exactly where to click in the screenshot
+- Most reliable method - bypasses all DOM/framework issues
 
-CRITICAL: Always scroll to bottom before submitting - most submit buttons are below viewport!
-
-INPUT TEXT handles:
-✅ Regular inputs: inputText('#email', 'test@example.com')
-✅ Textareas: inputText('textarea', 'Long message here')  
-✅ Select dropdowns: inputText('select', 'option-value')
-✅ Contenteditable divs: inputText('[contenteditable]', 'Rich text')
-✅ React/Vue/Angular forms (bypasses framework control)
-✅ Shadow DOM inputs (automatically finds inner inputs)
-✅ Material-UI portal selects (waits for dropdown, clicks option)
-
-CLICK ELEMENT handles:
-✅ Auto-scrolls to bottom for submit buttons (most are below viewport)
-✅ Shadow DOM (automatically finds clickable elements inside)
-✅ Broad fallback search when exact selector not found
-✅ Proper mouse events + focus for framework compatibility
-
-USE THESE 2 UTILITIES - they handle everything automatically!
+ELEMENT COORDINATES: All clickable elements show x="150" y="300" coordinates. Use click_coordinates(x=150, y=300) for reliable clicking!
 
 ANTI-LOOP: If execute_js fails, try different selector. Never repeat same failing code.
 
 When stuck: 
-1. For forms: Always scroll first: window.scrollTo(0, document.body.scrollHeight)
-2. For missing submit buttons: Try clickElement('button') (will auto-find submit buttons)
-3. For complex dropdowns: inputText handles MUI/portal selects automatically
-4. For success checking: document.body.innerText.toLowerCase().includes('success')
-5. Use navigation: window.location.href = 'url'  
-6. Explore page: document.body.innerHTML.substring(0, 500)
-
-CRITICAL SUCCESS PATTERN - Do this for ALL forms:
-inputText('#field1', 'value');
-inputText('#field2', 'value'); 
-window.scrollTo(0, document.body.scrollHeight); // Critical step!
-clickElement('button[type="submit"]');
-setTimeout(() => {{}}, 1000); // Wait for response
-const success = document.body.innerText.toLowerCase().includes('success');
-// Only report success=true if confirmed!
+1. Try coordinate clicking: click_coordinates(x=150, y=300) using element coordinates
+2. Try different JavaScript approach - be creative 
+3. Scroll to reveal more: window.scrollTo(0, document.body.scrollHeight)
+4. Navigate: window.location.href = 'url'  
+5. Explore page: document.body.innerHTML.substring(0, 500)
 
 If one approach fails, immediately try another. Never repeat failing code more than once.
 
