@@ -742,7 +742,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'Send strings of special keys to use e.g. Escape, Backspace, Insert, PageDown, Delete, Enter, or Shortcuts such as `Control+o`, `Control+Shift+T`',
+			"""Send keyboard input - PREFERRED for form filling to avoid React/Vue/Angular issues.
+			
+			Text input: send_keys(keys="Hello World") - types text naturally
+			Special keys: send_keys(keys="Enter") - presses Enter, Tab, Escape, Backspace, etc.  
+			Shortcuts: send_keys(keys="Control+c") - keyboard shortcuts like Ctrl+C, Cmd+V
+			Navigation: send_keys(keys="Tab Tab Enter") - tab navigation then submit
+			
+			Use this instead of setting .value directly for better framework compatibility.""",
 			param_model=SendKeysAction,
 		)
 		async def send_keys(params: SendKeysAction, browser_session: BrowserSession):
@@ -916,17 +923,24 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			"""Execute JavaScript - SINGLE LINE ONLY. Auto-fixes syntax errors.
+			"""Execute JavaScript - MULTILINE SUPPORTED with framework-independent utilities.
 
-Use rich attributes from browser_state for precise selectors:
+PREFERRED UTILITIES (automatically loaded):
+- inputText(selector, text) - Framework-safe text input (React/Vue/Angular + Shadow DOM)
+- clickElement(selector) - Robust clicking with auto-scroll + Shadow DOM support
+- selectOption(selector, value) - Smart select handling by value/text + Shadow DOM  
+- checkBox(selector, checked) - Checkbox/radio with proper events + Shadow DOM
+- submitForm(selector) - Smart form submission (button click → form.submit fallback)
 
-ONE LINE EXAMPLES:
-- By name: document.querySelector('input[name="firstName"]').value
-- By ID: document.querySelector('#submit-btn').click()  
-- By class: document.querySelectorAll('.product-card').length
-- Extract: JSON.stringify(Array.from(document.querySelectorAll('input[required="true"]')).map(el => el.name))
-- Navigate: window.location.href = 'https://example.com/page'
-- Scroll: window.scrollBy(0, 500)
+EXAMPLES:
+- Form filling: inputText('input[name="firstName"]', 'John')
+- Submit: submitForm('form') or clickElement('button[type="submit"]')
+- Multi-line: 
+  inputText('#firstName', 'John');
+  inputText('#lastName', 'Doe'); 
+  submitForm();
+
+Raw DOM still available but utilities are STRONGLY PREFERRED for compatibility.
 
 ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never repeat failing code.""",
 			param_model=ExecuteCDPAction,
@@ -935,6 +949,10 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 			# Pre-process JavaScript to fix common issues
 			original_code = params.javascript_code
 			enhanced_code = self._fix_common_js_issues(original_code)
+
+			# Inject framework-independent utility functions
+			utility_functions = self._get_utility_functions()
+			enhanced_code = f'{utility_functions}\n\n{enhanced_code}'
 
 			# Log the transformation for debugging
 			if enhanced_code != original_code:
@@ -1012,10 +1030,21 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 						response_msg = f'Executed successfully (returned {result_type})'
 				else:
 					response_msg = str(value)
+					# Filter out utility function definitions from output
+					if (response_msg.startswith('function') and 'inputText' in response_msg) or (
+						response_msg.startswith('[object Object]') and len(original_code.strip()) < 50
+					):
+						response_msg = 'Utility functions loaded successfully'
 
 				logger.info('✅ CDP execution completed successfully')
+
+				# Clean up the extracted content to hide utility functions
+				clean_code = original_code.strip()
+				if len(clean_code) == 0:
+					clean_code = '(utility setup)'
+
 				return ActionResult(
-					extracted_content=f'Executed JavaScript: {params.javascript_code} Result: {response_msg}',
+					extracted_content=f'Executed JavaScript: {clean_code} Result: {response_msg}',
 				)
 			except Exception as e:
 				logger.error(f'❌ CDP execution failed with exception: {e}')
@@ -1041,8 +1070,21 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 		return ''
 
 	def _fix_common_js_issues(self, code: str) -> str:
-		"""Fix common JavaScript issues that cause SyntaxError: Uncaught."""
+		"""Fix common JavaScript issues and validate syntax."""
 		import re
+
+		# First validate syntax - if invalid, return error guidance
+		try:
+			# Test basic syntax by creating a function
+			compile(f'(function(){{{code}}})', '<string>', 'eval')
+		except SyntaxError as e:
+			# Return guidance for common syntax errors
+			if 'unexpected token' in str(e).lower():
+				return f'/* SYNTAX ERROR: {e}. Try using simpler code without complex arrow functions or nested objects. */'
+			elif 'missing' in str(e).lower():
+				return f'/* SYNTAX ERROR: {e}. Check for missing quotes, brackets, or semicolons. */'
+			else:
+				return f'/* SYNTAX ERROR: {e}. Simplify your JavaScript or break into multiple steps. */'
 
 		# Remove optional chaining which isn't supported in older CDP
 		code = re.sub(r'\?\.\s*', '.', code)
@@ -1051,32 +1093,183 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 		code = re.sub(r'querySelectorAll\(([a-zA-Z]\w*)\)', r"querySelectorAll('\1')", code)
 		code = re.sub(r'querySelector\(([a-zA-Z]\w*)\)', r"querySelector('\1')", code)
 
-		# Handle multiline code - convert to single expression or add return
+		# Fix common bracket/parentheses issues
+		code = re.sub(r']\(', '])(', code)  # Fix array access followed by function call
+
+		# Allow multiline code - wrap in IIFE and handle returns properly
 		lines = [line.strip() for line in code.strip().split('\n') if line.strip()]
 
 		if len(lines) > 1:
-			# Check if last line is already a return or single expression
-			last_line = lines[-1]
-
-			# If last line ends with semicolon, it's a statement not expression
-			if last_line.endswith(';'):
-				# Convert last statement to return
-				if last_line.startswith('JSON.stringify'):
-					lines[-1] = f'return {last_line[:-1]}'  # Remove ; and add return
-				elif not last_line.startswith('return'):
-					lines[-1] = f'return {last_line[:-1]}'  # Remove ; and add return
-
-			# Join with semicolons for multiple statements
-			if any(line.startswith('return') for line in lines):
-				code = '; '.join(lines[:-1]) + '; ' + lines[-1]
-			else:
-				# If no return, make it a single expression
-				if lines[-1].startswith('JSON.stringify'):
-					code = '; '.join(lines)
+			# Wrap multiline code in IIFE with proper return handling
+			statements = []
+			for i, line in enumerate(lines):
+				if i == len(lines) - 1:  # Last line
+					if not line.startswith('return') and not line.endswith(';'):
+						# If last line is an expression, return it
+						if '=' not in line or line.startswith('JSON.stringify'):
+							statements.append(f'return {line}')
+						else:
+							statements.append(line)
+					else:
+						statements.append(line)
 				else:
-					code = '; '.join(lines[:-1]) + '; return ' + lines[-1]
+					statements.append(line if line.endswith(';') else f'{line};')
+
+			code = f'(function(){{{"; ".join(statements)}}})()'
 
 		return code
+
+	def _get_utility_functions(self) -> str:
+		"""Return framework-independent utility functions for robust DOM interaction."""
+		return """
+// Framework-independent utility functions (React/Vue/Angular compatible)
+window.inputText = function(selector, text) {
+    let el;
+    if (typeof selector === 'string') {
+        el = document.querySelector(selector);
+    } else {
+        el = selector; // Direct element passed
+    }
+    if (!el) return false;
+    
+    // Handle shadow DOM
+    if (el.shadowRoot) {
+        const shadowInput = el.shadowRoot.querySelector('input, textarea');
+        if (shadowInput) {
+            el = shadowInput; // Use shadow input directly
+        }
+    }
+    
+    const target = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' ? el : el.querySelector('input, textarea');
+    if (!target) return false;
+    
+    target.focus();
+    
+    // Use native property setter (bypasses React controlled components)
+    const descriptor = Object.getOwnPropertyDescriptor(target.constructor.prototype, 'value') ||
+                      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
+                      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+    if (descriptor && descriptor.set) {
+        descriptor.set.call(target, text);
+    } else {
+        target.value = text;
+    }
+    
+    // Dispatch events for framework compatibility
+    target.dispatchEvent(new InputEvent('input', {bubbles: true, cancelable: true, data: text, inputType: 'insertText'}));
+    target.dispatchEvent(new Event('change', {bubbles: true, cancelable: true}));
+    target.blur();
+    return true;
+};
+
+window.clickElement = function(selector) {
+    const el = document.querySelector(selector);
+    if (!el) return false;
+    
+    // Handle shadow DOM - try clicking shadow content first
+    if (el.shadowRoot) {
+        const shadowBtn = el.shadowRoot.querySelector('button, [role="button"], input[type="submit"], [onclick]');
+        if (shadowBtn) {
+            shadowBtn.click();
+            return true;
+        }
+    }
+    
+    // Scroll element into view and click
+    el.scrollIntoView({behavior: 'instant', block: 'center'});
+    el.click();
+    return true;
+};
+
+window.selectOption = function(selector, value) {
+    const el = document.querySelector(selector);
+    if (!el) return false;
+    
+    // Handle shadow DOM selects
+    if (el.shadowRoot) {
+        const shadowSelect = el.shadowRoot.querySelector('select');
+        if (shadowSelect) el = shadowSelect;
+    }
+    
+    const select = el.tagName === 'SELECT' ? el : el.querySelector('select');
+    if (!select) return false;
+    
+    // Find option by value or text
+    const option = Array.from(select.options).find(opt => 
+        opt.value === value || opt.text.toLowerCase().includes(value.toLowerCase())
+    );
+    
+    if (option) {
+        select.value = option.value;
+        select.selectedIndex = option.index;
+    } else {
+        select.value = value; // Try direct value assignment
+    }
+    
+    select.dispatchEvent(new Event('input', {bubbles: true}));
+    select.dispatchEvent(new Event('change', {bubbles: true}));
+    return true;
+};
+
+window.checkBox = function(selector, checked) {
+    const el = document.querySelector(selector);
+    if (!el) return false;
+    
+    // Handle shadow DOM checkboxes
+    if (el.shadowRoot) {
+        const shadowCheck = el.shadowRoot.querySelector('input[type="checkbox"], input[type="radio"]');
+        if (shadowCheck) el = shadowCheck;
+    }
+    
+    const checkbox = el.type === 'checkbox' || el.type === 'radio' ? el : el.querySelector('input[type="checkbox"], input[type="radio"]');
+    if (!checkbox) return false;
+    
+    // Use native property setter
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'checked');
+    if (descriptor && descriptor.set) {
+        descriptor.set.call(checkbox, !!checked);
+    } else {
+        checkbox.checked = !!checked;
+    }
+    
+    checkbox.dispatchEvent(new Event('input', {bubbles: true}));
+    checkbox.dispatchEvent(new Event('change', {bubbles: true}));
+    return true;
+};
+
+window.submitForm = function(selector) {
+    const el = selector ? document.querySelector(selector) : document.querySelector('form');
+    if (!el) return false;
+    
+    // Handle shadow DOM forms
+    if (el.shadowRoot) {
+        const shadowForm = el.shadowRoot.querySelector('form');
+        if (shadowForm) {
+            const submitBtn = shadowForm.querySelector('button[type="submit"], input[type="submit"]');
+            if (submitBtn) {
+                submitBtn.click();
+                return true;
+            }
+            shadowForm.submit();
+            return true;
+        }
+    }
+    
+    const form = el.tagName === 'FORM' ? el : el.closest('form') || document.querySelector('form');
+    if (!form) return false;
+    
+    // Try clicking submit button first (better for React forms)
+    const submitBtn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type])');
+    if (submitBtn) {
+        submitBtn.click();
+        return true;
+    }
+    
+    // Fallback to form.submit()
+    form.submit();
+    return true;
+};
+"""
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(

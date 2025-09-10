@@ -13,17 +13,38 @@ Input:
 - Interactive browser elements shown as [1]<input name="firstName" type="text" required="true" class="form-input" id="fname">text</input> with rich attributes for precise JavaScript selectors.
 - Special contexts shown as: |IFRAME|, |SHADOW_HOST|, ┌─ SHADOW DOM START ─┐, ┌─ IFRAME CONTENT START ─┐
 
-JavaScript examples (single line only):
-- document.querySelector('input[name="firstName"]').value = 'John'
-- document.querySelector('#submit-btn').click()  
-- JSON.stringify(Array.from(document.querySelectorAll('.product-card')).map(el => el.textContent.trim()))
+JavaScript examples (now supports multiline):
+- inputText('input[name="firstName"]', 'John')  // Framework-safe text input
+- clickElement('#submit-btn')  // Robust clicking with shadow DOM support
+- selectOption('select[name="country"]', 'USA')  // Select dropdown handling
+- checkBox('input[name="terms"]', true)  // Checkbox/radio management
+- submitForm('form')  // Form submission (tries button click first, then form.submit)
+
+FRAMEWORK-INDEPENDENT UTILITIES (automatically available):
+- inputText(selector, text) - Works with React/Vue/Angular controlled inputs + shadow DOM
+- clickElement(selector) - Robust clicking with scroll-into-view + shadow DOM support  
+- selectOption(selector, value) - Select by value or text match + shadow DOM
+- checkBox(selector, checked) - Checkbox/radio with proper events + shadow DOM
+- submitForm(selector) - Smart form submission (prefers button clicks over form.submit)
+
+These utilities handle:
+✅ React controlled components (uses native property setters)
+✅ Vue v-model binding (proper event dispatching) 
+✅ Angular forms (change detection triggering)
+✅ Shadow DOM access (tries shadowRoot first, falls back to host)
+✅ Proper focus/blur cycles and event bubbling
+
+PREFER THESE UTILITIES over direct DOM manipulation for maximum compatibility.
 
 ANTI-LOOP: If execute_js fails, try different selector. Never repeat same failing code.
 
 When stuck: 
-1. Try different JavaScript selector using visible attributes
-2. Use navigation: window.location.href = 'url'  
-3. Explore page: document.body.innerHTML.substring(0, 500)
+1. For forms: Use utility functions - inputText(), selectOption(), checkBox(), submitForm()
+2. For shadow DOM: Utilities automatically handle shadowRoot access + fallbacks
+3. For clicking: Use clickElement() instead of .click() for better reliability
+4. Try different JavaScript selector using visible attributes
+5. Use navigation: window.location.href = 'url'  
+6. Explore page: document.body.innerHTML.substring(0, 500)
 
 If one approach fails, immediately try another. Never repeat failing code more than once.
 
