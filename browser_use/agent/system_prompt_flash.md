@@ -15,13 +15,22 @@ Input:
 
 JavaScript examples (now supports multiline):
 - inputText('input[name="firstName"]', 'John')  // Works with ANY input type
-- clickElement('#submit-btn')  // Works with ANY clickable element
+- clickElement('button[type="submit"]')  // Works with ANY clickable element
 
-SUPER SIMPLE UTILITIES (automatically available):
-- inputText(selector, text) - Put text into ANY input field
-- clickElement(selector) - Click ANY element
+SIMPLE UTILITIES (automatically available):
+- inputText(selector, text) - Put text into ANY input (auto-handles MUI portals, React, Vue, Angular)
 
-That's it! Just 2 functions that handle EVERYTHING:
+- clickElement(selector) - Click ANY element (auto-scrolls for submit buttons, handles shadow DOM)
+
+RECOMMENDED FORM WORKFLOW:
+1. Fill all visible fields: inputText('#firstName', 'John'); inputText('#email', 'test@example.com');
+2. Scroll to see full form: window.scrollTo(0, document.body.scrollHeight); 
+3. Fill any additional fields: inputText('#additionalField', 'value');
+4. Submit: clickElement('button[type="submit"]'); 
+5. Wait briefly: setTimeout(() => {{}}, 1000);
+6. Check for success: document.body.innerText.toLowerCase().includes('success')
+
+CRITICAL: Always scroll to bottom before submitting - most submit buttons are below viewport!
 
 INPUT TEXT handles:
 ✅ Regular inputs: inputText('#email', 'test@example.com')
@@ -30,26 +39,34 @@ INPUT TEXT handles:
 ✅ Contenteditable divs: inputText('[contenteditable]', 'Rich text')
 ✅ React/Vue/Angular forms (bypasses framework control)
 ✅ Shadow DOM inputs (automatically finds inner inputs)
+✅ Material-UI portal selects (waits for dropdown, clicks option)
 
 CLICK ELEMENT handles:
-✅ Buttons: clickElement('button[type="submit"]')
-✅ Links: clickElement('a[href="/page"]')
-✅ Checkboxes: clickElement('input[type="checkbox"]') 
-✅ Radio buttons: clickElement('input[type="radio"]')
-✅ Custom elements: clickElement('.custom-button')
+✅ Auto-scrolls to bottom for submit buttons (most are below viewport)
 ✅ Shadow DOM (automatically finds clickable elements inside)
+✅ Broad fallback search when exact selector not found
+✅ Proper mouse events + focus for framework compatibility
 
-PREFER THESE 2 UTILITIES - they're simple and work with everything!
+USE THESE 2 UTILITIES - they handle everything automatically!
 
 ANTI-LOOP: If execute_js fails, try different selector. Never repeat same failing code.
 
 When stuck: 
-1. Use inputText() for ANY text input instead of setting .value directly
-2. Use clickElement() for ANY clicking instead of .click() for better reliability
-3. These utilities automatically handle shadow DOM + frameworks
-4. Try different JavaScript selector using visible attributes
+1. For forms: Always scroll first: window.scrollTo(0, document.body.scrollHeight)
+2. For missing submit buttons: Try clickElement('button') (will auto-find submit buttons)
+3. For complex dropdowns: inputText handles MUI/portal selects automatically
+4. For success checking: document.body.innerText.toLowerCase().includes('success')
 5. Use navigation: window.location.href = 'url'  
 6. Explore page: document.body.innerHTML.substring(0, 500)
+
+CRITICAL SUCCESS PATTERN - Do this for ALL forms:
+inputText('#field1', 'value');
+inputText('#field2', 'value'); 
+window.scrollTo(0, document.body.scrollHeight); // Critical step!
+clickElement('button[type="submit"]');
+setTimeout(() => {{}}, 1000); // Wait for response
+const success = document.body.innerText.toLowerCase().includes('success');
+// Only report success=true if confirmed!
 
 If one approach fails, immediately try another. Never repeat failing code more than once.
 

@@ -923,28 +923,33 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			"""Execute JavaScript - MULTILINE SUPPORTED with 2 super simple utilities.
+			"""Execute JavaScript - MULTILINE SUPPORTED with smart form utilities.
 
-SUPER SIMPLE UTILITIES (automatically loaded):
-- inputText(selector, text) - Put text in ANY input (text, textarea, select, contenteditable)
-- clickElement(selector) - Click ANY element (buttons, links, checkboxes, etc.)
+UTILITIES (automatically loaded):
+- inputText(selector, text) - Put text in ANY input (text, textarea, select, contenteditable, MUI portals)
+- clickElement(selector) - Click ANY element (auto-scrolls for submit buttons, handles shadow DOM)
 
-These 2 functions handle EVERYTHING and work with React/Vue/Angular + Shadow DOM automatically!
+These utilities handle React/Vue/Angular + Shadow DOM + MUI portals automatically!
+
+RECOMMENDED FORM WORKFLOW:
+1. Fill visible fields: inputText('#firstName', 'John'); inputText('#email', 'test@example.com');
+2. Scroll to bottom: window.scrollTo(0, document.body.scrollHeight); 
+3. Fill any new fields: inputText('#newField', 'value');
+4. Submit: clickElement('button[type="submit"]');
+5. Check success: document.body.innerText.toLowerCase().includes('success')
 
 EXAMPLES:
-- Text input: inputText('#firstName', 'John')
-- Email: inputText('input[type="email"]', 'test@example.com') 
-- Dropdown: inputText('select[name="country"]', 'USA')
-- Textarea: inputText('textarea', 'Long message')
-- Click button: clickElement('button[type="submit"]')
-- Check checkbox: clickElement('input[type="checkbox"]')
-- Multi-line form:
+- Complete form: 
   inputText('#firstName', 'John');
-  inputText('#lastName', 'Doe');
   inputText('select[name="state"]', 'California');
-  clickElement('#submit-btn');
+  window.scrollTo(0, document.body.scrollHeight);
+  clickElement('button[type="submit"]');
+  
+- MUI selects: inputText('div[role="button"][aria-labelledby*="gender"]', 'Male')
+- Any clicking: clickElement('button[type="submit"]')
+- Any input: inputText('input[name="field"]', 'value')
 
-Use these 2 utilities instead of direct DOM manipulation for maximum compatibility.
+Use these utilities instead of direct DOM manipulation for maximum compatibility.
 
 ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never repeat failing code.""",
 			param_model=ExecuteCDPAction,
@@ -1035,10 +1040,8 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 				else:
 					response_msg = str(value)
 					# Filter out utility function definitions from output
-					if (response_msg.startswith('function') and 'inputText' in response_msg) or (
-						response_msg.startswith('[object Object]') and len(original_code.strip()) < 50
-					):
-						response_msg = 'Utility functions loaded successfully'
+					if response_msg.startswith('function') and ('inputText' in response_msg or 'clickElement' in response_msg):
+						response_msg = 'JavaScript executed successfully'
 
 				logger.info('✅ CDP execution completed successfully')
 
@@ -1161,6 +1164,31 @@ window.inputText = function(selector, text) {
         } else {
             target.value = text; // Fallback to direct value
         }
+    } else if (target.getAttribute('role') === 'button' && target.getAttribute('aria-labelledby')) {
+        // Handle MUI-style selects (Material-UI portal components)
+        target.focus();
+        target.click(); // Open the dropdown
+        
+        // Wait and poll for portal menu options (they render in document.body)
+        let attempts = 0;
+        const checkForOptions = () => {
+            attempts++;
+            const portalOptions = Array.from(document.querySelectorAll(
+                '[role="option"], li[role="menuitem"], .MuiMenuItem-root, .MuiList-root li'
+            )).filter(opt => opt.offsetParent !== null && opt.textContent && opt.textContent.trim().length > 0);
+            
+            if (portalOptions.length > 0) {
+                // Try to find matching option by text, fallback to first
+                const matchingOption = portalOptions.find(opt => 
+                    opt.textContent.toLowerCase().includes(text.toLowerCase())
+                ) || portalOptions[0];
+                matchingOption.click();
+            } else if (attempts < 10) {
+                setTimeout(checkForOptions, 50);
+            }
+        };
+        setTimeout(checkForOptions, 100);
+        return true;
     } else if (target.contentEditable === 'true') {
         // Handle contenteditable divs
         target.textContent = text;
@@ -1187,9 +1215,27 @@ window.inputText = function(selector, text) {
 };
 
 window.clickElement = function(selector) {
+    // If looking for submit button, scroll to bottom first (most are below viewport)
+    if (selector.includes('submit') || selector.includes('button[type="submit"]')) {
+        window.scrollTo(0, document.body.scrollHeight);
+    }
+    
     // Find the element (handles shadow DOM automatically)  
     let el = document.querySelector(selector);
-    if (!el) return false;
+    if (!el) {
+        // If submit button not found, try broader search after scrolling
+        if (selector.includes('submit')) {
+            const submitButtons = Array.from(document.querySelectorAll(
+                'button[type="submit"], input[type="submit"], button:not([type]), button'
+            )).filter(btn => btn.offsetParent !== null);
+            if (submitButtons.length > 0) {
+                el = submitButtons.find(btn => 
+                    /submit|save|register|create|complete|finish/i.test(btn.textContent || btn.value || '')
+                ) || submitButtons[0];
+            }
+        }
+        if (!el) return false;
+    }
     
     // If it's a shadow host, look inside for clickable elements
     if (el.shadowRoot) {
@@ -1217,6 +1263,7 @@ window.clickElement = function(selector) {
     
     return true;
 };
+
 """
 
 	# Custom done action for structured output
