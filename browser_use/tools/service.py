@@ -896,10 +896,20 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			# General CDP execution tool
 
 		@self.registry.action(
-			"""This JavaScript code gets executed with Runtime.evaluate
-			 - Write code to solve problems you could not solve with other tools.
-			 - Don't write comments in here, no human reads that.
-			 - Write only valid code. 
+			"""This JavaScript code gets executed with 
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': code, 'returnByValue': True}, session_id=cdp_session.session_id
+				)
+- Write code to solve problems you could not solve with other tools.
+- Don't write comments in here, no human reads that.
+- Write only valid code. 
+- Global variables persist across calls
+- Functions persist across calls
+- Objects and classes persist across calls
+- Event listeners remain active
+- Local variables inside function scopes do NOT persist
+- return always some information so that you get feedback on what you did. This tool returns result_text = result.get('result', {}).get('value', '')
+
 EXAMPLES:
 Clicking on coordinates, using when other tools fail, filling a form all at once, hovering, dragging, extracting only links, extracting query, zooming ....
 You can also use it to explore the website.
@@ -912,12 +922,17 @@ You can also use it to explore the website.
 			cdp_session = await browser_session.get_or_create_cdp_session()
 			try:
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': code}, session_id=cdp_session.session_id
+					params={'expression': code, 'returnByValue': True}, session_id=cdp_session.session_id
 				)
-				result_text = result.get('result', {}).get('value', '')
-				description = result.get('result', {}).get('description', '')
-				error_message = result.get('exceptionDetails', {}).get('text', '')
-				return ActionResult(extracted_content=result_text)
+				# Handle the result properly
+				if 'exceptionDetails' in result:
+					error_message = result.get('exceptionDetails', {}).get('text', '')
+					logger.debug(f'❌ JavaScript execution error: {error_message}')
+					return ActionResult(error=f'JavaScript execution failed: {error_message}')
+
+				result_value = result.get('result', {}).get('value', '')
+				logger.debug('✅ JavaScript executed successfully')
+				return ActionResult(extracted_content=result_value)
 
 			except Exception as e:
 				return ActionResult(error=f'Failed to execute JavaScript: {e}')

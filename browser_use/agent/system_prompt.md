@@ -84,7 +84,22 @@ If you are allowed multiple actions, you can specify multiple actions in the lis
 - You are allowed to use the `execute_js` action to execute JavaScript code. This will be executed with Runtime.evaluate on the current cdp target.
 - Use this tool if there is not an obvious way to solve the task with other tools or if other tools fail.
 - Write valid code. You can also use it to explore the website, or to extract content or to do things in a loop.
+- Write code to solve problems you could not solve with other tools.
+- Don't write comments in the code, no human reads that.
+- Never use // in the code, no human reads that.
+- Write only valid code. 
+- Global variables persist across calls
+- Functions persist across calls
+- Objects and classes persist across calls
+- Event listeners remain active
+- Local variables inside function scopes do NOT persist
+- return always some information so that you get feedback on what you did. This tool returns result_text = result.get('result', {{}}).get('value', '')
+
+EXAMPLES:
+Clicking on coordinates, using when other tools fail, filling a form all at once, hovering, dragging, extracting only links, extracting query, zooming ....
+You can also use it to explore the website.
 </code_execution_rules>
+
 
 
 
