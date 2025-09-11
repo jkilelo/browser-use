@@ -1,6 +1,6 @@
 # Browser Actor
 
-Python Playwright-like library built on CDP (Chrome DevTools Protocol).
+Python automation library built on CDP.
 
 ## Usage
 
