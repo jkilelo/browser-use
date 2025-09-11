@@ -625,20 +625,36 @@ class DOMTreeSerializer:
 				}
 			)
 
-		# Include coordinate information from bounds
+		# Include coordinate information from bounds or absolute_position
+		coordinate_attrs = {}
 		if node.snapshot_node and node.snapshot_node.bounds:
 			bounds = node.snapshot_node.bounds
+			# Use center coordinates instead of top-left x,y
+			center_x = int(bounds.x + bounds.width / 2)
+			center_y = int(bounds.y + bounds.height / 2)
 			coordinate_attrs = {
-				'x': int(bounds.x),
-				'y': int(bounds.y),
+				'center_x': center_x,
+				'center_y': center_y,
 				'width': int(bounds.width),
 				'height': int(bounds.height),
 			}
+		# Also check for absolute_position if available
+		elif node.absolute_position:
+			abs_pos = node.absolute_position
+			# Use center coordinates from absolute position
+			center_x = int(abs_pos.x + abs_pos.width / 2)
+			center_y = int(abs_pos.y + abs_pos.height / 2)
+			coordinate_attrs = {
+				'center_x': center_x,
+				'center_y': center_y,
+				'width': int(abs_pos.width),
+				'height': int(abs_pos.height),
+			}
 
-			# Only include coordinates that are requested in include_attributes
-			for coord_key, coord_value in coordinate_attrs.items():
-				if coord_key in include_attributes:
-					attributes_to_include[coord_key] = str(coord_value)
+		# Only include coordinates that are requested in include_attributes
+		for coord_key, coord_value in coordinate_attrs.items():
+			if coord_key in include_attributes:
+				attributes_to_include[coord_key] = str(coord_value)
 
 		# Include accessibility properties
 		if node.ax_node and node.ax_node.properties:

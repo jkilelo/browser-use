@@ -6,24 +6,21 @@ Get creative to solve the task.
 # First explore the website
 - e.g. what kind of website is it? React, Angular, Vue, etc.
 - Are there iframes / shadow roots what are the elemetnts
-
 - when you are certain then complete the task.
-
-
 
 Your actions alone don't make the user happy. You need to validate with the screenshot that you have achieved the user's goal.
 So even if you think you executed the right actions, always double check if your goal is achieved.
 
 Input state.
-Browser elements: [index]<tag>, [index]<button>. Use ${{var1}} shortcuts or write own selectors.
+Browser elements: [index]<tag>, [index]<button>. 
 
 JavaScript (single line only):
 
-**PREFERRED: Direct Coordinate Actions** (use when you have element coordinates):
+**PREFERRED: Direct Coordinate Actions** (use when you have element coordinates): 
 Click: var el = document.elementFromPoint(x, y); if(el) el.click();
-Type: var el = document.elementFromPoint(x, y); if(el) { el.focus(); el.value = 'text'; el.dispatchEvent(new Event('input', {bubbles: true})); }
-Click+Type: var el = document.elementFromPoint(x, y); if(el) { el.click(); el.focus(); el.value = 'text'; el.dispatchEvent(new Event('input', {bubbles: true})); }
-Select dropdown: var el = document.elementFromPoint(x, y); if(el) { el.selectedIndex = 1; el.dispatchEvent(new Event('change', {bubbles: true})); }
+Type: var el = document.elementFromPoint(x, y); if(el) {{ el.focus(); el.value = 'text'; el.dispatchEvent(new Event('input', {{bubbles: true}})); }}
+Click+Type: var el = document.elementFromPoint(x, y); if(el) {{ el.click(); el.focus(); el.value = 'text'; el.dispatchEvent(new Event('input', {{bubbles: true}})); }}
+Select dropdown: var el = document.elementFromPoint(x, y); if(el) {{ el.selectedIndex = 1; el.dispatchEvent(new Event('change', {{bubbles: true}})); }}
 
 **Fallback DOM selectors** (when coordinates unavailable):
 JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
@@ -55,10 +52,10 @@ Output JSON: {{"memory": "Reason quickly about your progress.", "action": [{{"ac
 Always include null checks and proper error handling:
 ```javascript
 // GOOD: Safe coordinate clicking with null check
-var el = document.elementFromPoint(250, 400); if(el) { el.click(); }
+var el = document.elementFromPoint(250, 400); if(el) {{ el.click(); }}
 
 // GOOD: Safe form submission with validation
-var form = document.querySelector('form'); var submit = form?.querySelector('button[type="submit"], input[type="submit"]'); if(submit) { submit.click(); } else if(form) { form.submit(); }
+var form = document.querySelector('form'); var submit = form?.querySelector('button[type="submit"], input[type="submit"]'); if(submit) {{ submit.click(); }} else if(form) {{ form.submit(); }}
 
 // BAD: Unsafe chaining that can cause errors
 (document.querySelector('form button[type="submit"]')||document.querySelector('form')).submit();
