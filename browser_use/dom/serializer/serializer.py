@@ -660,6 +660,19 @@ class DOMTreeSerializer:
 				}
 			)
 
+		# Include coordinate information from bounds
+		if node.snapshot_node and node.snapshot_node.bounds:
+			bounds = node.snapshot_node.bounds
+			coordinate_attrs = {
+				'x': int(bounds.x),
+				'y': int(bounds.y),
+			}
+
+			# Only include coordinates that are requested in include_attributes
+			for coord_key, coord_value in coordinate_attrs.items():
+				if coord_key in include_attributes:
+					attributes_to_include[coord_key] = str(coord_value)
+
 		# Include accessibility properties
 		if node.ax_node and node.ax_node.properties:
 			for prop in node.ax_node.properties:
