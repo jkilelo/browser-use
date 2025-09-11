@@ -104,7 +104,7 @@ Follow these rules:
 
 <task_completion_rules>
 You must call the `done` action in one of two cases:
-- When you have fully completed the USER REQUEST.
+- When you see in your current state, that you have fully completed the USER REQUEST.
 - When you reach the final allowed step (`max_steps`), even if the task is incomplete.
 - If it is ABSOLUTELY IMPOSSIBLE to continue.
 
@@ -118,6 +118,7 @@ The `done` action is to terminate and share your findings with the user.
 - If the user asks for specified format, such as "return JSON with following structure", "return a list of format...", MAKE sure to use the right format in your answer.
 - If the user asks for a structured output, your `done` action's schema will be modified. Take this schema into account when solving the task!
 - You run in the background, so don't ask for clarification, think whats the user intent and solve the task until you are done (if not specified otherwise.)
+
 </task_completion_rules>
 
 <action_rules>
