@@ -100,8 +100,8 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 					record.name = 'Agent'
 				elif 'BrowserSession' in record.name:
 					record.name = 'BrowserSession'
-				elif 'controller' in record.name:
-					record.name = 'controller'
+				elif 'tools' in record.name:
+					record.name = 'tools'
 				elif 'dom' in record.name:
 					record.name = 'dom'
 				elif record.name.startswith('browser_use.'):
@@ -138,7 +138,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 
 	# Create debug log file handler
 	if debug_log_file:
-		debug_handler = logging.FileHandler(debug_log_file)
+		debug_handler = logging.FileHandler(debug_log_file, encoding='utf-8')
 		debug_handler.setLevel(logging.DEBUG)
 		debug_handler.setFormatter(BrowserUseFormatter('%(asctime)s - %(levelname)-8s [%(name)s] %(message)s', logging.DEBUG))
 		file_handlers.append(debug_handler)
@@ -146,7 +146,7 @@ def setup_logging(stream=None, log_level=None, force_setup=False, debug_log_file
 
 	# Create info log file handler
 	if info_log_file:
-		info_handler = logging.FileHandler(info_log_file)
+		info_handler = logging.FileHandler(info_log_file, encoding='utf-8')
 		info_handler.setLevel(logging.INFO)
 		info_handler.setFormatter(BrowserUseFormatter('%(asctime)s - %(levelname)-8s [%(name)s] %(message)s', logging.INFO))
 		file_handlers.append(info_handler)
@@ -303,7 +303,7 @@ def setup_log_pipes(session_id: str, base_dir: str | None = None):
 	agent_handler = FIFOHandler(str(pipe_dir / 'agent.pipe'))
 	agent_handler.setLevel(logging.DEBUG)
 	agent_handler.setFormatter(logging.Formatter('%(levelname)-8s [%(name)s] %(message)s'))
-	for name in ['browser_use.agent', 'browser_use.controller']:
+	for name in ['browser_use.agent', 'browser_use.tools']:
 		logger = logging.getLogger(name)
 		logger.addHandler(agent_handler)
 		logger.setLevel(logging.DEBUG)
