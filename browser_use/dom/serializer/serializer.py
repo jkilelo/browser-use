@@ -535,6 +535,14 @@ class DOMTreeSerializer:
 				except (AttributeError, ValueError):
 					continue
 
+		# Include center coordinates from absolute_position if available
+		if node.absolute_position:
+			center_x = int(node.absolute_position.x + node.absolute_position.width / 2)
+			center_y = int(node.absolute_position.y + node.absolute_position.height / 2)
+			# Always include center coordinates if position is available
+			attributes_to_include['x'] = str(center_x)
+			attributes_to_include['y'] = str(center_y)
+
 		if not attributes_to_include:
 			return ''
 

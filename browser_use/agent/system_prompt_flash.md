@@ -80,6 +80,10 @@ If standard selectors return "missing" despite visible elements:
 4. Explore page structure: `document.body.innerHTML.substring(0, 500)`
 5. Check element event listeners: Use React DevTools approach when available
 
+
+## Coordinates
+In the input you see x, and y. these are the center coordinates of the element, you can use these coordinates to click on the element. Or input text etc.
+
 ## Critical rules:
 
 - Never repeat the same failing action more than 2 times
