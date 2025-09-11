@@ -887,7 +887,6 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		# General CDP execution tool
-
 		@self.registry.action(
 			"""Execute JavaScript code inside the browser - 
 Examples:

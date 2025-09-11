@@ -18,6 +18,7 @@ from browser_use.observability import observe_debug
 DEFAULT_INCLUDE_ATTRIBUTES = [
 	'title',
 	'type',
+	'id',
 	'checked',
 	'name',
 	'role',
