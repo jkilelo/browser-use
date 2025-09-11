@@ -893,6 +893,7 @@ Best Practices:
 - Do never use commands, save tokens, no human will read this.
 - Use json stringify to return complex data.
 - Write valid js code.
+- Keep your code concise.
 - Use this if your other tools are not working.
 - Think about different elements like iframes, closed shadow roots, etc and how you can interact with them.
 - You have access to previous variables and functions which you use.
