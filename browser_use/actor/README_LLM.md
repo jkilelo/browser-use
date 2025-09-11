@@ -1,6 +1,6 @@
 # Browser Actor
 
-Python automation library built on CDP.
+Browser Actor is a web automation library built directly on CDP.
 
 ## Usage
 
@@ -65,12 +65,13 @@ await target.reload()
 page_screenshot = await target.screenshot()  # JPEG by default
 page_png = await target.screenshot(format="png")
 
-# JavaScript evaluation - always returns string
-text = await target.evaluate("() => document.body.innerText")
-result = await target.evaluate("() => ({title: document.title, url: location.href})")  # Returns JSON string
-# Can use directly with regex since it's always a string
-matches = re.findall(r"pattern", text)
-data = json.loads(result)  # Parse JSON if needed
+# JavaScript evaluation - ALWAYS returns string (objects become JSON)
+text = await target.evaluate("() => document.body.innerText")  # Returns: "Page content"
+result = await target.evaluate("() => ({title: document.title})")  # Returns: '{"title": "Page Title"}'
+
+# Safe to use directly with regex (always string)
+matches = re.findall(r"\$[0-9,]+", text)
+data = json.loads(result)  # Parse JSON for objects: {"title": "Page Title"}
 ```
 
 JavaScript execution always returns strings (objects/arrays are JSON-stringified).
@@ -98,17 +99,18 @@ JavaScript execution always returns strings (objects/arrays are JSON-stringified
 - `reload()` - Reload the current page
 - `getUrl()` → `str`, `getTitle()` → `str` - Get page info
 
-### Element Methods
+### Element Methods (Supported Only)
 - `click(button='left', click_count=1, modifiers=None)` - Click element
 - `fill(text: str)` - Fill input with text (clears first)
 - `hover()` - Hover over element
 - `focus()` - Focus the element
 - `check()` - Toggle checkbox/radio button (clicks to change state)
-- `selectOption(values: str | list[str])` - Select dropdown options
+- `selectOption(values: str | list[str])` - Select dropdown options (string or array)
 - `dragTo(target: Element | Position, source_position=None, target_position=None)` - Drag to target
 - `getAttribute(name: str)` → `str | None` - Get attribute value
 - `getBoundingBox()` → `BoundingBox | None` - Get element position/size
 - `getBasicInfo()` → `ElementInfo` - Get comprehensive element information
+
 
 ### Mouse Methods  
 - `click(x: int, y: int, button='left', click_count=1)` - Click at coordinates
@@ -144,3 +146,15 @@ class ElementInfo(TypedDict):
     attributes: dict[str, str]
     boundingBox: BoundingBox | None
 ```
+
+## Important LLM Usage Notes
+
+**This is NOT Playwright.**. You can NOT use other methods than the ones described here. Key constraints for code generation:
+
+- `target.evaluate()` always returns string (objects become JSON strings)
+- `getElementsByCSSSelector()` returns immediately, no waiting
+- For dropdowns: use `element.selectOption("value")` or `element.selectOption(["val1", "val2"])`, not `element.fill()`
+- No methods: `element.submit()`, `element.dispatchEvent()`, `element.getProperty()`, `target.querySelectorAll()`
+- Form submission: click submit button or use `target.press("Enter")`
+- Get properties: use `target.evaluate("() => element.value")` not `element.getProperty()`
+- Loop prevention: verify page state changes with `target.getUrl()`, `target.getTitle()`, `element.getAttribute()`

@@ -1035,7 +1035,7 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 			logger.warning(f'Could not load browser actor README: {e}')
 
 		@self.registry.action(
-			f"""Execute browser automation code using the browser-use actor library.
+			f"""Execute Browser Actor code using the browser-use actor library.
 
 <DOCS>
 {readme_content}
@@ -1044,13 +1044,12 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 <RULES>
 - Functions should start with `async def executor(): ...` (no parameters)
 - Do not implement waiting for CSS functions - our native implementation doesn't wait
-- Prefer using backend node ID for element interaction when possible 
-- Avoid javascript execution if possible, prefer using the browser-use actor library
+- Use backendNodeId for element interaction when possible
 - Don't return screenshots, that will not work
 - Use raw strings r"pattern" for regex patterns to avoid escape sequence warnings
 - Between the clicks and actions make sure to add some `asyncio.sleep(1)`, to make sure stuff loads correctly
 - Maximum code length is 500 characters
-- DO NOT TRY TO GUESS OTHER METHODS. You can only use what is defined in `<DOCS>`, nothing else. This is extremely important, otherwise the execution will fail. The API looks similar to other libraries, but it's not the same, much less functions.
+- DO NOT TRY TO GUESS OTHER METHODS on `Target`, `Browser`, `Element`, `Mouse`. You can only use the ones defined in <DOCS>. Capital letters matter. This is extremely important, otherwise the execution will fail. If you need to remember the method names, write a comment with a method name reflected from <DOCS>.before the line of code.
 </RULES>
 
 <EXPECTED_OUTPUT>
@@ -1061,9 +1060,14 @@ Context: client (cdp client), target (current open target), Browser/Target/Eleme
 For example:
 ```python
 async def executor():
-    elements = await target.getElement(backend_node_id=12345)
-    if elements:
-        await elements.fill("text")
+    element = await target.getElement(backend_node_id=12345)
+    if element:
+        await element.fill("text")
+
+	asyncio.sleep(1)
+
+	...
+	
     return # output passed to memory for next steps
 ```
 </EXPECTED_OUTPUT>
