@@ -42,12 +42,13 @@ class SystemPrompt:
 		"""Load the prompt template from the markdown file."""
 		try:
 			# Choose the appropriate template based on flash_mode and use_thinking settings
-			if self.flash_mode:
-				template_filename = 'system_prompt_flash.md'
-			elif self.use_thinking:
-				template_filename = 'system_prompt.md'
-			else:
-				template_filename = 'system_prompt_no_thinking.md'
+			template_filename = 'system_prompt_flash.md'
+			# if self.flash_mode:
+			# 	template_filename = 'system_prompt_flash.md'
+			# elif self.use_thinking:
+			# 	template_filename = 'system_prompt.md'
+			# else:
+			# 	template_filename = 'system_prompt_no_thinking.md'
 
 			# This works both in development and when installed as a package
 			with importlib.resources.files('browser_use.agent').joinpath(template_filename).open('r', encoding='utf-8') as f:
