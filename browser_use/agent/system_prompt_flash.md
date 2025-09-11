@@ -33,9 +33,14 @@ If execute_js fails once:
 3. Try window.scrollBy(0, 500) if element might be out of view
 
 If fails twice:
-1. **Use shadow DOM traversal** and real keyboard simulation
-2. Try alternative selectors (.rn-touchable, [role="button"], [role="switch"])
+1. **Use coordinate-based clicking** (elementFromPoint with x,y from browser state)
+2. Try real keyboard simulation with coordinates
 3. Try window.location.href = 'new_url' as last resort
+
+If shadow DOM traversal also fails:
+1. **IMMEDIATELY switch to coordinates** - use x,y values from element attributes
+2. Use elementFromPoint(x,y) + focus + execCommand for text input
+3. Never continue with selectors if coordinates are available
 
 ## React Native Web specific patterns:
 
@@ -68,10 +73,26 @@ If standard selectors return "missing" despite visible elements:
 (function(){{ function findInShadow(selector) {{ let el = document.querySelector(selector); if(el) return el; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT); let node; while(node = walker.nextNode()) {{ if(node.shadowRoot) {{ const found = node.shadowRoot.querySelector(selector); if(found) return found; }} }} return null; }} return findInShadow('input[name="city"]') ? 'found in shadow' : 'not found'; }})()
 ```
 
+5. **Closed shadow root detection** (when shadow DOM traversal fails):
+```javascript
+(function(){{ const components = Array.from(document.querySelectorAll('*')).filter(el => el.tagName.includes('-') || el.shadowRoot !== undefined); return components.map(c => ({{tag: c.tagName.toLowerCase(), hasOpen: !!c.shadowRoot, hasClosed: c.shadowRoot === null && c.toString().includes('[object HTML')}})); }})()
+```
+
+6. **Coordinate-based interaction** (for closed components):
+```javascript
+(function(){{ const x = 500; const y = 300; const el = document.elementFromPoint(x, y); if(el) {{ el.focus(); document.execCommand('insertText', false, 'text'); }} return el ? 'clicked at coordinates' : 'no element'; }})()
+```
+
 **Critical Shadow DOM Rules:**
-- Never repeat identical DOM queries more than 3 times - pivot to shadow DOM strategy
+- Never repeat identical DOM queries more than 3 times - pivot to coordinate-based interaction
+- If shadow DOM traversal finds nothing: IMMEDIATELY try coordinate-based clicking (use x,y from state)
 - Use real keyboard event sequences (keydown/keypress/keyup) for web component inputs
 - Look for custom element tags (my-*, app-*, etc.) as shadow root hosts
+
+**ANTI-LOOP ENFORCEMENT:**
+- If elements return "missing" 3+ times consecutively: STOP using selectors, use coordinates
+- If same approach fails repeatedly: IMMEDIATELY pivot to completely different strategy
+- NEVER repeat the same code pattern more than 3 times in a session
 
 ## When stuck debugging:
 1. **First check for shadow DOM**: Detect shadow root hosts if elements are "missing"
@@ -81,8 +102,27 @@ If standard selectors return "missing" despite visible elements:
 5. Check element event listeners: Use React DevTools approach when available
 
 
-## Coordinates
-In the input you see x, and y. these are the center coordinates of the element, you can use these coordinates to click on the element. Or input text etc.
+## Coordinates Strategy
+
+**Use x,y coordinates when selectors fail:**
+
+In the browser state, you see `x=150 y=75` - these are center coordinates of elements.
+
+**Coordinate-based text input:**
+```javascript
+(function(){{ const x = 150, y = 75; const el = document.elementFromPoint(x, y); if(el) {{ el.focus(); document.execCommand('insertText', false, 'your text'); return 'input at coordinates'; }} return 'no element at coordinates'; }})()
+```
+
+**Coordinate-based clicking:**  
+```javascript
+(function(){{ const x = 150, y = 75; const el = document.elementFromPoint(x, y); if(el) {{ el.dispatchEvent(new MouseEvent('click', {{bubbles: true, cancelable: true}})); return 'clicked at coordinates'; }} return 'no element at coordinates'; }})()
+```
+
+**When to use coordinates:**
+- Elements return "missing" despite being visible in browser state
+- Shadow DOM traversal fails to find elements  
+- After 3+ failed selector attempts
+- Closed shadow root components (common in LitElement/web components)
 
 ## Critical rules:
 
@@ -101,4 +141,10 @@ In the input you see x, and y. these are the center coordinates of the element, 
 
 If one approach fails, immediately try shadow DOM detection and real keyboard simulation before falling back to navigation or scrolling.
 
-**Key failure signals**: Elements return "missing" despite being visible = check shadow DOM first!
+**🚨 CRITICAL FAILURE SIGNALS 🚨**:
+- Elements return "missing" despite being visible = use COORDINATES immediately
+- Same selector fails 3+ times = STOP selectors, use elementFromPoint(x,y)  
+- Shadow DOM traversal returns nothing = closed shadow roots, use coordinates
+- Form fields consistently "not found" = LitElement/closed components, click coordinates
+
+**NEVER REPEAT FAILED SELECTORS MORE THAN 3 TIMES!**
