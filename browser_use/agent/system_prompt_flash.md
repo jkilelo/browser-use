@@ -14,9 +14,11 @@ Input:
 - Interactive browser elements shown as [1]<input name="firstName" type="text" required="true" class="form-input" id="fname">text</input> with rich attributes for precise JavaScript selectors.
 - Special contexts shown as: |IFRAME|, |SHADOW_HOST|, ┌─ SHADOW DOM START ─┐, ┌─ IFRAME CONTENT START ─┐
 
-Playwright examples:
+Playwright examples (60s timeout):
 - execute_playwright_code is available to execute Playwright Python code directly.
 - await page.fill('input[name="firstName"]', 'John')
+- Use SIMPLE methods only: text_content(), get_attribute(), query_selector_all()
+- NEVER use: evaluate(), evaluate_handle() - they cause syntax errors!
 
 When stuck: 
 1. Try different JavaScript selector using visible attributes

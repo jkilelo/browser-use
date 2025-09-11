@@ -102,7 +102,7 @@ class Tools(Generic[Context]):
 		'write_file',
 		'replace_file_str',
 		'read_file',
-		'execute_js',
+		# 'execute_js',
 	]
 
 	def __init__(
@@ -1029,7 +1029,7 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 
 EXECUTION CONTEXT:
 - 'page' object available (current browser page via CDP)
-- 30-second timeout, async Python environment
+- 60-second timeout, async Python environment (increased from 30s)
 - Access to: asyncio, json, os
 
 🔴 CRITICAL: NEVER use these methods (they cause syntax errors):
@@ -1098,7 +1098,11 @@ GUARANTEED TO WORK: Use these exact patterns above!""",
 				return ActionResult(error='No CDP URL available. Browser session not properly initialized.')
 
 			playwright = await async_playwright().start()
-			playwright_browser = await playwright.chromium.connect_over_cdp(cdp_url)
+			try:
+				playwright_browser = await playwright.chromium.connect_over_cdp(cdp_url)
+			except Exception as e:
+				await playwright.stop()
+				return ActionResult(error=f'Failed to connect Playwright to browser: {str(e)}')
 
 			# Get the current page
 			if playwright_browser.contexts and playwright_browser.contexts[0].pages:
@@ -1141,13 +1145,43 @@ async def __playwright_exec():
 			playwright_exec_func = exec_globals['__playwright_exec']
 
 			try:
-				result = await asyncio.wait_for(playwright_exec_func(), timeout=30.0)
+				# Increased timeout to handle complex form interactions and animations
+				result = await asyncio.wait_for(playwright_exec_func(), timeout=60.0)
 			except asyncio.TimeoutError:
 				logger.error('❌ Playwright code execution timed out')
-				return ActionResult(error='Playwright code execution timed out (30s limit)')
+				error_msg = 'Playwright code execution timed out (60s limit). Try breaking complex operations into smaller steps.'
+				return ActionResult(error=error_msg)
+			except Exception as e:
+				logger.error(f'❌ Playwright code execution failed: {e}')
+				error_msg = f'Failed to execute Playwright code: {str(e)}'
 
-			text = f'Code: {params.code}\nResult: {result}'
-			return ActionResult(extracted_content=text)
+				# Add helpful error context
+				if 'Connection closed' in str(e):
+					error_msg += '\nTip: Try simpler operations or check browser stability'
+				elif 'This event loop is already running' in str(e):
+					error_msg += '\nTip: Avoid nested async operations in Playwright code'
+
+				return ActionResult(error=error_msg)
+			finally:
+				# Always clean up Playwright resources
+				try:
+					await playwright_browser.close()
+				except Exception as e:
+					logger.debug(f'Error closing Playwright browser: {e}')
+				try:
+					await playwright.stop()
+				except Exception as e:
+					logger.debug(f'Error stopping Playwright: {e}')
+
+			success_msg = '✅ Playwright code executed successfully'
+			if result is not None:
+				success_msg += f'\nReturn value: {result}'
+
+			logger.info(success_msg)
+			return ActionResult(
+				extracted_content=success_msg,
+				long_term_memory=f'Executed Playwright code: {params.code[:100]}{"..." if len(params.code) > 100 else ""}',
+			)
 
 	def _prepare_playwright_code(self, code: str) -> str:
 		"""Clean and prepare Playwright code for execution."""
