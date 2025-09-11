@@ -17,6 +17,11 @@ from browser_use.observability import observe_debug
 # Serializer types
 DEFAULT_INCLUDE_ATTRIBUTES = [
 	'title',
+	'id',
+	'class',
+	'name',
+	'x',
+	'y',
 	'type',
 	'checked',
 	'name',
