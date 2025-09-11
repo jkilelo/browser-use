@@ -6,24 +6,32 @@ Python Playwright-like library built on CDP (Chrome DevTools Protocol).
 
 ```python
 from cdp_use import CDPClient
-from browser_use.actor import Browser
+from browser_use.actor import Browser, Target, Element, Mouse
 
 # Create client and browser
 client = CDPClient(ws_url)
 browser = Browser(client)
+```
 
+```python
 # Get targets (multiple ways)
 target = await browser.goto("https://example.com")  # Navigate to URL
 target = await browser.newTarget()  # Create blank tab
 targets = await browser.getTargets()  # Get all existing tabs
 
+await browser.closeTarget(target)
+```
+
+```python
 # Find elements by CSS selector
 elements = await target.getElementsByCSSSelector("input[type='text']")
 buttons = await target.getElementsByCSSSelector("button.submit")
 
 # Get element by backend node ID
 element = await target.getElement(backend_node_id=12345)
+```
 
+```python
 # Element actions
 await element.click(button='left', click_count=1, modifiers=['Control'])
 await element.fill("Hello World")  # Advanced clearing + character-by-character typing
@@ -40,12 +48,19 @@ info = await element.getBasicInfo()
 # Element screenshot
 element_image = await element.screenshot(quality=90)  # JPEG by default
 element_png = await element.screenshot(format="png")
+```
 
+Unlike other libraries, the native implementation for `getElementsByCSSSelector` does not support waiting for the element to be visible.
+
+
+```python
 # Mouse operations
 mouse = await target.mouse
 await mouse.click(x=100, y=200, button='left')
 await mouse.move(x=300, y=400)
+```
 
+```python
 # Target operations
 await target.scroll(x=0, y=100, delta_y=-500)  # Mouse wheel + JS fallbacks
 await target.press("Control+A")  # Key combinations supported
@@ -54,7 +69,9 @@ await target.setViewportSize(width=1920, height=1080)
 await target.reload()
 page_screenshot = await target.screenshot()  # JPEG by default
 page_png = await target.screenshot(format="png")
+```
 
+```python
 # JavaScript execution
 title = await target.evaluate("document.title")
 result = await target.evaluate("window.scrollY")
@@ -72,12 +89,9 @@ user_info = await target.evaluate("""
     };
 }
 """, ["Alice", 25])
+```
 
 JavaScript execution returns Python-compatible types.
-
-# Cleanup
-await browser.closeTarget(target)
-```
 
 ## Core Classes
 
