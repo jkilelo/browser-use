@@ -73,6 +73,11 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'spellcheck',
 	'draggable',
 	'tabindex',
+	# Coordinate attributes (computed from layout)
+	'x',
+	'y',
+	# 'width',
+	# 'height',
 	# Accessibility properties from ax_node
 	'expanded',
 	'pressed',
