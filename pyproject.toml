@@ -43,6 +43,7 @@ dependencies = [
     "pyotp>=2.9.0",
     "html2text>=2025.4.15",
     "pillow>=11.2.1",
+    "playwright>=1.55.0",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste

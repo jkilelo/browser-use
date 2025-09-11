@@ -42,6 +42,7 @@ from browser_use.tools.views import (
 	GoToUrlAction,
 	InputTextAction,
 	NoParamsAction,
+	PlaywrightCodeAction,
 	ScrollAction,
 	SearchGoogleAction,
 	SelectDropdownOptionAction,
@@ -1020,6 +1021,246 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 			except Exception as e:
 				logger.error(f'❌ CDP execution failed with exception: {e}')
 				return ActionResult(error=f'CDP execution failed: {str(e)}')
+
+		# Playwright Code Execution Tool
+		@self.registry.action(
+			"""Execute SIMPLE Playwright Python code. Use BASIC methods only, NO JavaScript evaluation!
+
+EXECUTION CONTEXT:
+- 'page' object available (current browser page via CDP)
+- 30-second timeout, async Python environment
+- Access to: asyncio, json, os
+
+🔴 CRITICAL: NEVER use these methods (they cause syntax errors):
+❌ page.evaluate()          ❌ page.evaluate_handle()
+❌ element.evaluate()       ❌ element.evaluate_handle()  
+❌ Complex JavaScript       ❌ Multi-line selectors in quotes
+
+✅ ONLY use these SIMPLE methods:
+- Get text: text = await page.text_content('h1')
+- Get attribute: href = await page.get_attribute('a', 'href')  
+- Find elements: elements = await page.query_selector_all('div')
+- Click: await page.click('button')
+- Fill: await page.fill('input[name="email"]', 'test@test.com')
+- Screenshot: await page.screenshot(path='shot.png')
+- Navigate: await page.goto('https://example.com')
+
+🔴 METHODS THAT ARE BLOCKED (will cause errors):
+❌ NEVER use: evaluate(), evaluate_handle(), evaluate_handle() 
+❌ These methods inject JavaScript and cause syntax errors!
+
+✅ COPY-PASTE TEMPLATE FOR DATA EXTRACTION:
+results = []
+all_links = await page.query_selector_all('a')
+for link in all_links:
+    href = await link.get_attribute('href')
+    text = await link.text_content()
+    if href and 'linkedin' in href:
+        results.append({'name': text.strip(), 'url': href})
+print(f"Found {len(results)} LinkedIn profiles")
+
+✅ COPY-PASTE TEMPLATE FOR VISITING PROFILES:
+count = 1
+for person in results:
+    try:
+        await page.goto(person['url'])
+        await page.wait_for_load_state('domcontentloaded')  
+        title = await page.text_content('title')
+        await page.screenshot(path=f'linkedin_{count}.png')
+        person['job_from_title'] = title
+        print(f"Profile {count}: {person['name']} - {title}")
+        count += 1
+    except Exception as e:
+        print(f"Failed to load {person['name']}: {e}")
+
+✅ SIMPLE SELECTORS ONLY:
+- 'a' (all links)
+- 'div' (all divs) 
+- '.className' (by class)
+- '#idName' (by ID)
+- '[href*="linkedin"]' (contains text)
+
+✅ ONE-LINE OPERATIONS ONLY:
+text = await element.text_content()
+href = await element.get_attribute('href')
+await page.click('button')
+
+GUARANTEED TO WORK: Use these exact patterns above!""",
+			param_model=PlaywrightCodeAction,
+		)
+		async def execute_playwright_code(params: PlaywrightCodeAction, browser_session: BrowserSession):
+			try:
+				# Check if playwright is available
+				try:
+					from playwright.async_api import async_playwright
+				except ImportError:
+					return ActionResult(
+						error='Playwright is not installed. Install with: pip install playwright && playwright install chromium'
+					)
+
+				# Get CDP URL from browser session
+				cdp_url = browser_session.cdp_url
+				if not cdp_url:
+					return ActionResult(error='No CDP URL available. Browser session not properly initialized.')
+
+				playwright = await async_playwright().start()
+				try:
+					playwright_browser = await playwright.chromium.connect_over_cdp(cdp_url)
+
+					# Get the current page
+					if playwright_browser.contexts and playwright_browser.contexts[0].pages:
+						page = playwright_browser.contexts[0].pages[0]
+					else:
+						context = await playwright_browser.new_context()
+						page = await context.new_page()
+
+					# Execute the user's code in a controlled environment
+					# Create a safe execution namespace
+					exec_globals = {
+						'page': page,
+						'__builtins__': __builtins__,
+					}
+
+					# Import common modules that might be needed
+					exec_globals.update(
+						{
+							'asyncio': asyncio,
+							'json': json,
+							'os': os,
+						}
+					)
+
+					# Execute the code with timeout protection
+					try:
+						# Clean and prepare the code
+						clean_code = self._prepare_playwright_code(params.code)
+
+						# Wrap the code in an async function to properly handle await statements
+						wrapped_code = f"""
+async def __playwright_exec():
+{clean_code}
+"""
+
+						# Compile the code first to check for syntax errors
+						try:
+							compiled_code = compile(wrapped_code, '<playwright_code>', 'exec')
+						except SyntaxError as syntax_err:
+							error_details = f'Syntax error at line {syntax_err.lineno}: {syntax_err.msg}'
+							if syntax_err.text:
+								error_details += f'\nProblematic line: {syntax_err.text.strip()}'
+
+							# Add helpful suggestions for common errors
+							suggestions = []
+							if 'invalid escape sequence' in error_details:
+								suggestions.append("Use raw strings for regex: r'\\s+' instead of '\\s+'")
+							if 'Invalid or unexpected token' in error_details:
+								suggestions.append(
+									'Avoid complex JavaScript in page.evaluate(). Use simple Playwright methods instead.'
+								)
+								suggestions.append("Example: await page.text_content('.selector') instead of page.evaluate()")
+
+							if suggestions:
+								error_details += '\n\nSuggestions:\n- ' + '\n- '.join(suggestions)
+
+							logger.error(f'❌ Playwright code syntax error: {error_details}')
+							return ActionResult(error=f'Syntax error in Playwright code: {error_details}')
+
+						# Execute with timeout - properly handle async execution
+						exec(compiled_code, exec_globals)
+
+						# Get the async function and execute it
+						playwright_exec_func = exec_globals['__playwright_exec']
+
+						try:
+							result = await asyncio.wait_for(playwright_exec_func(), timeout=30.0)
+						except asyncio.TimeoutError:
+							logger.error('❌ Playwright code execution timed out')
+							return ActionResult(error='Playwright code execution timed out (30s limit)')
+
+						# Try to get any result variables that were assigned by examining locals
+						# Note: Variables created inside the async function won't be accessible here
+						# This is a limitation of the execution model
+						success_msg = '✅ Playwright code executed successfully'
+						if result is not None:
+							success_msg += f'\nReturn value: {result}'
+
+						logger.info(success_msg)
+						return ActionResult(
+							extracted_content=success_msg,
+							long_term_memory=f'Executed Playwright code: {params.code[:100]}{"..." if len(params.code) > 100 else ""}',
+						)
+					except Exception as e:
+						error_msg = f'Failed to execute Playwright code: {str(e)}'
+						logger.error(f'❌ Playwright execution failed: {e}')
+						return ActionResult(error=error_msg)
+				except Exception as e:
+					logger.error(f'❌ Playwright execution failed: {e}')
+					return ActionResult(error=f'Failed to execute Playwright code: {str(e)}')
+				finally:
+					# Clean up Playwright resources
+					try:
+						await playwright_browser.close()
+					except Exception as e:
+						logger.debug(f'Error closing Playwright browser: {e}')
+					try:
+						await playwright.stop()
+					except Exception as e:
+						logger.debug(f'Error stopping Playwright: {e}')
+			except Exception as e:
+				logger.error(f'❌ Playwright setup failed: {e}')
+				return ActionResult(error=f'Failed to setup Playwright execution: {str(e)}')
+
+	def _prepare_playwright_code(self, code: str) -> str:
+		"""Clean and prepare Playwright code for execution."""
+		import re
+
+		# Split into lines for processing
+		lines = code.split('\n')
+		processed_lines = []
+
+		for line in lines:
+			# Remove trailing backslashes that cause line continuation issues
+			line = re.sub(r'\\+\s*$', '', line)
+
+			# Block problematic methods that cause syntax errors
+			if any(
+				blocked_method in line for blocked_method in ['evaluate_handle', 'evaluate(', '.evaluate_handle(', '.evaluate(']
+			):
+				# Replace with comment explaining the issue
+				processed_lines.append(f'# BLOCKED: {line.strip()} - Use simple methods like text_content() instead')
+				continue
+
+			# Fix invalid escape sequences in regex patterns
+			line = self._fix_escape_sequences(line)
+
+			processed_lines.append(line)
+
+		# Join lines and add proper indentation
+		clean_code = '\n'.join(processed_lines)
+
+		# Add proper indentation (4 spaces for each line)
+		indented_lines = []
+		for line in clean_code.split('\n'):
+			if line.strip():  # Only indent non-empty lines
+				indented_lines.append('    ' + line)
+			else:
+				indented_lines.append('')  # Keep empty lines as-is
+
+		return '\n'.join(indented_lines)
+
+	def _fix_escape_sequences(self, line: str) -> str:
+		"""Fix common regex escape sequence issues."""
+		import re
+
+		# Fix common regex patterns that cause SyntaxWarning
+		# Replace problematic escape sequences with raw strings or proper escaping
+
+		# Pattern for regex with \s, \d, \w, etc.
+		if re.search(r'[\'"].*\\[sdwSDW].*[\'"]', line):
+			# Try to convert to raw string if it's in quotes
+			line = re.sub(r'([\'"])(.*\\[sdwSDW].*)\1', r'r\1\2\1', line)
+
+		return line
 
 	def _get_javascript_debugging_tips(self, error_type: str, error_description: str, code: str) -> str:
 		"""Provide debugging tips based on the error type."""

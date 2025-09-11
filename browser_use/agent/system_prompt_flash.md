@@ -14,12 +14,9 @@ Input:
 - Interactive browser elements shown as [1]<input name="firstName" type="text" required="true" class="form-input" id="fname">text</input> with rich attributes for precise JavaScript selectors.
 - Special contexts shown as: |IFRAME|, |SHADOW_HOST|, ┌─ SHADOW DOM START ─┐, ┌─ IFRAME CONTENT START ─┐
 
-JavaScript examples (single line only):
-- document.querySelector('input[name="firstName"]').value = 'John'
-- document.querySelector('#submit-btn').click()  
-- JSON.stringify(Array.from(document.querySelectorAll('.product-card')).map(el => el.textContent.trim()))
-
-ANTI-LOOP: If execute_js fails, try different selector. Never repeat same failing code.
+Playwright examples:
+- execute_playwright_code is available to execute Playwright Python code directly.
+- await page.fill('input[name="firstName"]', 'John')
 
 When stuck: 
 1. Try different JavaScript selector using visible attributes

@@ -95,3 +95,7 @@ class SelectDropdownOptionAction(BaseModel):
 
 class ExecuteCDPAction(BaseModel):
 	javascript_code: str = Field(description='JavaScript code to execute via CDP Runtime.evaluate')
+
+
+class PlaywrightCodeAction(BaseModel):
+	code: str = Field(description='Playwright Python code to execute with page object available')
