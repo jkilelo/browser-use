@@ -102,6 +102,7 @@ class Tools(Generic[Context]):
 		'write_file',
 		'replace_file_str',
 		'read_file',
+		'execute_js',
 	]
 
 	def __init__(
@@ -1089,126 +1090,64 @@ GUARANTEED TO WORK: Use these exact patterns above!""",
 			param_model=PlaywrightCodeAction,
 		)
 		async def execute_playwright_code(params: PlaywrightCodeAction, browser_session: BrowserSession):
-			try:
-				# Check if playwright is available
-				try:
-					from playwright.async_api import async_playwright
-				except ImportError:
-					return ActionResult(
-						error='Playwright is not installed. Install with: pip install playwright && playwright install chromium'
-					)
+			# Check if playwright is available
+			from playwright.async_api import async_playwright
 
-				# Get CDP URL from browser session
-				cdp_url = browser_session.cdp_url
-				if not cdp_url:
-					return ActionResult(error='No CDP URL available. Browser session not properly initialized.')
+			cdp_url = browser_session.cdp_url
+			if not cdp_url:
+				return ActionResult(error='No CDP URL available. Browser session not properly initialized.')
 
-				playwright = await async_playwright().start()
-				try:
-					playwright_browser = await playwright.chromium.connect_over_cdp(cdp_url)
+			playwright = await async_playwright().start()
+			playwright_browser = await playwright.chromium.connect_over_cdp(cdp_url)
 
-					# Get the current page
-					if playwright_browser.contexts and playwright_browser.contexts[0].pages:
-						page = playwright_browser.contexts[0].pages[0]
-					else:
-						context = await playwright_browser.new_context()
-						page = await context.new_page()
+			# Get the current page
+			if playwright_browser.contexts and playwright_browser.contexts[0].pages:
+				page = playwright_browser.contexts[0].pages[0]
+			else:
+				context = await playwright_browser.new_context()
+				page = await context.new_page()
 
-					# Execute the user's code in a controlled environment
-					# Create a safe execution namespace
-					exec_globals = {
-						'page': page,
-						'__builtins__': __builtins__,
-					}
+			# Execute the user's code in a controlled environment
+			# Create a safe execution namespace
+			exec_globals = {
+				'page': page,
+				'__builtins__': __builtins__,
+			}
 
-					# Import common modules that might be needed
-					exec_globals.update(
-						{
-							'asyncio': asyncio,
-							'json': json,
-							'os': os,
-						}
-					)
+			# Import common modules that might be needed
+			exec_globals.update(
+				{
+					'asyncio': asyncio,
+					'json': json,
+					'os': os,
+				}
+			)
 
-					# Execute the code with timeout protection
-					try:
-						# Clean and prepare the code
-						clean_code = self._prepare_playwright_code(params.code)
+			# Clean and prepare the code
+			clean_code = self._prepare_playwright_code(params.code)
 
-						# Wrap the code in an async function to properly handle await statements
-						wrapped_code = f"""
+			# Wrap the code in an async function to properly handle await statements
+			wrapped_code = f"""
 async def __playwright_exec():
 {clean_code}
 """
 
-						# Compile the code first to check for syntax errors
-						try:
-							compiled_code = compile(wrapped_code, '<playwright_code>', 'exec')
-						except SyntaxError as syntax_err:
-							error_details = f'Syntax error at line {syntax_err.lineno}: {syntax_err.msg}'
-							if syntax_err.text:
-								error_details += f'\nProblematic line: {syntax_err.text.strip()}'
+			compiled_code = compile(wrapped_code, '<playwright_code>', 'exec')
 
-							# Add helpful suggestions for common errors
-							suggestions = []
-							if 'invalid escape sequence' in error_details:
-								suggestions.append("Use raw strings for regex: r'\\s+' instead of '\\s+'")
-							if 'Invalid or unexpected token' in error_details:
-								suggestions.append(
-									'Avoid complex JavaScript in page.evaluate(). Use simple Playwright methods instead.'
-								)
-								suggestions.append("Example: await page.text_content('.selector') instead of page.evaluate()")
+			# Execute with timeout - properly handle async execution
+			exec(compiled_code, exec_globals)
 
-							if suggestions:
-								error_details += '\n\nSuggestions:\n- ' + '\n- '.join(suggestions)
+			# Get the async function and execute it
+			playwright_exec_func = exec_globals['__playwright_exec']
 
-							logger.error(f'❌ Playwright code syntax error: {error_details}')
-							return ActionResult(error=f'Syntax error in Playwright code: {error_details}')
+			try:
+				result = await asyncio.wait_for(playwright_exec_func(), timeout=30.0)
+			except asyncio.TimeoutError:
+				logger.error('❌ Playwright code execution timed out')
+				return ActionResult(error='Playwright code execution timed out (30s limit)')
 
-						# Execute with timeout - properly handle async execution
-						exec(compiled_code, exec_globals)
-
-						# Get the async function and execute it
-						playwright_exec_func = exec_globals['__playwright_exec']
-
-						try:
-							result = await asyncio.wait_for(playwright_exec_func(), timeout=30.0)
-						except asyncio.TimeoutError:
-							logger.error('❌ Playwright code execution timed out')
-							return ActionResult(error='Playwright code execution timed out (30s limit)')
-
-						# Try to get any result variables that were assigned by examining locals
-						# Note: Variables created inside the async function won't be accessible here
-						# This is a limitation of the execution model
-						success_msg = '✅ Playwright code executed successfully'
-						if result is not None:
-							success_msg += f'\nReturn value: {result}'
-
-						logger.info(success_msg)
-						return ActionResult(
-							extracted_content=success_msg,
-							long_term_memory=f'Executed Playwright code: {params.code[:100]}{"..." if len(params.code) > 100 else ""}',
-						)
-					except Exception as e:
-						error_msg = f'Failed to execute Playwright code: {str(e)}'
-						logger.error(f'❌ Playwright execution failed: {e}')
-						return ActionResult(error=error_msg)
-				except Exception as e:
-					logger.error(f'❌ Playwright execution failed: {e}')
-					return ActionResult(error=f'Failed to execute Playwright code: {str(e)}')
-				finally:
-					# Clean up Playwright resources
-					try:
-						await playwright_browser.close()
-					except Exception as e:
-						logger.debug(f'Error closing Playwright browser: {e}')
-					try:
-						await playwright.stop()
-					except Exception as e:
-						logger.debug(f'Error stopping Playwright: {e}')
-			except Exception as e:
-				logger.error(f'❌ Playwright setup failed: {e}')
-				return ActionResult(error=f'Failed to setup Playwright execution: {str(e)}')
+			text = f'Code: {params.code}\nResult: {result}'
+			return ActionResult(extracted_content=text)
 
 	def _prepare_playwright_code(self, code: str) -> str:
 		"""Clean and prepare Playwright code for execution."""
