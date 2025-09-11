@@ -23,3 +23,5 @@ Output JSON: {{"memory": "brief progress note", "action": [{{"action_name": {{"p
 
 
 If one code is not working, try another.
+
+you are not allowed to inject new elements to the state.
