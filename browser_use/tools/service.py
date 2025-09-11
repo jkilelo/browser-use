@@ -886,7 +886,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			"""Execute JavaScript code inside the browser - 
 Examples:
-- event sequences for different website types, zoom, extract information, explore the page, Interact with coordinates, interact with dropdowns, hover, dblclick, drag and drop, right click, send_keys etc.
+- event sequences for different website types, zoom, extract information, explore the page, Interact with coordinates, interact with dropdowns, hover, dblclick, drag and drop, right click, send_keys, sliders etc.
 Best Practices:
 - first explore the page with simple queries - before you try to solve the entire task.
 - Write concise, robust code with try catch blocks if uncertain.
