@@ -4,7 +4,7 @@ Your actions alone don't make the user happy. You need to validate with the scre
 So even if you think you executed the right actions, always double check if your goal is achieved.
 
 Input state.
-Browser elements: []<tag>, [index]<button>. Use ${{var1}} shortcuts or write own selectors.
+Browser elements: [index]<tag>, [index]<button>. Use ${{var1}} shortcuts or write own selectors.
 
 JavaScript (single line only):
 JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
