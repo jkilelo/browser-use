@@ -16,11 +16,39 @@ Browser elements: [index]<tag>, [index]<button>.
 
 JavaScript (single line only):
 
-**PREFERRED: Direct Coordinate Actions** (use when you have element coordinates): 
-Click: var el = document.elementFromPoint(x, y); if(el) el.click();
-Type: var el = document.elementFromPoint(x, y); if(el) {{ el.focus(); el.value = 'text'; el.dispatchEvent(new Event('input', {{bubbles: true}})); }}
-Click+Type: var el = document.elementFromPoint(x, y); if(el) {{ el.click(); el.focus(); el.value = 'text'; el.dispatchEvent(new Event('input', {{bubbles: true}})); }}
-Select dropdown: var el = document.elementFromPoint(x, y); if(el) {{ el.selectedIndex = 1; el.dispatchEvent(new Event('change', {{bubbles: true}})); }}
+**PREFERRED: Built-in Browser-Use Actions** (use these instead of execute_js when possible):
+- Click: Use `click_element_by_index` action with element index from browser_state  
+- Type: Use `input_text` action with element index - this sends real character-by-character keyboard events
+- Upload: Use `upload_file_to_element` action with element index
+
+**ROBUST JavaScript Actions** (use these reliable utility functions):
+- Type text: `input('#selector', 'text')` or `inputAt(x, y, 'text')` 
+- Click: `click('#selector')` or `clickAt(x, y)`
+- Double-click: `doubleClick('#selector')` or `doubleClickAt(x, y)`
+- Select dropdown: `select('#selector', 'option-value')`
+- Check/uncheck: `check('#selector', true)` or `check('#selector', false)`
+- Submit form: `BrowserUseUtils.submitForm('form')` then check `window._lastSubmitResult` after 500ms
+- Check validation: `BrowserUseUtils.checkValidation('form')`
+
+**Examples**:
+```javascript
+// Type into input (works with React/Vue/Formik)
+input('#firstName', 'John')
+
+// Select from dropdown (handles Material-UI/custom widgets) 
+select('#country', 'United States')
+
+// Double-click (works with Shadow DOM)
+doubleClick('#my-button')
+
+// Submit and verify
+BrowserUseUtils.submitForm('form'); setTimeout(() => console.log(window._lastSubmitResult), 600)
+```
+
+**Raw Coordinate Fallbacks** (only when selectors fail):
+Click: `clickAt(x, y)`
+Type: `inputAt(x, y, 'text')`
+Double-click: `doubleClickAt(x, y)`
 
 **Fallback DOM selectors** (when coordinates unavailable):
 JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
@@ -37,9 +65,10 @@ When stuck:
 5. **Explore page** with: document.body.innerHTML.substring(0, 500)
 
 **Action Reliability Hierarchy** (use in this order):
-1. 🟢 Coordinate-based actions (document.elementFromPoint)
-2. 🟡 Element ID/class selectors 
-3. 🔴 Complex CSS selectors (last resort)
+1. 🟢 **Built-in browser-use actions** (click_element_by_index, input_text) - most reliable
+2. 🟢 **BrowserUseUtils functions** (input('#id', 'text'), doubleClick('#btn')) - handles React/Vue  
+3. 🟡 **Coordinate utilities** (clickAt(x, y), inputAt(x, y, 'text')) - when selectors fail
+4. 🔴 **Raw coordinate DOM** (document.elementFromPoint) - last resort
 
 Never repeat the same failing action more than 2 times.
 
@@ -62,10 +91,13 @@ var form = document.querySelector('form'); var submit = form?.querySelector('but
 ```
 
 **Form Handling Best Practices**:
-1. Fill required fields first, then submit
-2. Check for validation errors after submission attempts  
-3. Use proper event dispatching for dropdowns and inputs
-4. Verify form submission succeeded by checking page changes
+1. **ALWAYS prefer `input_text` action over `execute_js` for form fields** - it sends real keyboard events
+2. **React/Vue/Formik forms**: Use `input_text` action, NOT value assignment in execute_js
+3. **Custom widgets** (Material-UI, Select2): Use coordinate clicks on dropdown options, not value setting
+4. **Shadow DOM**: Access via shadowRoot.querySelector in execute_js when needed
+5. **Double-clicks**: Use complete event sequence with timing (see Double-click example above)
+6. **Validation**: Check for success messages or page changes after form submission
+7. **Fill required fields first**, check for validation errors, then submit
 
 If one approach is not working, try a fundamentally different method.
 
