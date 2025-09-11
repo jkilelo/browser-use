@@ -3,6 +3,7 @@ import enum
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any, Generic, TypeVar
 
 try:
@@ -34,6 +35,7 @@ from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.views import (
+	BrowserUseCodeAction,
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
@@ -42,7 +44,6 @@ from browser_use.tools.views import (
 	GoToUrlAction,
 	InputTextAction,
 	NoParamsAction,
-	PlaywrightCodeAction,
 	ScrollAction,
 	SearchGoogleAction,
 	SelectDropdownOptionAction,
@@ -102,7 +103,7 @@ class Tools(Generic[Context]):
 		'write_file',
 		'replace_file_str',
 		'read_file',
-		# 'execute_js',
+		'execute_js',
 	]
 
 	def __init__(
@@ -111,6 +112,7 @@ class Tools(Generic[Context]):
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
+		self.exclude_actions = exclude_actions
 		self.registry = Registry[Context](exclude_actions)
 		self.display_files_in_done_text = display_files_in_done_text
 
@@ -1023,217 +1025,177 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 				logger.error(f'❌ CDP execution failed with exception: {e}')
 				return ActionResult(error=f'CDP execution failed: {str(e)}')
 
-		# Playwright Code Execution Tool
+		# Browser-Use Actor Code Execution Tool
+		# Load README content dynamically
+		readme_path = Path(__file__).parent.parent / 'actor' / 'README_LLM.md'
+		try:
+			readme_content = readme_path.read_text()
+		except Exception as e:
+			readme_content = 'Browser Actor documentation not available'
+			logger.warning(f'Could not load browser actor README: {e}')
+
 		@self.registry.action(
-			"""Execute SIMPLE Playwright Python code. Use BASIC methods only, NO JavaScript evaluation!
+			f"""Execute browser automation code using the browser-use actor library.
 
-EXECUTION CONTEXT:
-- 'page' object available (current browser page via CDP)
-- 60-second timeout, async Python environment (increased from 30s)
-- Access to: asyncio, json, os
+<DOCS>
+{readme_content}
+</DOCS>
 
-🔴 CRITICAL: NEVER use these methods (they cause syntax errors):
-❌ page.evaluate()          ❌ page.evaluate_handle()
-❌ element.evaluate()       ❌ element.evaluate_handle()  
-❌ Complex JavaScript       ❌ Multi-line selectors in quotes
+<RULES>
+- Functions should start with `async def executor(client: CDPClient): ...` or `async def executor(client: CDPClient, target: Target): ...`
+- Do not implement waiting for CSS functions - our native implementation doesn't wait
+- Prefer using backend node ID for element interaction when possible 
+- Avoid javascript execution if possible, prefer using the browser-use actor library
+- Don't return screenshots, that will not work
+- Use raw strings r"pattern" for regex patterns to avoid escape sequence warnings
+- Between the clicks and actions make sure to add some `asyncio.sleep(1)`, to make sure stuff loads correctly
+- Maximum code length is 500 characters
+</RULES>
 
-✅ ONLY use these SIMPLE methods:
-- Get text: text = await page.text_content('h1')
-- Get attribute: href = await page.get_attribute('a', 'href')  
-- Find elements: elements = await page.query_selector_all('div')
-- Click: await page.click('button')
-- Fill: await page.fill('input[name="email"]', 'test@test.com')
-- Screenshot: await page.screenshot(path='shot.png')
-- Navigate: await page.goto('https://example.com')
+<EXPECTED_OUTPUT>
+Use `async def executor(client: CDPClient):` or `async def executor(client: CDPClient, target: Target):` with browser-use actor library:
 
-🔴 METHODS THAT ARE BLOCKED (will cause errors):
-❌ NEVER use: evaluate(), evaluate_handle(), evaluate_handle() 
-❌ These methods inject JavaScript and cause syntax errors!
+```python
+async def executor(client: CDPClient, target: Target):
+	...
+    return # whatever you return will be saved to memory for next steps
+```
 
-✅ COPY-PASTE TEMPLATE FOR DATA EXTRACTION:
-results = []
-all_links = await page.query_selector_all('a')
-for link in all_links:
-    href = await link.get_attribute('href')
-    text = await link.text_content()
-    if href and 'linkedin' in href:
-        results.append({'name': text.strip(), 'url': href})
-print(f"Found {len(results)} LinkedIn profiles")
-
-✅ COPY-PASTE TEMPLATE FOR VISITING PROFILES:
-count = 1
-for person in results:
-    try:
-        await page.goto(person['url'])
-        await page.wait_for_load_state('domcontentloaded')  
-        title = await page.text_content('title')
-        await page.screenshot(path=f'linkedin_{count}.png')
-        person['job_from_title'] = title
-        print(f"Profile {count}: {person['name']} - {title}")
-        count += 1
-    except Exception as e:
-        print(f"Failed to load {person['name']}: {e}")
-
-✅ SIMPLE SELECTORS ONLY:
-- 'a' (all links)
-- 'div' (all divs) 
-- '.className' (by class)
-- '#idName' (by ID)
-- '[href*="linkedin"]' (contains text)
-
-✅ ONE-LINE OPERATIONS ONLY:
-text = await element.text_content()
-href = await element.get_attribute('href')
-await page.click('button')
-
-GUARANTEED TO WORK: Use these exact patterns above!""",
-			param_model=PlaywrightCodeAction,
+Context: client, Browser/Target/Element/Mouse classes, asyncio/json/os available.
+</EXPECTED_OUTPUT>
+""",
+			param_model=BrowserUseCodeAction,
 		)
-		async def execute_playwright_code(params: PlaywrightCodeAction, browser_session: BrowserSession):
-			# Check if playwright is available
-			from playwright.async_api import async_playwright
+		async def execute_browser_use_code(params: BrowserUseCodeAction, browser_session: BrowserSession):
+			from browser_use.actor import Target
 
-			cdp_url = browser_session.cdp_url
-			if not cdp_url:
-				return ActionResult(error='No CDP URL available. Browser session not properly initialized.')
+			# Get CDP client from browser session
+			cdp_session = await browser_session.get_or_create_cdp_session()
+			cdp_client = cdp_session.cdp_client
 
-			playwright = await async_playwright().start()
-			try:
-				playwright_browser = await playwright.chromium.connect_over_cdp(cdp_url)
-			except Exception as e:
-				await playwright.stop()
-				return ActionResult(error=f'Failed to connect Playwright to browser: {str(e)}')
+			if not cdp_client:
+				return ActionResult(error='No CDP client available. Browser session not properly initialized.')
 
-			# Get the current page
-			if playwright_browser.contexts and playwright_browser.contexts[0].pages:
-				page = playwright_browser.contexts[0].pages[0]
-			else:
-				context = await playwright_browser.new_context()
-				page = await context.new_page()
+			Target = Target(cdp_client, cdp_session.target_id, cdp_session.session_id)
 
-			# Execute the user's code in a controlled environment
-			# Create a safe execution namespace
+			# Create a safe execution namespace with browser-use imports
 			exec_globals = {
-				'page': page,
 				'__builtins__': __builtins__,
+				'client': cdp_client,
+				'CDPClient': type(cdp_client),  # For type hints
+				'Target': Target,
 			}
 
-			# Import common modules that might be needed
+			# Import browser-use actor classes and common modules
+			from browser_use.actor import Browser, Element, Mouse, Target
+
 			exec_globals.update(
 				{
+					'Browser': Browser,
+					'Target': Target,
+					'Element': Element,
+					'Mouse': Mouse,
 					'asyncio': asyncio,
 					'json': json,
 					'os': os,
 				}
 			)
 
-			# Clean and prepare the code
-			clean_code = self._prepare_playwright_code(params.code)
+			# Check if code defines executor function or is raw code
+			has_executor = 'async def executor(' in params.code
 
-			# Wrap the code in an async function to properly handle await statements
-			wrapped_code = f"""
-async def __playwright_exec():
-{clean_code}
+			if has_executor:
+				# Code has executor function - call it
+				code_lines = params.code.split('\n')
+				indented_code = '\n'.join('    ' + line if line.strip() else line for line in code_lines)
+				wrapped_code = f"""
+async def __browser_use_exec():
+{indented_code}
+    # Call executor with available args
+    if 'target' in locals() or 'target' in globals():
+        return await executor(client, Target)
+    else:
+        return await executor(client)
+"""
+			else:
+				# Raw code - execute directly
+				code_lines = params.code.split('\n')
+				indented_code = '\n'.join('    ' + line if line.strip() else line for line in code_lines)
+				wrapped_code = f"""
+async def __browser_use_exec():
+{indented_code}
 """
 
-			compiled_code = compile(wrapped_code, '<playwright_code>', 'exec')
+			try:
+				compiled_code = compile(wrapped_code, '<browser_use_code>', 'exec')
+			except SyntaxError as e:
+				return ActionResult(error=f'Syntax error in browser-use code: {str(e)}')
 
 			# Execute with timeout - properly handle async execution
 			exec(compiled_code, exec_globals)
 
 			# Get the async function and execute it
-			playwright_exec_func = exec_globals['__playwright_exec']
+			browser_use_exec_func = exec_globals['__browser_use_exec']
+
+			# Capture stdout and stderr during execution
+			import sys
+			from io import StringIO
+
+			old_stdout = sys.stdout
+			old_stderr = sys.stderr
+			captured_stdout = StringIO()
+			captured_stderr = StringIO()
 
 			try:
-				# Increased timeout to handle complex form interactions and animations
-				result = await asyncio.wait_for(playwright_exec_func(), timeout=60.0)
-			except asyncio.TimeoutError:
-				logger.error('❌ Playwright code execution timed out')
-				error_msg = 'Playwright code execution timed out (60s limit). Try breaking complex operations into smaller steps.'
+				# Redirect stdout and stderr
+				sys.stdout = captured_stdout
+				sys.stderr = captured_stderr
+
+				# Execute with timeout for browser automation
+				result = await asyncio.wait_for(browser_use_exec_func(), timeout=60.0)
+
+			except TimeoutError:
+				logger.error('❌ Browser-use code execution timed out')
+				error_msg = (
+					'Browser-use code execution timed out (60s limit). Try breaking complex operations into smaller steps.'
+				)
 				return ActionResult(error=error_msg)
+
 			except Exception as e:
-				logger.error(f'❌ Playwright code execution failed: {e}')
-				error_msg = f'Failed to execute Playwright code: {str(e)}'
+				logger.error(f'❌ Browser-use code execution failed: {e}')
+				error_msg = f'Failed to execute browser-use code: {str(e)}'
 
 				# Add helpful error context
-				if 'Connection closed' in str(e):
-					error_msg += '\nTip: Try simpler operations or check browser stability'
-				elif 'This event loop is already running' in str(e):
-					error_msg += '\nTip: Avoid nested async operations in Playwright code'
+				if 'CDP client not initialized' in str(e):
+					error_msg += '\nTip: Check browser connection and session state'
+				elif 'Element not found' in str(e):
+					error_msg += '\nTip: Try different selectors or check if page loaded correctly'
 
 				return ActionResult(error=error_msg)
 			finally:
-				# Always clean up Playwright resources
-				try:
-					await playwright_browser.close()
-				except Exception as e:
-					logger.debug(f'Error closing Playwright browser: {e}')
-				try:
-					await playwright.stop()
-				except Exception as e:
-					logger.debug(f'Error stopping Playwright: {e}')
+				# Restore stdout and stderr
+				sys.stdout = old_stdout
+				sys.stderr = old_stderr
 
-			success_msg = '✅ Playwright code executed successfully'
+				# Log captured output
+				stdout_content = captured_stdout.getvalue()
+				stderr_content = captured_stderr.getvalue()
+
+				if stdout_content.strip():
+					logger.info(f'📝 Code output: {stdout_content.strip()}')
+				if stderr_content.strip():
+					logger.error(f'⚠️ Code stderr: {stderr_content.strip()}')
+
+			success_msg = '✅ Browser-use code executed successfully'
 			if result is not None:
 				success_msg += f'\nReturn value: {result}'
 
 			logger.info(success_msg)
+			max_memory_length = 1000
 			return ActionResult(
 				extracted_content=success_msg,
-				long_term_memory=f'Executed Playwright code: {params.code[:100]}{"..." if len(params.code) > 100 else ""}',
+				long_term_memory=f'Executed browser-use code: {params.code[:max_memory_length]}{"..." if len(params.code) > max_memory_length else ""}',
 			)
-
-	def _prepare_playwright_code(self, code: str) -> str:
-		"""Clean and prepare Playwright code for execution."""
-		import re
-
-		# Split into lines for processing
-		lines = code.split('\n')
-		processed_lines = []
-
-		for line in lines:
-			# Remove trailing backslashes that cause line continuation issues
-			line = re.sub(r'\\+\s*$', '', line)
-
-			# Block problematic methods that cause syntax errors
-			if any(
-				blocked_method in line for blocked_method in ['evaluate_handle', 'evaluate(', '.evaluate_handle(', '.evaluate(']
-			):
-				# Replace with comment explaining the issue
-				processed_lines.append(f'# BLOCKED: {line.strip()} - Use simple methods like text_content() instead')
-				continue
-
-			# Fix invalid escape sequences in regex patterns
-			line = self._fix_escape_sequences(line)
-
-			processed_lines.append(line)
-
-		# Join lines and add proper indentation
-		clean_code = '\n'.join(processed_lines)
-
-		# Add proper indentation (4 spaces for each line)
-		indented_lines = []
-		for line in clean_code.split('\n'):
-			if line.strip():  # Only indent non-empty lines
-				indented_lines.append('    ' + line)
-			else:
-				indented_lines.append('')  # Keep empty lines as-is
-
-		return '\n'.join(indented_lines)
-
-	def _fix_escape_sequences(self, line: str) -> str:
-		"""Fix common regex escape sequence issues."""
-		import re
-
-		# Fix common regex patterns that cause SyntaxWarning
-		# Replace problematic escape sequences with raw strings or proper escaping
-
-		# Pattern for regex with \s, \d, \w, etc.
-		if re.search(r'[\'"].*\\[sdwSDW].*[\'"]', line):
-			# Try to convert to raw string if it's in quotes
-			line = re.sub(r'([\'"])(.*\\[sdwSDW].*)\1', r'r\1\2\1', line)
-
-		return line
 
 	def _get_javascript_debugging_tips(self, error_type: str, error_description: str, code: str) -> str:
 		"""Provide debugging tips based on the error type."""
@@ -1540,6 +1502,37 @@ async def __playwright_exec():
 					raise ValueError(f'Invalid action result type: {type(result)} of {result}')
 		return ActionResult()
 
+	def __repr__(self) -> str:
+		"""Return a string representation showing available tools."""
+		actions = sorted(self.registry.registry.actions.keys())
+		action_list = ', '.join(actions)
+		excluded_count = len(self.exclude_actions)
+
+		return f'Tools(actions=[{action_list}], total={len(actions)}, excluded={excluded_count})'
+
+	def get_tools_info(self, max_description_length: int = 250) -> str:
+		"""Return detailed information about available tools with descriptions."""
+		actions = sorted(self.registry.registry.actions.items())
+		lines = [f'Tools Summary: {len(actions)} available, {len(self.exclude_actions)} excluded\n']
+
+		for name, action in actions:
+			# Truncate long descriptions for readability
+			description = action.description
+			if len(description) > max_description_length:
+				description = description[: max_description_length - 3] + '...'
+			# Clean up description formatting
+			description = ' '.join(description.split())
+			lines.append(f'  {name}: {description}')
+
+		return '\n'.join(lines)
+
 
 # Alias for backwards compatibility
 Controller = Tools
+
+
+if __name__ == '__main__':
+	print('=== Minimal Tools (default exclude list) ===')
+	minimal_tools = Tools()
+	print(repr(minimal_tools))
+	print(minimal_tools.get_tools_info())

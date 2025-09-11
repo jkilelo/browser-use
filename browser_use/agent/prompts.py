@@ -31,7 +31,7 @@ class SystemPrompt:
 			prompt = override_system_message
 		else:
 			self._load_prompt_template()
-			prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
+			prompt = self.prompt_template
 
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'

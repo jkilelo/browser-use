@@ -621,8 +621,11 @@ class DOMTreeSerializer:
 		# filtered_attrs[f'bid{node.backend_node_id}'] = ''
 
 		# Add highlight-index attribute for clickable elements
-		if interactive_index is not None:
-			filtered_attrs[f'highlight-index{interactive_index}'] = ''
+		# if interactive_index is not None:
+		# 	filtered_attrs[f'highlight-index{interactive_index}'] = ''
+
+		# inject bid attribute
+		filtered_attrs[f'bid{node.backend_node_id}'] = ''
 
 		# Only add regular attributes for clickable elements (when interactive_index is not None)
 		if interactive_index is not None and node.attributes:

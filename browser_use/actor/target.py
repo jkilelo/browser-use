@@ -28,10 +28,10 @@ if TYPE_CHECKING:
 class Target:
 	"""Target operations (tab or iframe)."""
 
-	def __init__(self, client: 'CDPClient', target_id: str):
+	def __init__(self, client: 'CDPClient', target_id: str, session_id: str | None = None):
 		self._client = client
 		self._target_id = target_id
-		self._session_id: str | None = None
+		self._session_id: str | None = session_id
 		self._mouse: 'Mouse | None' = None
 
 	async def _ensure_session(self) -> str:
