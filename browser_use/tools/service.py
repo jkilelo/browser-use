@@ -83,11 +83,7 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	def __init__(
 		self,
-		exclude_actions: list[str] = [
-			'get_dropdown_options',
-			'select_dropdown_option',
-			'extract_structured_data',
-		],
+		exclude_actions: list[str] = ['get_dropdown_options', 'select_dropdown_option', 'extract_structured_data', 'send_keys'],
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
@@ -890,13 +886,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			"""Execute JavaScript code inside the browser - 
 Examples:
-- event sequences for different website types, zoom, extract information, explore the page, Interact with coordinates, interact with dropdowns.
+- event sequences for different website types, zoom, extract information, explore the page, Interact with coordinates, interact with dropdowns, hover, dblclick, drag and drop, right click, send_keys etc.
 Best Practices:
 - first explore the page with simple queries - before you try to solve the entire task.
 - Write concise, robust code with try catch blocks if uncertain.
 - Do never use commands, save tokens, no human will read this.
 - Use json stringify to return complex data.
 - Write valid js code.
+- Use this if your other tools are not working.
 - Think about different elements like iframes, closed shadow roots, etc and how you can interact with them.
 - You have access to previous variables and functions which you use.
 This gets executed with:
