@@ -575,20 +575,20 @@ class DOMTreeSerializer:
 	def _should_skip_element(node: SimplifiedNode) -> bool:
 		"""Determine if an element should be skipped in the output."""
 		# Skip if excluded by parent bounding box filtering
-		# if hasattr(node, 'excluded_by_parent') and node.excluded_by_parent:
-		# 	return True
+		if hasattr(node, 'excluded_by_parent') and node.excluded_by_parent:
+			return True
 
-		# # Skip if ignored by paint order (but NOT for text nodes - we want to keep paint-order ignored text)
-		# if (
-		# 	hasattr(node, 'ignored_by_paint_order')
-		# 	and node.ignored_by_paint_order
-		# 	and node.original_node.node_type != NodeType.TEXT_NODE
-		# ):
-		# 	return True
+		# Skip if ignored by paint order (but NOT for text nodes - we want to keep paint-order ignored text)
+		if (
+			hasattr(node, 'ignored_by_paint_order')
+			and node.ignored_by_paint_order
+			and node.original_node.node_type != NodeType.TEXT_NODE
+		):
+			return True
 
-		# # Skip if marked as should not display
-		# if hasattr(node, 'should_display') and not node.should_display:
-		# 	return True
+		# Skip if marked as should not display
+		if hasattr(node, 'should_display') and not node.should_display:
+			return True
 
 		# For element nodes, check visibility and disabled state
 		if node.original_node.node_type == NodeType.ELEMENT_NODE:
