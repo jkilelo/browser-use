@@ -916,30 +916,29 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			"""Execute JavaScript - SINGLE LINE ONLY. Auto-fixes syntax errors. 
+			"""Execute JavaScript - MULTILINE SUPPORTED. For complex interactions requiring event sequences.
 
-ONE LINE EXAMPLES:
+EXAMPLES:
 - Count: document.querySelectorAll('a').length  
 - Extract: JSON.stringify(Array.from(document.querySelectorAll('div')).map(el => el.textContent.trim()))
 - Navigate: window.location.href = 'https://example.com/page'
 - Scroll: window.scrollBy(0, 500)
+- Keyboard simulation: 
+  const input = document.querySelector('input');
+  input.focus();
+  document.execCommand('insertText', false, 'text');
 
 ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never repeat failing code.""",
 			param_model=ExecuteCDPAction,
 		)
 		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):
-			# Pre-process JavaScript to fix common issues
-			original_code = params.javascript_code
-			enhanced_code = self._fix_common_js_issues(original_code)
-
-			# Log the transformation for debugging
-			if enhanced_code != original_code:
-				logger.debug(f'🔧 JS Auto-fix applied:\nOriginal: {original_code[:100]}...\nFixed: {enhanced_code[:100]}...')
+			# Use the raw JavaScript code without preprocessing
+			javascript_code = params.javascript_code
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
 			try:
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': enhanced_code}, session_id=cdp_session.session_id
+					params={'expression': javascript_code}, session_id=cdp_session.session_id
 				)
 
 				if result.get('exceptionDetails'):
@@ -955,7 +954,7 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 						for csp_term in ['content security policy', 'refused to execute', 'unsafe-eval']
 					):
 						return ActionResult(
-							error=f'Content Security Policy (CSP) blocked JavaScript execution. Website prevents running custom JavaScript.\n\nFailed code: {params.javascript_code[:150]}...'
+							error=f'Content Security Policy (CSP) blocked JavaScript execution. Website prevents running custom JavaScript.\n\nFailed code: {javascript_code[:150]}...'
 						)
 
 					# Extract comprehensive error information
@@ -982,13 +981,13 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 								error_parts.append(f'Stack: {stack_info}')
 
 					# Add debugging tips
-					debugging_tips = self._get_javascript_debugging_tips(error_type, error_description, params.javascript_code)
+					debugging_tips = self._get_javascript_debugging_tips(error_type, error_description, javascript_code)
 					if debugging_tips:
 						error_parts.append(f'Tip: {debugging_tips}')
 
 					# Compile error message
 					detailed_error = ' | '.join(error_parts)
-					code_preview = params.javascript_code[:1000] + ('...' if len(params.javascript_code) > 1000 else '')
+					code_preview = javascript_code[:1000] + ('...' if len(javascript_code) > 1000 else '')
 					full_error_msg = f'{detailed_error}\n\nFailed code: {code_preview}'
 
 					logger.error(f'❌ JavaScript execution failed: {detailed_error}')
@@ -1011,7 +1010,7 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 
 				logger.info('✅ CDP execution completed successfully')
 				return ActionResult(
-					extracted_content=f'Executed JavaScript: {params.javascript_code} Result: {response_msg}',
+					extracted_content=f'Executed JavaScript: {javascript_code} Result: {response_msg}',
 				)
 			except Exception as e:
 				logger.error(f'❌ CDP execution failed with exception: {e}')
@@ -1035,44 +1034,6 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 			return 'Invalid CSS selector. Check syntax and escape special characters.'
 
 		return ''
-
-	def _fix_common_js_issues(self, code: str) -> str:
-		"""Fix common JavaScript issues that cause SyntaxError: Uncaught."""
-		import re
-
-		# Remove optional chaining which isn't supported in older CDP
-		code = re.sub(r'\?\.\s*', '.', code)
-
-		# Fix missing quotes around selectors
-		code = re.sub(r'querySelectorAll\(([a-zA-Z]\w*)\)', r"querySelectorAll('\1')", code)
-		code = re.sub(r'querySelector\(([a-zA-Z]\w*)\)', r"querySelector('\1')", code)
-
-		# Handle multiline code - convert to single expression or add return
-		lines = [line.strip() for line in code.strip().split('\n') if line.strip()]
-
-		if len(lines) > 1:
-			# Check if last line is already a return or single expression
-			last_line = lines[-1]
-
-			# If last line ends with semicolon, it's a statement not expression
-			if last_line.endswith(';'):
-				# Convert last statement to return
-				if last_line.startswith('JSON.stringify'):
-					lines[-1] = f'return {last_line[:-1]}'  # Remove ; and add return
-				elif not last_line.startswith('return'):
-					lines[-1] = f'return {last_line[:-1]}'  # Remove ; and add return
-
-			# Join with semicolons for multiple statements
-			if any(line.startswith('return') for line in lines):
-				code = '; '.join(lines[:-1]) + '; ' + lines[-1]
-			else:
-				# If no return, make it a single expression
-				if lines[-1].startswith('JSON.stringify'):
-					code = '; '.join(lines)
-				else:
-					code = '; '.join(lines[:-1]) + '; return ' + lines[-1]
-
-		return code
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
