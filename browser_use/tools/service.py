@@ -83,7 +83,11 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	def __init__(
 		self,
-		exclude_actions: list[str] = [],
+		exclude_actions: list[str] = [
+			'get_dropdown_options',
+			'select_dropdown_option',
+			'extract_structured_data',
+		],
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
@@ -292,16 +296,6 @@ class Tools(Generic[Context]):
 					metadata=click_metadata if isinstance(click_metadata, dict) else None,
 				)
 			except BrowserError as e:
-				if 'Cannot click on <select> elements.' in str(e):
-					try:
-						return await get_dropdown_options(
-							params=GetDropdownOptionsAction(index=params.index), browser_session=browser_session
-						)
-					except Exception as dropdown_error:
-						logger.error(
-							f'Failed to get dropdown options as shortcut during click_element_by_index on dropdown: {type(dropdown_error).__name__}: {dropdown_error}'
-						)
-
 				return handle_browser_error(e)
 			except Exception as e:
 				error_msg = f'Failed to click element {params.index}: {str(e)}'
@@ -891,6 +885,59 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				long_term_memory=memory,
 				include_extracted_content_only_once=True,
 			)
+
+		# General CDP execution tool
+
+		@self.registry.action(
+			"""Execute JavaScript code inside the browser - 
+Examples:
+- event sequences for different website types, zoom, extract information, explore the page, Interact with coordinates, interact with dropdowns.
+Best Practices:
+- first explore the page with simple queries - before you try to solve the entire task.
+- Write concise, robust code with try catch blocks if uncertain.
+- Do never use commands, save tokens, no human will read this.
+- Use json stringify to return complex data.
+- Write valid js code.
+- Think about different elements like iframes, closed shadow roots, etc and how you can interact with them.
+- You have access to previous variables and functions which you use.
+This gets executed with:
+result = await cdp_session.cdp_client.send.Runtime.evaluate(
+	params={'expression': js_code}, session_id=cdp_session.session_id
+)
+""",
+		)
+		async def evaluate(js_code: str, browser_session: BrowserSession):
+			# Use the raw JavaScript code without preprocessing
+			cdp_session = await browser_session.get_or_create_cdp_session()
+			try:
+				result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': js_code}, session_id=cdp_session.session_id
+				)
+
+				# Handle successful execution
+				result_obj = result.get('result', {})
+				value = result_obj.get('value')
+
+				if value is None:
+					result_type = result_obj.get('type', 'undefined')
+					if result_type == 'undefined':
+						response_msg = 'Executed successfully (returned undefined)'
+					elif result_type == 'object' and result_obj.get('subtype') == 'null':
+						response_msg = 'Executed successfully (returned null)'
+					else:
+						response_msg = f'Executed successfully (returned {result_type})'
+				else:
+					response_msg = str(value)
+				if result.get('exceptionDetails'):
+					response_msg += f' Exception: {result["exceptionDetails"]}'
+
+				logger.info('CDP execution completed successfully')
+				return ActionResult(
+					extracted_content=f'Executed JavaScript: {js_code} Result: {response_msg}',
+				)
+			except Exception as e:
+				logger.error(f'CDP execution failed with exception: {e}')
+				return ActionResult(error=f'CDP execution failed: {str(e)}')
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
