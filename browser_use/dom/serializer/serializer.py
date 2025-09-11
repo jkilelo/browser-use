@@ -492,8 +492,8 @@ class DOMTreeSerializer:
 			tag_name = node.original_node.tag_name.lower()
 
 			# Build attributes string (includes highlight-index if clickable)
-			attributes_str = DOMTreeSerializer._build_simple_attributes_string(
-				node.original_node, include_attributes, node.interactive_index
+			attributes_str = DOMTreeSerializer._build_attributes_string(
+				node.original_node, include_attributes, node.original_node.node_value
 			)
 
 			# Self-closing tags (void elements in HTML)
@@ -611,41 +611,6 @@ class DOMTreeSerializer:
 		return False
 
 	@staticmethod
-	def _build_simple_attributes_string(
-		node: EnhancedDOMTreeNode, include_attributes: list[str], interactive_index: int | None = None
-	) -> str:
-		"""Build a simple attributes string for HTML-like output."""
-		filtered_attrs = {}
-
-		# Always add backend node ID as 'bid' attribute for all elements
-		# filtered_attrs[f'bid{node.backend_node_id}'] = ''
-
-		# Add highlight-index attribute for clickable elements
-		if interactive_index is not None:
-			filtered_attrs[f'highlight-index{interactive_index}'] = ''
-
-		# Only add regular attributes for clickable elements (when interactive_index is not None)
-		if interactive_index is not None and node.attributes:
-			for key, value in node.attributes.items():
-				if key in include_attributes and str(value).strip():
-					filtered_attrs[key] = str(value).strip()
-
-		if not filtered_attrs:
-			return ''
-
-		# Format as key="value" pairs (or just key for empty values like highlight-index and bid)
-		attr_parts = []
-		for key, value in filtered_attrs.items():
-			if value:  # Non-empty value
-				# Escape quotes in attribute values
-				escaped_value = value.replace('"', '&quot;')
-				attr_parts.append(f'{key}="{escaped_value}"')
-			else:  # Empty value (like highlight-index and bid attributes)
-				attr_parts.append(key)
-
-		return ' '.join(attr_parts)
-
-	@staticmethod
 	def _build_attributes_string(node: EnhancedDOMTreeNode, include_attributes: list[str], text: str) -> str:
 		"""Build the attributes string for an element."""
 		attributes_to_include = {}
@@ -666,6 +631,8 @@ class DOMTreeSerializer:
 			coordinate_attrs = {
 				'x': int(bounds.x),
 				'y': int(bounds.y),
+				'width': int(bounds.width),
+				'height': int(bounds.height),
 			}
 
 			# Only include coordinates that are requested in include_attributes

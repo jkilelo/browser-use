@@ -22,6 +22,8 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'name',
 	'x',
 	'y',
+	'width',
+	'height',
 	'type',
 	'checked',
 	'name',
