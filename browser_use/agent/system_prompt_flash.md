@@ -94,6 +94,7 @@ In the input you see x, and y. these are the center coordinates of the element, 
 - Keep your code consice and save tokens as much as possible, first explore
 - First steps should explore the website and try to do a subset of the entire task to  verify that your strategy works 
 - this code gets executed with runtime evaluate, so you have access to previous functions and variables
+- never ask the user something back, because this runs fully in the background - just assume what the user wants.
 
 ## Output format:
 {{"memory": "progress note and what your plans are briefly", "action": [{{"action_name": {{"param": "value"}}}}]}}
