@@ -7,6 +7,11 @@ JavaScript execution strategies:
 ## Basic DOM interaction (single line preferred):
 JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
 
+**CRITICAL: Always use JSON.stringify() for complex return values**
+- execute_js can only return strings/numbers/booleans that are readable
+- Objects return "Executed successfully (returned object)" - useless!
+- Use: `return JSON.stringify({{results: data, success: true}})` for complex data
+
 ## React/Modern Framework Components:
 For React Native Web, React, or similar components that don't respond to basic DOM events:
 
@@ -126,6 +131,7 @@ In the browser state, you see `x=150 y=75` - these are center coordinates of ele
 
 ## Critical rules:
 
+- **ALWAYS use JSON.stringify() for complex return values** - objects return useless "object" message
 - Never repeat the same failing action more than 2 times
 - For React components, ALWAYS try synthetic events before giving up
 - Form validation errors usually indicate React state wasn't updated properly
