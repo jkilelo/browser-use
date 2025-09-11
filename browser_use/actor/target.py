@@ -76,8 +76,17 @@ class Target:
 
 		return Element(self._client, backend_node_id, session_id)
 
-	async def evaluate(self, page_function: str, arg: Any = None) -> Any:
-		"""Execute JavaScript in the target."""
+	async def evaluate(self, page_function: str, arg: Any = None) -> str:
+		"""Execute JavaScript in the target.
+
+		Args:
+			page_function: JavaScript code to execute (function or expression)
+			arg: Optional argument to pass to the function
+
+		Returns:
+			String representation of the JavaScript execution result.
+			Objects and arrays are JSON-stringified.
+		"""
 		session_id = await self._ensure_session()
 
 		if callable(page_function):
@@ -109,7 +118,21 @@ class Target:
 		if 'exceptionDetails' in result:
 			raise RuntimeError(f'JavaScript evaluation failed: {result["exceptionDetails"]}')
 
-		return result.get('result', {}).get('value')
+		value = result.get('result', {}).get('value')
+
+		# Always return string representation
+		if value is None:
+			return ''
+		elif isinstance(value, str):
+			return value
+		else:
+			# Convert objects, numbers, booleans to string
+			import json
+
+			try:
+				return json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+			except (TypeError, ValueError):
+				return str(value)
 
 	async def screenshot(self, format: str = 'jpeg', quality: int | None = None) -> str:
 		"""Take a screenshot and return base64 encoded image.

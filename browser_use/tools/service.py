@@ -1042,7 +1042,7 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 </DOCS>
 
 <RULES>
-- Functions should start with `async def executor(client: CDPClient): ...` or `async def executor(client: CDPClient, target: Target): ...`
+- Functions should start with `async def executor(): ...` (no parameters)
 - Do not implement waiting for CSS functions - our native implementation doesn't wait
 - Prefer using backend node ID for element interaction when possible 
 - Avoid javascript execution if possible, prefer using the browser-use actor library
@@ -1053,44 +1053,42 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 </RULES>
 
 <EXPECTED_OUTPUT>
-Use `async def executor(client: CDPClient):` or `async def executor(client: CDPClient, target: Target):` with browser-use actor library:
+Use `async def executor():` - all variables available in context:
 
+Context: client (cdp client), target (current open target), Browser/Target/Element/Mouse classes, asyncio/json/os available.
+
+For example:
 ```python
-async def executor(client: CDPClient, target: Target):
-	...
-    return # whatever you return will be saved to memory for next steps
+async def executor():
+    elements = await target.getElement(backend_node_id=12345)
+    if elements:
+        await elements.fill("text")
+    return # output passed to memory for next steps
 ```
-
-Context: client, Browser/Target/Element/Mouse classes, asyncio/json/os available.
 </EXPECTED_OUTPUT>
 """,
 			param_model=BrowserUseCodeAction,
 		)
 		async def execute_browser_use_code(params: BrowserUseCodeAction, browser_session: BrowserSession):
-			from browser_use.actor import Target
-
-			# Get CDP client from browser session
+			# Get session
 			cdp_session = await browser_session.get_or_create_cdp_session()
-			cdp_client = cdp_session.cdp_client
+			client = cdp_session.cdp_client
+			if not client:
+				return ActionResult(error='No CDP client available.')
 
-			if not cdp_client:
-				return ActionResult(error='No CDP client available. Browser session not properly initialized.')
-
-			Target = Target(cdp_client, cdp_session.target_id, cdp_session.session_id)
-
-			# Create a safe execution namespace with browser-use imports
-			exec_globals = {
-				'__builtins__': __builtins__,
-				'client': cdp_client,
-				'CDPClient': type(cdp_client),  # For type hints
-				'Target': Target,
-			}
-
-			# Import browser-use actor classes and common modules
+			# Create target
 			from browser_use.actor import Browser, Element, Mouse, Target
 
-			exec_globals.update(
-				{
+			target = Target(client, cdp_session.target_id, cdp_session.session_id)
+			browser = Browser(client)
+
+			try:
+				# Execute code directly with locals
+				local_vars = {
+					'__builtins__': __builtins__,
+					'client': client,
+					'target': target,
+					'browser': browser,
 					'Browser': Browser,
 					'Target': Target,
 					'Element': Element,
@@ -1099,103 +1097,22 @@ Context: client, Browser/Target/Element/Mouse classes, asyncio/json/os available
 					'json': json,
 					'os': os,
 				}
-			)
 
-			# Check if code defines executor function or is raw code
-			has_executor = 'async def executor(' in params.code
+				# Just exec the code directly - use local_vars as globals so everything is accessible
+				exec(params.code, local_vars)
 
-			if has_executor:
-				# Code has executor function - call it
-				code_lines = params.code.split('\n')
-				indented_code = '\n'.join('    ' + line if line.strip() else line for line in code_lines)
-				wrapped_code = f"""
-async def __browser_use_exec():
-{indented_code}
-    # Call executor with available args
-    if 'target' in locals() or 'target' in globals():
-        return await executor(client, Target)
-    else:
-        return await executor(client)
-"""
-			else:
-				# Raw code - execute directly
-				code_lines = params.code.split('\n')
-				indented_code = '\n'.join('    ' + line if line.strip() else line for line in code_lines)
-				wrapped_code = f"""
-async def __browser_use_exec():
-{indented_code}
-"""
+				# If there's an executor function, call it (no args needed - everything is in context)
+				if 'executor' in local_vars:
+					result = await local_vars['executor']()
+				else:
+					result = None
 
-			try:
-				compiled_code = compile(wrapped_code, '<browser_use_code>', 'exec')
-			except SyntaxError as e:
-				return ActionResult(error=f'Syntax error in browser-use code: {str(e)}')
-
-			# Execute with timeout - properly handle async execution
-			exec(compiled_code, exec_globals)
-
-			# Get the async function and execute it
-			browser_use_exec_func = exec_globals['__browser_use_exec']
-
-			# Capture stdout and stderr during execution
-			import sys
-			from io import StringIO
-
-			old_stdout = sys.stdout
-			old_stderr = sys.stderr
-			captured_stdout = StringIO()
-			captured_stderr = StringIO()
-
-			try:
-				# Redirect stdout and stderr
-				sys.stdout = captured_stdout
-				sys.stderr = captured_stderr
-
-				# Execute with timeout for browser automation
-				result = await asyncio.wait_for(browser_use_exec_func(), timeout=60.0)
-
-			except TimeoutError:
-				logger.error('❌ Browser-use code execution timed out')
-				error_msg = (
-					'Browser-use code execution timed out (60s limit). Try breaking complex operations into smaller steps.'
-				)
-				return ActionResult(error=error_msg)
+				logger.info('✅ Browser-use code executed successfully')
+				return ActionResult(extracted_content='✅ Code executed successfully')
 
 			except Exception as e:
-				logger.error(f'❌ Browser-use code execution failed: {e}')
-				error_msg = f'Failed to execute browser-use code: {str(e)}'
-
-				# Add helpful error context
-				if 'CDP client not initialized' in str(e):
-					error_msg += '\nTip: Check browser connection and session state'
-				elif 'Element not found' in str(e):
-					error_msg += '\nTip: Try different selectors or check if page loaded correctly'
-
-				return ActionResult(error=error_msg)
-			finally:
-				# Restore stdout and stderr
-				sys.stdout = old_stdout
-				sys.stderr = old_stderr
-
-				# Log captured output
-				stdout_content = captured_stdout.getvalue()
-				stderr_content = captured_stderr.getvalue()
-
-				if stdout_content.strip():
-					logger.info(f'📝 Code output: {stdout_content.strip()}')
-				if stderr_content.strip():
-					logger.error(f'⚠️ Code stderr: {stderr_content.strip()}')
-
-			success_msg = '✅ Browser-use code executed successfully'
-			if result is not None:
-				success_msg += f'\nReturn value: {result}'
-
-			logger.info(success_msg)
-			max_memory_length = 1000
-			return ActionResult(
-				extracted_content=success_msg,
-				long_term_memory=f'Executed browser-use code: {params.code[:max_memory_length]}{"..." if len(params.code) > max_memory_length else ""}',
-			)
+				logger.error(f'❌ Code execution failed: {e}')
+				return ActionResult(error=f'Code execution failed: {str(e)}')
 
 	def _get_javascript_debugging_tips(self, error_type: str, error_description: str, code: str) -> str:
 		"""Provide debugging tips based on the error type."""
