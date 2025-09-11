@@ -54,7 +54,7 @@ class ChatOpenAI(BaseChatModel):
 	default_query: Mapping[str, object] | None = None
 	http_client: httpx.AsyncClient | None = None
 	_strict_response_validation: bool = False
-	max_completion_tokens: int | None = 4096
+	max_completion_tokens: int | None = 8000
 	reasoning_models: list[ChatModel | str] | None = field(
 		default_factory=lambda: [
 			'o4-mini',
@@ -182,7 +182,11 @@ class ChatOpenAI(BaseChatModel):
 				model_params['service_tier'] = self.service_tier
 
 			if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
-				model_params['reasoning_effort'] = self.reasoning_effort
+				if 'gpt-5-mini' in self.model:
+					model_params['reasoning_effort'] = 'minimal'
+				else:
+					model_params['reasoning_effort'] = self.reasoning_effort
+
 				del model_params['temperature']
 				del model_params['frequency_penalty']
 
