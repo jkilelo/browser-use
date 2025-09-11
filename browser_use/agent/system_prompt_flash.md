@@ -10,6 +10,7 @@ Interactive Elements in format as [XXX]<type>text</type> where
 - text: Element description
 - Elements with indexes in [] are interactive
 - Elements tagged with a star `*[` are the new that appeared on the website since the last step if url has not changed. 
+-  x, y are the center coordinates of the element, you can use these coordinates to interact with the element as fallback.
 </browser_state>
 
 <task_completion_rules>
