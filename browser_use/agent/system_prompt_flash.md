@@ -30,23 +30,6 @@ For React Native Web, React, or similar components that don't respond to basic D
 (function(){{ const toggle = document.querySelector('.rn-switch-thumb, [role="switch"]'); if(toggle) {{ toggle.click(); toggle.dispatchEvent(new Event('change', {{bubbles: true}})); }} return 'toggle attempted'; }})()
 ```
 
-## Complex Component Strategies:
-
-**Material-UI/MUI Dropdowns** (when they don't open or select):
-```javascript
-(function(){{ const select = document.querySelector('[role="combobox"], .MuiSelect-root'); select.click(); setTimeout(() => {{ const option = document.querySelector('[role="listbox"] [role="option"]'); if(option) option.click(); }}, 100); return JSON.stringify({{opened: true, optionFound: !!option}}); }})()
-```
-
-**Rich Text Editors** (contenteditable fields):
-```javascript
-(function(){{ const editor = document.querySelector('[contenteditable="true"], .ql-editor'); editor.focus(); document.execCommand('selectAll'); document.execCommand('insertText', false, 'your content here'); editor.dispatchEvent(new Event('input', {{bubbles: true}})); return JSON.stringify({{filled: editor.textContent}}); }})()
-```
-
-**Dropdown placeholder detection**:
-```javascript
-(function(){{ const selects = Array.from(document.querySelectorAll('select, [role="combobox"]')); return JSON.stringify(selects.map(s => ({{tag: s.tagName, value: s.value, text: s.textContent?.substring(0,50), hasPlaceholder: s.value === '' || s.textContent?.includes('Select')}})); }})()
-```
-
 ## Failure recovery strategies:
 
 If execute_js fails once:
@@ -62,11 +45,8 @@ If fails twice:
 If shadow DOM traversal also fails:
 1. **IMMEDIATELY switch to coordinates** - use x,y values from element attributes
 2. Use elementFromPoint(x,y) + focus + execCommand for text input
-3. **ALWAYS verify success after any action** - check page state before calling done
+3. Never continue with selectors if coordinates are available
 
-
-4. **Only call done after explicit verification passes**
-- Do not trust your previous code, always verify if the actual state is achieved
 ## React Native Web specific patterns:
 
 - Buttons: `.rn-touchable` class elements
@@ -149,41 +129,8 @@ In the browser state, you see `x=150 y=75` - these are center coordinates of ele
 - After 3+ failed selector attempts
 - Closed shadow root components (common in LitElement/web components)
 
-**When NOT to use coordinates:**
-- Browser state shows interactive element indices [${{var1}}] - USE THESE FIRST
-- Standard form elements (input, select, button) are accessible via selectors
-- Only use coordinates as LAST RESORT after selectors fail
-
-**Prefer element indices over coordinates:**
-```javascript
-// GOOD: Use provided element indices from browser state
-document.querySelector('[data-index="var1"]') // or similar provided selector
-
-// AVOID: Hard-coded coordinates unless selectors fail 3+ times  
-document.elementFromPoint(150, 75)
-```
-
-## Success Verification (CRITICAL):
-
-**NEVER report success without verification:**
-```javascript
-// After form submit - ALWAYS verify before calling done
-(function(){{ 
-  const errors = document.querySelectorAll('.error, [class*="error"], [role="alert"]');
-  const success = document.querySelector('.success, [class*="success"]') || document.body.innerText.toLowerCase().includes('success') || document.body.innerText.toLowerCase().includes('submitted');
-  return JSON.stringify({{hasErrors: errors.length > 0, hasSuccess: !!success, pageText: document.body.innerText.substring(0, 200)}});
-}})()
-```
-
-**Verification checklist**:
-- ✅ Form submissions: Check for success message or absence of validation errors
-- ✅ Interactive elements: Confirm state change (checked, selected, revealed)
-- ✅ Autocomplete: Verify suggestion exists and is actually selected
-- ✅ File operations: Confirm upload/download completed
-
 ## Critical rules:
 
-- **ALWAYS verify success before calling done** - check for confirmation messages
 - **ALWAYS use JSON.stringify() for complex return values** - objects return useless "object" message
 - Never repeat the same failing action more than 2 times
 - For React components, ALWAYS try synthetic events before giving up
@@ -205,8 +152,5 @@ If one approach fails, immediately try shadow DOM detection and real keyboard si
 - Same selector fails 3+ times = STOP selectors, use elementFromPoint(x,y)  
 - Shadow DOM traversal returns nothing = closed shadow roots, use coordinates
 - Form fields consistently "not found" = LitElement/closed components, click coordinates
-- **Dropdown shows "Select..." after interaction = component not properly triggered**
-- **No success message after form submit = verification required before done**
 
-**NEVER REPEAT FAILED SELECTORS MORE THAN 3 TIMES!**  
-**NEVER CALL DONE WITHOUT EXPLICIT SUCCESS VERIFICATION!**
+**NEVER REPEAT FAILED SELECTORS MORE THAN 3 TIMES!**
