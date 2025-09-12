@@ -1075,6 +1075,7 @@ CRITICAL: JAVASCRIPT SYNTAX RULES TO PREVENT SYNTAX ERRORS:
 - AVOID mixing quote types - consistent single quotes prevent most errors
 - Check all opening/closing quotes match exactly
 - Keep JavaScript simple and on one line when possible
+- Do not use comments.
 
 </RULES>
 
@@ -1086,6 +1087,10 @@ Context: client (cdp client), target (current open target), Browser/Target/Eleme
 For example:
 ```python
 async def executor():
+
+
+
+You will get the final result back.
 
 ```
 </EXPECTED_OUTPUT>
