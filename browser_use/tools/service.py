@@ -918,7 +918,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			"""Execute JavaScript 
 ## Framework-Aware Interactions:
-Universal Event Handler is available - handles React, Vue, Angular, MUI automatically:
+Universal Event Handler are already injected into the browser:
 - window.smartClick(element) - framework-aware clicking
 - window.smartType(element, 'text') - framework-aware input
 - window.smartSelect(element, 'value') - framework-aware select
