@@ -1083,8 +1083,15 @@ Return: JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.t
 			logger.error(f'🚨 Universal Event Handler injection failed: {exception_details}')
 			raise RuntimeError(f'Failed to inject universal_events.js: {exception_details}')
 
-		logger.error(f'🚨 Failed to inject Universal Event Handler: {e}')
-		raise
+		# Verify injection worked
+		verify_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': 'typeof window.smartClick'}, session_id=cdp_session.session_id
+		)
+		if verify_result.get('result', {}).get('value') == 'function':
+			logger.debug('✅ Universal Event Handler injected and verified successfully')
+		else:
+			logger.error('🚨 Universal Event Handler injection appeared to succeed but verification failed')
+			raise RuntimeError('Universal events injection verification failed')
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(

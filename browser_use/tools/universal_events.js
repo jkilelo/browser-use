@@ -10,18 +10,73 @@ class UniversalEventHandler {
 
     detectFramework() {
         const frameworks = {
-            react: !!(window.React || document.querySelector('[data-reactroot]') ||
-                document.querySelector('*[data-react-*]') ||
-                Object.keys(window).find(key => key.startsWith('__REACT'))),
-            vue: !!(window.Vue || document.querySelector('[data-v-]') ||
-                document.querySelector('*[data-server-rendered]')),
-            angular: !!(window.ng || window.angular ||
-                document.querySelector('[ng-app]') ||
-                document.querySelector('*[ng-*]')),
-            svelte: !!(document.querySelector('*[class*="svelte-"]'))
+            react: this.detectReact(),
+            vue: this.detectVue(),
+            angular: this.detectAngular(),
+            svelte: this.detectSvelte()
         };
 
         return Object.keys(frameworks).filter(key => frameworks[key]);
+    }
+
+    detectReact() {
+        if (window.React || window.__REACT_DEVTOOLS_GLOBAL_HOOK__) return true;
+        if (document.querySelector('[data-reactroot]')) return true;
+
+        // Check for React attributes safely
+        const reactElements = document.querySelectorAll('*');
+        for (let el of reactElements) {
+            if (el.attributes) {
+                for (let attr of el.attributes) {
+                    if (attr.name.startsWith('data-react')) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    detectVue() {
+        if (window.Vue || window.__VUE__) return true;
+        if (document.querySelector('[data-server-rendered]')) return true;
+        if (document.querySelector('#app')) return true;
+
+        // Check for Vue attributes safely  
+        const vueElements = document.querySelectorAll('*');
+        for (let el of vueElements) {
+            if (el.attributes) {
+                for (let attr of el.attributes) {
+                    if (attr.name.startsWith('data-v-')) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    detectAngular() {
+        if (window.ng || window.angular) return true;
+        if (document.querySelector('[ng-app]')) return true;
+        if (document.querySelector('[ng-controller]')) return true;
+
+        // Check for Angular attributes safely
+        const ngElements = document.querySelectorAll('*');
+        for (let el of ngElements) {
+            if (el.attributes) {
+                for (let attr of el.attributes) {
+                    if (attr.name.startsWith('ng-')) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    detectSvelte() {
+        const svelteElements = document.querySelectorAll('*');
+        for (let el of svelteElements) {
+            if (el.className && el.className.includes && el.className.includes('svelte-')) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
