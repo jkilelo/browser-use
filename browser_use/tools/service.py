@@ -33,7 +33,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
-from browser_use.tools.code_processor import fix_python_code_string_issues
+from browser_use.tools.code_processor import CodeProcessor
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.views import (
 	BrowserUseCodeAction,
@@ -1109,8 +1109,8 @@ async def executor():
 					'os': os,
 				}
 
-				# Fix common Python string issues in the code before execution
-				cleaned_code = fix_python_code_string_issues(params.code)
+				# Fix code issues specifically for browser actor execution
+				cleaned_code = self._fix_browser_actor_code_issues(params.code)
 
 				# Just exec the code directly - use local_vars as globals so everything is accessible
 				exec(cleaned_code, local_vars)
@@ -1133,11 +1133,44 @@ async def executor():
 				return ActionResult(extracted_content=action_result)
 
 			except Exception as e:
+				# Enhanced error detection and reporting
+				error_str = str(e)
+
+				# Check if error is from JavaScript evaluation
+				if any(
+					js_error in error_str.lower()
+					for js_error in [
+						'javascript evaluation failed',
+						'syntaxerror',
+						'uncaught',
+						'invalid selector',
+						'queryselector',
+						'cdp',
+						'evaluate',
+					]
+				):
+					error_category = 'JavaScript evaluation error'
+					error_msg = f'❌ {error_category}: {error_str}'
+
+					# Add debugging hints for common JavaScript issues
+					if 'invalid selector' in error_str.lower() or 'queryselector' in error_str.lower():
+						error_msg += '\n💡 Tip: Check CSS selector syntax in target.evaluate() calls. Use proper quote escaping.'
+					elif 'syntaxerror' in error_str.lower():
+						error_msg += "\n💡 Tip: Ensure JavaScript code uses correct arrow function format: '() => expression'"
+				elif 'python' in error_str.lower() or 'syntax error' in error_str.lower():
+					error_category = 'Python code error'
+					error_msg = f'❌ {error_category}: {error_str}'
+				else:
+					error_category = 'Code execution error'
+					error_msg = f'❌ {error_category}: {error_str}'
+
 				action_result = f"""
-				❌ Code execution failed. <code>{params.code}</code>. Error was: {str(e)}
+				{error_msg}
+				
+				Failed code: <code>{params.code}</code>
 				"""
-				logger.error(action_result)
-				return ActionResult(error=action_result)
+				logger.error(f'Browser actor code execution failed: {error_category} - {error_str}')
+				return ActionResult(error=action_result.strip())
 
 	def _get_javascript_debugging_tips(self, error_type: str, error_description: str, code: str) -> str:
 		"""Provide debugging tips based on the error type."""
@@ -1158,10 +1191,19 @@ async def executor():
 
 		return ''
 
+	def _fix_browser_actor_code_issues(self, code: str) -> str:
+		"""Fix code issues specifically for browser actor execution"""
+		return CodeProcessor.fix_browser_actor_code_issues(code)
+
 	def _fix_common_js_issues(self, code: str) -> str:
-		"""Fix common JavaScript issues that cause SyntaxError: Uncaught."""
+		"""Fix JavaScript issues - but only for execute_js, not browser actor code"""
 		import re
 
+		# Don't modify JavaScript inside target.evaluate() calls - that's handled separately
+		if 'target.evaluate(' in code:
+			return code  # Let the browser actor handler deal with this
+
+		# Existing logic for direct JavaScript execution via execute_js action
 		# Remove optional chaining which isn't supported in older CDP
 		code = re.sub(r'\?\.\s*', '.', code)
 

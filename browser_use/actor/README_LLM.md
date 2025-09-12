@@ -68,14 +68,27 @@ await target.reload()
 page_screenshot = await target.screenshot()  # JPEG by default
 page_png = await target.screenshot(format="png")
 
-# JavaScript evaluation - MUST use (...args) => format, ALWAYS returns string (objects become JSON)
-text = await target.evaluate("() => document.body.innerText")  # Returns: "Page content"
-result = await target.evaluate("() => ({title: document.title})")  # Returns: '{"title": "Page Title"}'
-with_args = await target.evaluate("(x) => x * 2", 21)  # Returns: "42"
+# JavaScript evaluation - CRITICAL STRING HANDLING
 
-# Safe to use directly with regex (always string)
-matches = re.findall(r"\$[0-9,]+", text)
-data = json.loads(result)  # Parse JSON for objects: {"title": "Page Title"}
+**MUST use (...args) => format, ALWAYS returns string (objects become JSON)**
+
+**Quote Rules:**
+- Single quotes outside: `target.evaluate('...')`  
+- Double quotes for CSS: `'() => document.querySelector("input[name=\\"email\\"]")'`
+- Escape inner quotes: `\\"` for double quotes
+
+**✅ CORRECT:**
+```python
+text = await target.evaluate('() => document.body.innerText')  # Returns: "Page content"
+result = await target.evaluate('() => ({title: document.title})')  # Returns JSON string
+count = await target.evaluate('() => document.querySelectorAll("a[draggable=\\"false\\"]").length')
+```
+
+**❌ WRONG:**
+```python
+await target.evaluate("() => document.querySelector('button')")  # Double quotes outside
+await target.evaluate('document.body.innerText')  # Missing arrow function
+```
 ```
 
 JavaScript execution MUST use (...args) => format and always returns strings (objects/arrays are JSON-stringified). The parser automatically fixes common string issues (escaped quotes, indentation, etc.).
@@ -155,10 +168,20 @@ class ElementInfo(TypedDict):
 
 **This is NOT Playwright.**. You can NOT use other methods than the ones described here. Key constraints for code generation:
 
+**CRITICAL JAVASCRIPT EVALUATION RULES:**
 - `target.evaluate()` MUST use (...args) => format and always returns string (objects become JSON strings)
+- **STRING QUOTES**: Always use `target.evaluate('...')` (single quotes outside, double inside for CSS)
+- **CSS SELECTORS**: Use `"input[name=\\"email\\"]"` format inside evaluate calls
+- **ESCAPING**: Use `\\"` to escape double quotes inside selectors, never mix quote patterns
+
+**METHOD RESTRICTIONS:**
 - `getElementsByCSSSelector()` returns immediately, no waiting
 - For dropdowns: use `element.selectOption("value")` or `element.selectOption(["val1", "val2"])`, not `element.fill()`
 - No methods: `element.submit()`, `element.dispatchEvent()`, `element.getProperty()`, `target.querySelectorAll()`
 - Form submission: click submit button or use `target.press("Enter")`
 - Get properties: use `target.evaluate("() => element.value")` not `element.getProperty()`
+
+**ERROR PREVENTION:**
 - Loop prevention: verify page state changes with `target.getUrl()`, `target.getTitle()`, `element.getAttribute()`
+- Validate selectors before use: ensure no excessive escaping like `\\\\\\\\`
+- Test complex selectors: if a selector fails, simplify it step by step
