@@ -1112,14 +1112,13 @@ async def executor():
 				else:
 					result = None
 
-				result = f"""✅ executed successfully. Code summary: {params.code_summary}
-				"""
+				result = f"""✅ executed successfully. <code>{params.code}</code>"""
 				logger.info(result)
 				return ActionResult(extracted_content=result)
 
 			except Exception as e:
 				result = f"""
-				❌ Code execution failed. Code summary: {params.code_summary}. Error was: {str(e)}
+				❌ Code execution failed. <code>{params.code}</code>. Error was: {str(e)}
 				"""
 				logger.error(result)
 				return ActionResult(error=result)
