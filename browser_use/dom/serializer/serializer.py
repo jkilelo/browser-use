@@ -125,81 +125,73 @@ class DOMTreeSerializer:
 		return self._clickable_cache[node.node_id]
 
 	def _create_simplified_tree(self, node: EnhancedDOMTreeNode, depth: int = 0) -> SimplifiedNode | None:
-		"""Step 1: Create a simplified tree - include all visible elements, shadow DOM, and iframe content."""
-
-		# Prevent infinite recursion by limiting depth to 30 levels
-		if depth > 30:
-			return None
+		"""Step 1: Create a simplified tree with enhanced element detection."""
 
 		if node.node_type == NodeType.DOCUMENT_NODE:
-			# Process all children including shadow roots
+			# for all cldren including shadow roots
 			for child in node.children_and_shadow_roots:
 				simplified_child = self._create_simplified_tree(child, depth + 1)
 				if simplified_child:
 					return simplified_child
+
 			return None
 
-		elif node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
-			# Shadow DOM - always include and process children
+		if node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
+			# Super simple pass-through for shadow DOM elements
 			simplified = SimplifiedNode(original_node=node, children=[])
 			for child in node.children_and_shadow_roots:
 				simplified_child = self._create_simplified_tree(child, depth + 1)
 				if simplified_child:
 					simplified.children.append(simplified_child)
-			# Always return shadow DOM nodes (they'll be filtered later if needed)
-			return simplified if simplified.children else None
+			return simplified
 
 		elif node.node_type == NodeType.ELEMENT_NODE:
-			# Skip disabled elements (script, style, head, etc.)
+			# Skip non-content elements
 			if node.node_name.lower() in DISABLED_ELEMENTS:
 				return None
 
-			# Handle iframe and frame elements like regular elements
-			if node.node_name.upper() in ['IFRAME', 'FRAME']:
-				simplified = SimplifiedNode(original_node=node, children=[])
-				# Include iframe content if available
+			if node.node_name == 'IFRAME' or node.node_name == 'FRAME':
 				if node.content_document:
+					simplified = SimplifiedNode(original_node=node, children=[])
 					for child in node.content_document.children_nodes or []:
 						simplified_child = self._create_simplified_tree(child, depth + 1)
 						if simplified_child is not None:
 							simplified.children.append(simplified_child)
-				# Only return if it has children or is visible/scrollable like other elements
-				is_visible = node.is_visible
-				is_scrollable = node.is_actually_scrollable
-				if is_visible or is_scrollable or simplified.children:
 					return simplified
-				return None
 
-			# For regular elements, include if visible or if they have children to process
 			is_visible = node.is_visible
 			is_scrollable = node.is_actually_scrollable
 
-			# Always process children first to see if there's meaningful content
-			child_nodes = []
-			for child in node.children_and_shadow_roots:
-				simplified_child = self._create_simplified_tree(child, depth + 1)
-				if simplified_child:
-					child_nodes.append(simplified_child)
+			# Include if interactive (regardless of visibility), or scrollable, or has children to process
 
-			# Include element if it's visible, scrollable, or has meaningful children
-			if is_visible or is_scrollable or child_nodes:
-				simplified = SimplifiedNode(original_node=node, children=child_nodes)
-				return simplified
+			if is_visible or is_scrollable or bool(node.children_and_shadow_roots):
+				simplified = SimplifiedNode(original_node=node, children=[])
+				# simplified._analysis = analysis  # Store analysis for grouping
+
+				# Process children
+				for child in node.children_and_shadow_roots:
+					simplified_child = self._create_simplified_tree(child, depth + 1)
+					if simplified_child:
+						simplified.children.append(simplified_child)
+
+				# Return if meaningful or has meaningful children
+				if is_visible or is_scrollable or simplified.children:
+					return simplified
 
 		elif node.node_type == NodeType.TEXT_NODE:
-			# Include text nodes that have meaningful content
-			# Visibility will be checked later in the filtering step
-			if node.node_value and node.node_value.strip() and len(node.node_value.strip()) > 1:
+			# Include meaningful text nodes
+			is_visible = node.snapshot_node and node.is_visible
+			if is_visible and node.node_value and node.node_value.strip() and len(node.node_value.strip()) > 1:
 				return SimplifiedNode(original_node=node, children=[])
 
 		return None
 
 	def _optimize_tree(self, node: SimplifiedNode | None) -> SimplifiedNode | None:
-		"""Step 2: Optimize tree structure and prune branches without interactive elements."""
+		"""Step 2: Optimize tree structure."""
 		if not node:
 			return None
 
-		# First, recursively optimize children
+		# Process children
 		optimized_children = []
 		for child in node.children:
 			optimized_child = self._optimize_tree(child)
@@ -208,55 +200,19 @@ class DOMTreeSerializer:
 
 		node.children = optimized_children
 
-		# Check if this node or any of its descendants contains interactive elements or text
-		has_interactive_descendant = self._has_interactive_descendant(node)
-		has_text_descendant = self._has_text_descendant(node)
+		# Keep meaningful nodes
+		is_interactive_opt = self._is_interactive_cached(node.original_node)
+		is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 
-		# Keep the node if:
-		# 1. It's interactive itself, OR
-		# 2. It has interactive descendants, OR
-		# 3. It's a text node (we want to keep text content), OR
-		# 4. It has text descendants (preserve branches with text)
-		is_interactive = self._is_interactive_cached(node.original_node)
-		is_text_node = node.original_node.node_type == NodeType.TEXT_NODE
-
-		if is_interactive or has_interactive_descendant or is_text_node or has_text_descendant:
+		if (
+			is_visible  # Keep all visible nodes
+			or node.original_node.is_actually_scrollable
+			or node.original_node.node_type == NodeType.TEXT_NODE
+			or node.children
+		):
 			return node
 
 		return None
-
-	def _has_interactive_descendant(self, node: SimplifiedNode) -> bool:
-		"""Check if this node or any of its descendants is interactive."""
-		# Check if this node itself is interactive
-		if self._is_interactive_cached(node.original_node):
-			return True
-
-		# Recursively check children
-		for child in node.children:
-			if self._has_interactive_descendant(child):
-				return True
-
-		return False
-
-	def _has_text_descendant(self, node: SimplifiedNode) -> bool:
-		"""Check if this node or any of its descendants contains meaningful visible text."""
-		# Check if this node itself is a text node with meaningful visible content
-		if node.original_node.node_type == NodeType.TEXT_NODE:
-			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
-			if (
-				is_visible
-				and node.original_node.node_value
-				and node.original_node.node_value.strip()
-				and len(node.original_node.node_value.strip()) > 1
-			):
-				return True
-
-		# Recursively check children
-		for child in node.children:
-			if self._has_text_descendant(child):
-				return True
-
-		return False
 
 	def _collect_interactive_elements(self, node: SimplifiedNode, elements: list[SimplifiedNode]) -> None:
 		"""Recursively collect interactive elements that are also visible."""
@@ -453,200 +409,96 @@ class DOMTreeSerializer:
 
 	@staticmethod
 	def serialize_tree(node: SimplifiedNode | None, include_attributes: list[str], depth: int = 0) -> str:
-		"""
-		Serialize the tree to flat HTML format without indentation.
-
-		Filters out:
-		- Disabled elements (script, style, head, etc.)
-		- Invisible elements and invisible text
-		- Paint-order ignored elements (but NOT paint-order ignored text)
-		- Branches that contain neither clickable elements nor text content
-
-		Preserves:
-		- All visible text content (including paint-order ignored text)
-		- Branches that contain interactive elements
-		- Branches that contain text content
-		- Shadow DOM and iframe content if they contain interactive elements or text
-
-		Special markers:
-		- |#shadow-root(open/closed)|...|#/shadow-root| for shadow DOM boundaries
-		- |#iframe-content|...|#/iframe-content| for iframe content boundaries
-		- highlight-index{INDEX} attributes for clickable elements
-		"""
+		"""Serialize the optimized tree to string format."""
 		if not node:
 			return ''
 
-		# Skip elements that should be filtered out
-		if DOMTreeSerializer._should_skip_element(node):
-			# Process children directly without this element
-			child_parts = []
+		# Skip rendering excluded nodes, but process their children
+		if hasattr(node, 'excluded_by_parent') and node.excluded_by_parent:
+			formatted_text = []
 			for child in node.children:
 				child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, depth)
 				if child_text:
-					child_parts.append(child_text)
-			return ''.join(child_parts)
+					formatted_text.append(child_text)
+			return '\n'.join(formatted_text)
 
-		result_parts = []
+		formatted_text = []
+		depth_str = depth * '\t'
+		next_depth = depth
 
 		if node.original_node.node_type == NodeType.ELEMENT_NODE:
-			tag_name = node.original_node.tag_name.lower()
+			# Skip displaying nodes marked as should_display=False
+			if not node.should_display:
+				for child in node.children:
+					child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, depth)
+					if child_text:
+						formatted_text.append(child_text)
+				return '\n'.join(formatted_text)
 
-			# Build attributes string (includes highlight-index if clickable)
-			attributes_str = DOMTreeSerializer._build_simple_attributes_string(
-				node.original_node, include_attributes, node.interactive_index
-			)
+			# Add element with interactive_index if clickable, scrollable, or iframe
+			is_any_scrollable = node.original_node.is_actually_scrollable or node.original_node.is_scrollable
+			should_show_scroll = node.original_node.should_show_scroll_info
+			if (
+				node.interactive_index is not None
+				or is_any_scrollable
+				or node.original_node.tag_name.upper() == 'IFRAME'
+				or node.original_node.tag_name.upper() == 'FRAME'
+			):
+				next_depth += 1
 
-			# Self-closing tags (void elements in HTML)
-			self_closing_tags = {
-				'img',
-				'input',
-				'br',
-				'hr',
-				'meta',
-				'link',
-				'area',
-				'base',
-				'col',
-				'embed',
-				'source',
-				'track',
-				'wbr',
-			}
+				# Build attributes string
+				attributes_html_str = DOMTreeSerializer._build_attributes_string(node.original_node, include_attributes, '')
 
-			if tag_name in self_closing_tags:
-				# Self-closing element
-				if attributes_str:
-					result_parts.append(f'<{tag_name} {attributes_str}>')
+				# Build the line
+				if should_show_scroll and node.interactive_index is None:
+					# Scrollable container but not clickable
+					line = f'{depth_str}|SCROLL|<{node.original_node.tag_name}'
+				elif node.interactive_index is not None:
+					# Clickable (and possibly scrollable)
+					new_prefix = '*' if node.is_new else ''
+					scroll_prefix = '|SCROLL+' if should_show_scroll else '['
+					line = f'{depth_str}{new_prefix}{scroll_prefix}{node.original_node.backend_node_id}]<{node.original_node.tag_name}'
+				elif node.original_node.tag_name.upper() == 'IFRAME':
+					# Iframe element (not interactive)
+					line = f'{depth_str}|IFRAME|<{node.original_node.tag_name}'
+				elif node.original_node.tag_name.upper() == 'FRAME':
+					# Frame element (not interactive)
+					line = f'{depth_str}|FRAME|<{node.original_node.tag_name}'
 				else:
-					result_parts.append(f'<{tag_name}>')
-			else:
-				# Regular element with opening and closing tags
-				if attributes_str:
-					result_parts.append(f'<{tag_name} {attributes_str}>')
-				else:
-					result_parts.append(f'<{tag_name}>')
+					line = f'{depth_str}<{node.original_node.tag_name}'
 
-				# Special handling for iframe elements with content
-				if tag_name in ['iframe', 'frame'] and node.children:
-					result_parts.append('|#iframe-content|')
-					# Process children
-					for child in node.children:
-						child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, depth + 1)
-						if child_text:
-							result_parts.append(child_text)
-					result_parts.append('|#/iframe-content|')
-				else:
-					# Process children normally
-					for child in node.children:
-						child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, depth + 1)
-						if child_text:
-							result_parts.append(child_text)
+				if attributes_html_str:
+					line += f' {attributes_html_str}'
 
-				# Closing tag
-				result_parts.append(f'</{tag_name}>')
+				line += ' />'
+
+				# Add scroll information only when we should show it
+				if should_show_scroll:
+					scroll_info_text = node.original_node.get_scroll_info_text()
+					if scroll_info_text:
+						line += f' ({scroll_info_text})'
+
+				formatted_text.append(line)
 
 		elif node.original_node.node_type == NodeType.TEXT_NODE:
-			# Include text content (visibility already checked in _should_skip_element)
+			# Include visible text
+			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 			if (
-				node.original_node.node_value
+				is_visible
+				and node.original_node.node_value
 				and node.original_node.node_value.strip()
 				and len(node.original_node.node_value.strip()) > 1
 			):
 				clean_text = node.original_node.node_value.strip()
-				result_parts.append(clean_text)
+				formatted_text.append(f'{depth_str}{clean_text}')
 
-		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
-			# Shadow DOM - add |#shadow-root| marker and process children
-			# Determine if shadow DOM is open or closed
-			shadow_type = getattr(node.original_node, 'shadow_root_type', 'closed')
-			if shadow_type is None:
-				shadow_type = 'closed'  # Default to closed if not specified
+		# Process children
+		for child in node.children:
+			child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, next_depth)
+			if child_text:
+				formatted_text.append(child_text)
 
-			result_parts.append(f'|#shadow-root({shadow_type})|')
-			for child in node.children:
-				child_text = DOMTreeSerializer.serialize_tree(child, include_attributes, depth + 1)
-				if child_text:
-					result_parts.append(child_text)
-			result_parts.append('|#/shadow-root|')
-
-		return ''.join(result_parts)
-
-	@staticmethod
-	def _should_skip_element(node: SimplifiedNode) -> bool:
-		"""Determine if an element should be skipped in the output."""
-		# Skip if excluded by parent bounding box filtering
-		if hasattr(node, 'excluded_by_parent') and node.excluded_by_parent:
-			return True
-
-		# Skip if ignored by paint order (but NOT for text nodes - we want to keep paint-order ignored text)
-		if (
-			hasattr(node, 'ignored_by_paint_order')
-			and node.ignored_by_paint_order
-			and node.original_node.node_type != NodeType.TEXT_NODE
-		):
-			return True
-
-		# Skip if marked as should not display
-		if hasattr(node, 'should_display') and not node.should_display:
-			return True
-
-		# For element nodes, check visibility and disabled state
-		if node.original_node.node_type == NodeType.ELEMENT_NODE:
-			# Skip disabled elements (script, style, head, etc.)
-			if node.original_node.node_name.lower() in DISABLED_ELEMENTS:
-				return True
-
-			# Skip invisible elements
-			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
-			if not is_visible:
-				return True
-
-		# For text nodes, we don't filter by paint order (keep paint-order ignored text)
-		# We only skip text nodes if they're excluded by parent or invisible
-		elif node.original_node.node_type == NodeType.TEXT_NODE:
-			# Skip invisible text nodes - check is_visible directly
-			if not node.original_node.is_visible:
-				return True
-
-		return False
-
-	@staticmethod
-	def _build_simple_attributes_string(
-		node: EnhancedDOMTreeNode, include_attributes: list[str], interactive_index: int | None = None
-	) -> str:
-		"""Build a simple attributes string for HTML-like output."""
-		filtered_attrs = {}
-
-		# Always add backend node ID as 'bid' attribute for all elements
-		# filtered_attrs[f'bid{node.backend_node_id}'] = ''
-
-		# Add highlight-index attribute for clickable elements
-		# if interactive_index is not None:
-		# 	filtered_attrs[f'highlight-index{interactive_index}'] = ''
-
-		# inject bid attribute
-		filtered_attrs[f'bid{node.backend_node_id}'] = ''
-
-		# Only add regular attributes for clickable elements (when interactive_index is not None)
-		if interactive_index is not None and node.attributes:
-			for key, value in node.attributes.items():
-				if key in include_attributes and str(value).strip():
-					filtered_attrs[key] = str(value).strip()
-
-		if not filtered_attrs:
-			return ''
-
-		# Format as key="value" pairs (or just key for empty values like highlight-index and bid)
-		attr_parts = []
-		for key, value in filtered_attrs.items():
-			if value:  # Non-empty value
-				# Escape quotes in attribute values
-				escaped_value = value.replace('"', '&quot;')
-				attr_parts.append(f'{key}="{escaped_value}"')
-			else:  # Empty value (like highlight-index and bid attributes)
-				attr_parts.append(key)
-
-		return ' '.join(attr_parts)
+		return '\n'.join(formatted_text)
 
 	@staticmethod
 	def _build_attributes_string(node: EnhancedDOMTreeNode, include_attributes: list[str], text: str) -> str:

@@ -219,9 +219,6 @@ Available tabs:
 <user_request>
 {self.task}
 </user_request>
-<file_system>
-{self.file_system.describe() if self.file_system else 'No file system available'}
-</file_system>
 <todo_contents>
 {_todo_contents}
 </todo_contents>
