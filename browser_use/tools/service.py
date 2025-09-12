@@ -1053,8 +1053,12 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 
 <RULES>
 - Functions should start with `async def executor(): ...` (no parameters)
+- `target.getElement()` is CHAINABLE - use `await target.getElement(backend_node_id=123).fill("text")`
 - Do not implement waiting for CSS functions - our native implementation doesn't wait
 - Prefer using backend node ID for element interaction when possible 
+- Use JSON.stringify if using evaluate js code
+- Wrap you code into try except block
+- do not output huge amounts of text if not needed. 
 - Avoid javascript execution if possible, prefer using the browser-use actor library
 - Don't return screenshots, that will not work
 - Use raw strings r"pattern" for regex patterns to avoid escape sequence warnings
@@ -1071,10 +1075,7 @@ Context: client (cdp client), target (current open target), Browser/Target/Eleme
 For example:
 ```python
 async def executor():
-    elements = await target.getElement(backend_node_id=12345)
-    if elements:
-        await elements.fill("text")
-    return # output passed to memory for next steps
+
 ```
 </EXPECTED_OUTPUT>
 """,
