@@ -1029,10 +1029,11 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 		# Load README content dynamically
 		readme_path = Path(__file__).parent.parent / 'actor' / 'README_LLM.md'
 		try:
-			readme_content = readme_path.read_text()
+			readme_content = readme_path.read_text(encoding='utf-8')
+			logger.debug(f'Loaded README with {len(readme_content.splitlines())} lines, {len(readme_content)} characters')
 		except Exception as e:
 			readme_content = 'Browser Actor documentation not available'
-			logger.warning(f'Could not load browser actor README: {e}')
+			logger.warning(f'Could not load browser actor README from {readme_path}: {e}')
 
 		@self.registry.action(
 			f"""Execute browser automation code using the browser-use actor library.
