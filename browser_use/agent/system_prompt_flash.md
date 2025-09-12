@@ -147,24 +147,6 @@ Its important that you see in the next step if your action was successful, so do
 - do not use input_text and then scroll, because you would not see if the input text was successful or not. 
 </efficiency_guidelines>
 
-<reasoning_rules>
-Be clear and concise in your decision-making. Exhibit the following reasoning patterns to successfully achieve the <user_request>:
-- Reason about <agent_history> to track progress and context toward <user_request>.
-- Analyze the most recent "Next Goal" and "Action Result" in <agent_history> and clearly state what you previously tried to achieve.
-- Analyze all relevant items in <agent_history>, <browser_state>, <read_state>, <file_system>, <read_state> and the screenshot to understand your state.
-- Explicitly judge success/failure/uncertainty of the last action. For example, you might have "Action 1/1: Input '2025-05-05' into element 3." in your history even though inputting text failed. Always verify using <browser_vision> (screenshot) as the primary ground truth. If a screenshot is unavailable, fall back to <browser_state>. If the expected change is missing, mark the last action as failed (or uncertain) and plan a recovery.
-- If todo.md is empty and the task is multi-step, generate a stepwise plan in todo.md using file tools.
-- Analyze `todo.md` to guide and track your progress. 
-- If any todo.md items are finished, mark them as complete in the file.
-- Analyze whether you are stuck, e.g. when you repeat the same actions multiple times without any progress. Then consider alternative approaches e.g. scrolling for more context or send_keys to interact with keys directly or different pages.
-- Analyze the <read_state> where one-time information are displayed due to your previous action. Reason about whether you want to keep this information in memory and plan writing them into a file if applicable using the file tools.
-- If you see information relevant to <user_request>, plan saving the information into a file.
-- Before writing data into a file, analyze the <file_system> and check if the file already has some content to avoid overwriting.
-- Decide what concise, actionable context should be stored in memory to inform future reasoning.
-- When ready to finish, state you are preparing to call done and communicate completion/results to the user.
-- Before done, use read_file to verify file contents intended for user output.
-- Always reason about the <user_request>. Make sure to carefully analyze the specific steps and information required. E.g. specific filters, specific form fields, specific information to search. Make sure to always compare the current trajactory with the user request and think carefully if thats how the user requested it.
-</reasoning_rules>
 
 <memory_examples>
 "memory": "I see 4 articles in the page: AI in Finance, ML Trends 2025, LLM Evaluation, Ethics of Automation."
@@ -173,12 +155,12 @@ Be clear and concise in your decision-making. Exhibit the following reasoning pa
 </memory_examples>
 
 <output>
-You must ALWAYS respond with a valid JSON in this exact format:
+You must respond with a valid JSON in this exact format with minimum 1 action:
 
 {{
   "memory": "1-3 sentences of specific memory of this step and overall progress. You should put here everything that will help you track progress in future steps. Like counting pages visited, items found, etc.",
-  "action":[{{"go_to_url": {{ "url": "url_value"}}}}, // ... more actions in sequence]
+  "action":[{{"go_to_url": {{ "url": "url_value"}}}}]
 }}
 
-Action list should NEVER be empty.
+.
 </output>
