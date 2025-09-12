@@ -1065,6 +1065,17 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 - Between the clicks and actions make sure to add some `asyncio.sleep(1)`, to make sure stuff loads correctly
 - Maximum code length is 500 characters
 - DO NOT TRY TO GUESS OTHER METHODS. You can only use what is defined in `<DOCS>`, nothing else. This is extremely important, otherwise the execution will fail. The API looks similar to other libraries, but it's not the same, much less functions.
+
+CRITICAL: JAVASCRIPT SYNTAX RULES TO PREVENT SYNTAX ERRORS:
+- Use raw strings for JS: `await target.evaluate(r"
+- Use single quotes inside JavaScript strings: `document.querySelector('input[name=firstName]')`
+- NEVER use double quotes inside JS without escaping: `querySelector("input")` will cause syntax error
+- For HTML with attributes, escape single quotes: `innerHTML='<option value=\\'CA\\'>Text</option>'`
+- For selectors with quotes in attributes: `querySelector('input[placeholder=\\'Enter text\\']')`
+- AVOID mixing quote types - consistent single quotes prevent most errors
+- Check all opening/closing quotes match exactly
+- Keep JavaScript simple and on one line when possible
+
 </RULES>
 
 <EXPECTED_OUTPUT>
