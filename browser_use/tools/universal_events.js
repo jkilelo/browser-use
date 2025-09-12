@@ -27,7 +27,7 @@ class UniversalEventHandler {
     /**
      * Smart click that works across all frameworks
      */
-    async click(element, options = {}) {
+    click(element, options = {}) {
         if (!element) throw new Error('Element not found');
 
         // Ensure element is in viewport
@@ -98,7 +98,7 @@ class UniversalEventHandler {
     /**
      * Smart input that works across all frameworks
      */
-    async type(element, text, options = {}) {
+    type(element, text, options = {}) {
         if (!element) throw new Error('Element not found');
 
         element.focus();
@@ -170,7 +170,7 @@ class UniversalEventHandler {
     /**
      * Smart select handling for dropdowns
      */
-    async select(element, value) {
+    select(element, value) {
         if (!element) throw new Error('Element not found');
 
         if (element.tagName === 'SELECT') {
@@ -209,7 +209,7 @@ class UniversalEventHandler {
     /**
      * Smart checkbox/radio handling
      */
-    async check(element, checked = true) {
+    check(element, checked = true) {
         if (!element) throw new Error('Element not found');
 
         if (element.type === 'checkbox' || element.type === 'radio') {
@@ -226,7 +226,7 @@ class UniversalEventHandler {
     /**
      * Wait for element to be ready for interaction
      */
-    async waitForElement(selector, timeout = 5000) {
+    waitForElement(selector, timeout = 5000) {
         return new Promise((resolve, reject) => {
             const element = document.querySelector(selector);
             if (element) {

@@ -143,6 +143,7 @@ include = [
     "browser_use/agent/system_prompt_flash.md",
     "browser_use/py.typed",
     "browser_use/dom/**/*.js",
+    "browser_use/tools/**/*.js",
     "!tests/**/*.py",
     "!debug/*",
 ]

@@ -1066,95 +1066,25 @@ Return: JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.t
 		except:
 			pass  # Inject anyway if check fails
 
-		# Inject inline Universal Event Handler (simplified for reliability)
-		try:
-			universal_events_code = """
-class UniversalEventHandler {
-  constructor() {
-    this.frameworkDetector = this.detectFramework();
-  }
+		# Load and inject the complete Universal Event Handler from package resources
+		from importlib import resources
 
-  detectFramework() {
-    const frameworks = {
-      react: !!(window.React || document.querySelector('[data-reactroot]') || 
-               document.querySelector('*[data-react-*]') ||
-               Object.keys(window).find(key => key.startsWith('__REACT'))),
-      vue: !!(window.Vue || document.querySelector('[data-v-]')),
-      angular: !!(window.ng || window.angular || document.querySelector('[ng-app]')),
-      svelte: !!(document.querySelector('*[class*="svelte-"]'))
-    };
-    return Object.keys(frameworks).filter(key => frameworks[key]);
-  }
+		# Load the JS file from package resources
+		universal_events_file = resources.files('browser_use.tools').joinpath('universal_events.js')
+		universal_events_code = universal_events_file.read_text(encoding='utf-8')
+		logger.debug(f'✅ Successfully loaded universal_events.js from package resources ({len(universal_events_code)} chars)')
 
-  async click(element) {
-    if (!element) throw new Error('Element not found');
-    element.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    
-    if (this.frameworkDetector.includes('react')) {
-      element.focus?.();
-      element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-      element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    }
-    
-    element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    return true;
-  }
+		result = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': universal_events_code}, session_id=cdp_session.session_id
+		)
 
-  async type(element, text) {
-    if (!element) throw new Error('Element not found');
-    element.focus();
-    
-    if (this.frameworkDetector.includes('react')) {
-      const nativeSetter = Object.getOwnPropertyDescriptor(
-        window.HTMLInputElement.prototype, 'value'
-      ).set;
-      nativeSetter.call(element, text);
-      element.dispatchEvent(new Event('input', { bubbles: true }));
-      element.dispatchEvent(new Event('change', { bubbles: true }));
-      return true;
-    }
-    
-    element.value = text;
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  }
+		if result.get('exceptionDetails'):
+			exception_details = result['exceptionDetails']
+			logger.error(f'🚨 Universal Event Handler injection failed: {exception_details}')
+			raise RuntimeError(f'Failed to inject universal_events.js: {exception_details}')
 
-  async select(element, value) {
-    element.value = value;
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  }
-
-  async check(element, checked = true) {
-    element.checked = checked;
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    element.dispatchEvent(new Event('click', { bubbles: true }));
-    return true;
-  }
-}
-
-if (!window.universalEvents) {
-  window.universalEvents = new UniversalEventHandler();
-  window.smartClick = (element) => window.universalEvents.click(element);
-  window.smartType = (element, text) => window.universalEvents.type(element, text);
-  window.smartSelect = (element, value) => window.universalEvents.select(element, value);
-  window.smartCheck = (element, checked) => window.universalEvents.check(element, checked);
-}
-"""
-
-			result = await cdp_session.cdp_client.send.Runtime.evaluate(
-				params={'expression': universal_events_code}, session_id=cdp_session.session_id
-			)
-
-			if result.get('exceptionDetails'):
-				logger.warning(f'Universal Event Handler injection failed: {result["exceptionDetails"]}')
-			else:
-				logger.debug('✅ Universal Event Handler injected successfully')
-
-		except Exception as e:
-			logger.warning(f'Failed to inject Universal Event Handler: {e}')
-			# Continue without it - fallback to basic interactions
+		logger.error(f'🚨 Failed to inject Universal Event Handler: {e}')
+		raise
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
