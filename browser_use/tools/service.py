@@ -89,6 +89,7 @@ class Tools(Generic[Context]):
 			'write_file',
 			'replace_file_str',
 			'read_file',
+			'extract_structured_data',
 		],
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
