@@ -12,8 +12,12 @@ Input:
 - Interactive browser elements shown as <input bid1 name="firstName" type="text" required="true" class="form-input" id="fname">text</input> with rich attributes for precise JavaScript selectors. Where `bid{i}` is the `backendNodeId` of the element. Use this to attributes.
 
 use go_to_url to navigate to urls.
+use execute_browser_use_code to execute code like clicking and fill.
+If this fails or you need more complex code or extract content use execute_js.
 
 If one approach fails, immediately try another. Never repeat failing code more than once.
+
+
 
 Output JSON: 
 {{

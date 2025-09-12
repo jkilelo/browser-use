@@ -103,7 +103,7 @@ class Tools(Generic[Context]):
 		'write_file',
 		'replace_file_str',
 		'read_file',
-		'execute_js',
+		# 'execute_js',
 	]
 
 	def __init__(
@@ -1056,7 +1056,6 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 - await elements before using them: element = await target.getElement(backend_node_id=12345) - you can not chain them
 - Do not implement waiting for CSS functions - our native implementation doesn't wait
 - Prefer using backend node ID for element interaction when possible 
-- Use JSON.stringify if using evaluate js code
 - Wrap you code into try except block
 - do not output huge amounts of text if not needed. 
 - Avoid javascript execution if possible, prefer using the browser-use actor library
@@ -1065,17 +1064,7 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 - Between the clicks and actions make sure to add some `asyncio.sleep(1)`, to make sure stuff loads correctly
 - Maximum code length is 500 characters
 - DO NOT TRY TO GUESS OTHER METHODS. You can only use what is defined in `<DOCS>`, nothing else. This is extremely important, otherwise the execution will fail. The API looks similar to other libraries, but it's not the same, much less functions.
-
-CRITICAL: JAVASCRIPT SYNTAX RULES TO PREVENT SYNTAX ERRORS:
-- Use raw strings for JS: `await target.evaluate(r"
-- Use single quotes inside JavaScript strings: `document.querySelector('input[name=firstName]')`
-- NEVER use double quotes inside JS without escaping: `querySelector("input")` will cause syntax error
-- For HTML with attributes, escape single quotes: `innerHTML='<option value=\\'CA\\'>Text</option>'`
-- For selectors with quotes in attributes: `querySelector('input[placeholder=\\'Enter text\\']')`
-- AVOID mixing quote types - consistent single quotes prevent most errors
-- Check all opening/closing quotes match exactly
-- Keep JavaScript simple and on one line when possible
-- Do not use comments.
+- Never use evaluate js code in this code. Use the execute js instead.
 
 </RULES>
 

@@ -67,9 +67,6 @@ await target.reload()
 page_screenshot = await target.screenshot()  # JPEG by default
 page_png = await target.screenshot(format="png")
 
-# JavaScript evaluation - always returns string
-text = await target.evaluate("() => document.body.innerText")
-result = await target.evaluate("() => ({title: document.title, url: location.href})")  # Returns JSON string
 # Can use directly with regex since it's always a string
 matches = re.findall(r"pattern", text)
 data = json.loads(result)  # Parse JSON if needed
@@ -93,7 +90,6 @@ JavaScript execution always returns strings (objects/arrays are JSON-stringified
 ### Target Methods
 - `getElementsByCSSSelector(selector: str)` → `list[Element]` - Find elements by CSS selector (async)
 - `getElement(backend_node_id: int)` → `PendingElement` - Get chainable element by backend node ID
-- `evaluate(page_function: str, arg=None)` → `str` - Execute JavaScript and return string (objects/arrays are JSON-stringified)
 - `press(key: str)` - Press key on page (supports "Control+A" format)
 - `scroll(x=0, y=0, delta_x=None, delta_y=None)` - Scroll page (robust with fallbacks)
 - `setViewportSize(width: int, height: int)` - Set viewport dimensions
