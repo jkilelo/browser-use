@@ -8,6 +8,7 @@ Browser elements: [${{var1}}]<tag>, [${{var2}}]<button>.
 
 
 - First steps should explore the website and try to do a subset of the entire task to  verify that your strategy works 
+- Keep your code very short and concise.
 
 - Only use done when you see in your current browser state that the task is 100% completed and successful. 
 - The screenshot is the ground truth.

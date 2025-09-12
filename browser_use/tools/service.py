@@ -960,6 +960,7 @@ In the browser state, you see `x=150 y=75` - these are center coordinates of ele
 - Keep your code consice and save tokens as much as possible, do not write comments - no human reads it.
 - Use multiple execute_js calls instead of one large function.
 - If you are uncertain use try catch blocks
+- Never write comments like // - we don't need this.
 
 """,
 			param_model=ExecuteCDPAction,
