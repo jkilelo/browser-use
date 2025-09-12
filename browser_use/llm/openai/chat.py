@@ -260,7 +260,7 @@ class ChatOpenAI(BaseChatModel):
 				content = response.choices[0].message.content
 				if content is None or content == '':
 					raise ModelProviderError(
-						message='Failed to parse structured output from model response',
+						message='Empty response from model',
 						status_code=500,
 						model=self.name,
 					)
