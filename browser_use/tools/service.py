@@ -33,6 +33,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
+from browser_use.tools.code_processor import fix_python_code_string_issues
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.views import (
 	BrowserUseCodeAction,
@@ -1108,8 +1109,11 @@ async def executor():
 					'os': os,
 				}
 
+				# Fix common Python string issues in the code before execution
+				cleaned_code = fix_python_code_string_issues(params.code)
+
 				# Just exec the code directly - use local_vars as globals so everything is accessible
-				exec(params.code, local_vars)
+				exec(cleaned_code, local_vars)
 
 				# If there's an executor function, call it (no args needed - everything is in context)
 				if 'executor' in local_vars:

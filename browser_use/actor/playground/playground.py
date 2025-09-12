@@ -59,8 +59,7 @@ async def main():
 
 		# Execute some JavaScript to count links
 		logger.info('🔍 Counting article links using JavaScript...')
-		js_code = """
-		(() => {
+		js_code = """() => {
 			// Find all article links on the page
 			const links = Array.from(document.querySelectorAll('a[href*="/wiki/"]:not([href*=":"])'))
 				.filter(link => !link.href.includes('Main_Page') && !link.href.includes('Special:'));
@@ -72,8 +71,7 @@ async def main():
 					text: link.textContent.trim() 
 				}))
 			};
-		})()
-		"""
+		}"""
 
 		link_info = json.loads(await target.evaluate(js_code))
 		logger.info(f'🔗 Found {link_info["total"]} article links')
@@ -141,8 +139,8 @@ async def main():
 		logger.info('🧪 Testing JavaScript evaluation...')
 
 		# Simple expressions
-		page_height = await target.evaluate('document.body.scrollHeight')
-		current_scroll = await target.evaluate('window.pageYOffset')
+		page_height = await target.evaluate('() => document.body.scrollHeight')
+		current_scroll = await target.evaluate('() => window.pageYOffset')
 		logger.info(f'📏 Page height: {page_height}px, current scroll: {current_scroll}px')
 
 		# JavaScript with arguments
@@ -150,8 +148,8 @@ async def main():
 		logger.info(f'🧮 JavaScript with args: 21 * 2 = {result}')
 
 		# More complex JavaScript
-		page_stats = await target.evaluate("""
-		(() => {
+		page_stats = json.loads(
+			await target.evaluate("""() => {
 			return {
 				url: window.location.href,
 				title: document.title,
@@ -160,12 +158,12 @@ async def main():
 				scrollTop: window.pageYOffset,
 				viewportHeight: window.innerHeight
 			};
-		})()
-		""")
+		}""")
+		)
 		logger.info(f'📊 Page stats: {page_stats}')
 
 		# Get page title using different methods
-		title_via_js = await target.evaluate('document.title')
+		title_via_js = await target.evaluate('() => document.title')
 		title_via_api = await target.getTitle()
 		logger.info(f'📝 Title via JS: "{title_via_js}"')
 		logger.info(f'📝 Title via API: "{title_via_api}"')

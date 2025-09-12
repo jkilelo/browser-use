@@ -60,7 +60,7 @@ await mouse.move(x=300, y=400)
 
 ```python
 # Target operations
-await target.scroll(x=0, y=100, delta_y=-500) 
+await target.scroll(x=0, y=100, delta_y=-500) # x,y (coordinates to scroll on), delta_y (how much to scroll)
 await target.press("Control+A")  # Key combinations supported
 await target.press("Escape")
 await target.setViewportSize(width=1920, height=1080)
@@ -68,16 +68,17 @@ await target.reload()
 page_screenshot = await target.screenshot()  # JPEG by default
 page_png = await target.screenshot(format="png")
 
-# JavaScript evaluation - ALWAYS returns string (objects become JSON)
+# JavaScript evaluation - MUST use (...args) => format, ALWAYS returns string (objects become JSON)
 text = await target.evaluate("() => document.body.innerText")  # Returns: "Page content"
 result = await target.evaluate("() => ({title: document.title})")  # Returns: '{"title": "Page Title"}'
+with_args = await target.evaluate("(x) => x * 2", 21)  # Returns: "42"
 
 # Safe to use directly with regex (always string)
 matches = re.findall(r"\$[0-9,]+", text)
 data = json.loads(result)  # Parse JSON for objects: {"title": "Page Title"}
 ```
 
-JavaScript execution always returns strings (objects/arrays are JSON-stringified).
+JavaScript execution MUST use (...args) => format and always returns strings (objects/arrays are JSON-stringified). The parser automatically fixes common string issues (escaped quotes, indentation, etc.).
 
 ## Core Classes
 
@@ -95,9 +96,9 @@ JavaScript execution always returns strings (objects/arrays are JSON-stringified
 - `getElement(backend_node_id: int)` → `Element` - Get element by backend node ID
 - `goto(url: str)` - Navigate this target to URL
 - `goBack()`, `goForward()` - Navigate target history (with proper error handling)
-- `evaluate(page_function: str, arg=None)` → `str` - Execute JavaScript and return string (objects/arrays are JSON-stringified)
+- `evaluate(page_function: str, *args)` → `str` - Execute JavaScript (MUST use (...args) => format) and return string (objects/arrays are JSON-stringified)
 - `press(key: str)` - Press key on page (supports "Control+A" format)
-- `scroll(x=0, y=0, delta_x=None, delta_y=None)` - Scroll page (robust with fallbacks)
+- `scroll(x=0, y=0, delta_x=None, delta_y=None)` - Scroll page (x,y (coordinates to scroll on), delta_y (how much to scroll))
 - `setViewportSize(width: int, height: int)` - Set viewport dimensions
 - `reload()` - Reload the current page
 - `getUrl()` → `str`, `getTitle()` → `str` - Get page info
@@ -154,7 +155,7 @@ class ElementInfo(TypedDict):
 
 **This is NOT Playwright.**. You can NOT use other methods than the ones described here. Key constraints for code generation:
 
-- `target.evaluate()` always returns string (objects become JSON strings)
+- `target.evaluate()` MUST use (...args) => format and always returns string (objects become JSON strings)
 - `getElementsByCSSSelector()` returns immediately, no waiting
 - For dropdowns: use `element.selectOption("value")` or `element.selectOption(["val1", "val2"])`, not `element.fill()`
 - No methods: `element.submit()`, `element.dispatchEvent()`, `element.getProperty()`, `target.querySelectorAll()`

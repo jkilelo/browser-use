@@ -1,6 +1,6 @@
 """Target class for target-level operations."""
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
 	from cdp_use.cdp.dom.commands import (
@@ -76,12 +76,12 @@ class Target:
 
 		return Element(self._client, backend_node_id, session_id)
 
-	async def evaluate(self, page_function: str, arg: Any = None) -> str:
+	async def evaluate(self, page_function: str, *args) -> str:
 		"""Execute JavaScript in the target.
 
 		Args:
-			page_function: JavaScript code to execute (function or expression)
-			arg: Optional argument to pass to the function
+			page_function: JavaScript code that MUST start with (...args) => format
+			*args: Arguments to pass to the function
 
 		Returns:
 			String representation of the JavaScript execution result.
@@ -89,25 +89,25 @@ class Target:
 		"""
 		session_id = await self._ensure_session()
 
-		if callable(page_function):
-			# Convert function to string
-			import inspect
+		# Clean and fix common JavaScript string parsing issues
+		page_function = self._fix_javascript_string(page_function)
 
-			page_function = inspect.getsource(page_function)
+		# Enforce arrow function format
+		if not (page_function.startswith('(') and '=>' in page_function):
+			raise ValueError(f'JavaScript code must start with (...args) => format. Got: {page_function[:50]}...')
 
-		# Prepare the expression
-		if arg is not None:
-			# If we have arguments, we need to call the function
-			expression = f'({page_function})({arg!r})'
+		# Build the expression - call the arrow function with provided args
+		if args:
+			# Convert args to JSON representation for safe passing
+			import json
+
+			arg_strs = [json.dumps(arg) for arg in args]
+			expression = f'({page_function})({", ".join(arg_strs)})'
 		else:
-			# Check if it's already a function call or just an expression
-			if page_function.strip().startswith('(') and page_function.strip().endswith(')'):
-				expression = page_function
-			elif '(' in page_function and page_function.strip().endswith(')'):
-				expression = page_function
-			else:
-				# It's just an expression
-				expression = page_function
+			expression = f'({page_function})()'
+
+		# Debug: print the actual expression being evaluated
+		print(f'DEBUG: Evaluating JavaScript: {repr(expression)}')
 
 		params: 'EvaluateParameters' = {'expression': expression, 'returnByValue': True, 'awaitPromise': True}
 		result = await self._client.send.Runtime.evaluate(
@@ -133,6 +133,37 @@ class Target:
 				return json.dumps(value) if isinstance(value, (dict, list)) else str(value)
 			except (TypeError, ValueError):
 				return str(value)
+
+	def _fix_javascript_string(self, js_code: str) -> str:
+		"""Fix common JavaScript string parsing issues when written as Python string."""
+
+		# Just do minimal, safe cleaning
+		js_code = js_code.strip()
+
+		# Only fix the most common and safe issues:
+
+		# 1. Remove obvious Python string wrapper quotes if they exist
+		if (js_code.startswith('"') and js_code.endswith('"')) or (js_code.startswith("'") and js_code.endswith("'")):
+			# Check if it's a wrapped string (not part of JS syntax)
+			inner = js_code[1:-1]
+			if inner.count('"') + inner.count("'") == 0 or '() =>' in inner:
+				js_code = inner
+
+		# 2. Only fix clearly escaped quotes that shouldn't be
+		# But be very conservative - only if we're sure it's a Python string artifact
+		if '\\"' in js_code and js_code.count('\\"') > js_code.count('"'):
+			js_code = js_code.replace('\\"', '"')
+		if "\\'" in js_code and js_code.count("\\'") > js_code.count("'"):
+			js_code = js_code.replace("\\'", "'")
+
+		# 3. Basic whitespace normalization only
+		js_code = js_code.strip()
+
+		# Final validation - ensure it's not empty
+		if not js_code:
+			raise ValueError('JavaScript code is empty after cleaning')
+
+		return js_code
 
 	async def screenshot(self, format: str = 'jpeg', quality: int | None = None) -> str:
 		"""Take a screenshot and return base64 encoded image.
