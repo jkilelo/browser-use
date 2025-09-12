@@ -1026,14 +1026,23 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 				return ActionResult(error=f'CDP execution failed: {str(e)}')
 
 		# Browser-Use Actor Code Execution Tool
-		# Load README content dynamically
-		readme_path = Path(__file__).parent.parent / 'actor' / 'README_LLM.md'
+		# Load README content dynamically (works in both dev and installed package)
 		try:
-			readme_content = readme_path.read_text(encoding='utf-8')
+			from importlib import resources
+
+			readme_content = resources.read_text('browser_use.actor', 'README_LLM.md', encoding='utf-8')
 			logger.debug(f'Loaded README with {len(readme_content.splitlines())} lines, {len(readme_content)} characters')
 		except Exception as e:
-			readme_content = 'Browser Actor documentation not available'
-			logger.warning(f'Could not load browser actor README from {readme_path}: {e}')
+			# Fallback to file path for development
+			readme_path = Path(__file__).parent.parent / 'actor' / 'README_LLM.md'
+			try:
+				readme_content = readme_path.read_text(encoding='utf-8')
+				logger.debug(
+					f'Loaded README (fallback) with {len(readme_content.splitlines())} lines, {len(readme_content)} characters'
+				)
+			except Exception as e2:
+				readme_content = 'Browser Actor documentation not available'
+				logger.warning(f'Could not load browser actor README: {e}, fallback failed: {e2}')
 
 		@self.registry.action(
 			f"""Execute browser automation code using the browser-use actor library.
