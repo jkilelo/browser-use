@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, overload
@@ -19,6 +20,8 @@ from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -113,6 +116,25 @@ class ChatOpenAI(BaseChatModel):
 	def name(self) -> str:
 		return str(self.model)
 
+	def _log_response_details(self, response: ChatCompletion, response_type: str = 'response') -> None:
+		"""Log response details including finish reason and content when truncated."""
+		if not response.choices:
+			return
+
+		finish_reason = response.choices[0].finish_reason
+		content = response.choices[0].message.content or ''
+
+		if finish_reason == 'length':
+			usage_tokens = response.usage.completion_tokens if response.usage else 'unknown'
+			logger.warning(
+				f'🔥 LLM {response_type} truncated due to max_completion_tokens limit ({self.max_completion_tokens}). '
+				f'Model: {self.model}, Usage: {usage_tokens} tokens'
+			)
+			# Log the actual truncated content for debugging
+			logger.warning(f'💬 Truncated {response_type} content: {content}')
+		elif finish_reason not in ['stop', 'tool_calls']:
+			logger.debug(f'🔍 LLM {response_type} finished with reason: {finish_reason}')
+
 	def _get_usage(self, response: ChatCompletion) -> ChatInvokeUsage | None:
 		if response.usage is not None:
 			completion_tokens = response.usage.completion_tokens
@@ -192,11 +214,14 @@ class ChatOpenAI(BaseChatModel):
 
 			if output_format is None:
 				# Return string response
-				response = await self.get_client().chat.completions.create(
+				response: ChatCompletion = await self.get_client().chat.completions.create(
 					model=self.model,
 					messages=openai_messages,
 					**model_params,
 				)
+
+				# Log response details including truncation
+				self._log_response_details(response, 'response')
 
 				usage = self._get_usage(response)
 				return ChatInvokeCompletion(
@@ -228,6 +253,9 @@ class ChatOpenAI(BaseChatModel):
 					response_format=ResponseFormatJSONSchema(json_schema=response_format, type='json_schema'),
 					**model_params,
 				)
+
+				# Log response details including truncation
+				self._log_response_details(response, 'structured response')
 
 				if response.choices[0].message.content is None:
 					raise ModelProviderError(
