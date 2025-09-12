@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 		DispatchKeyEventParameters,
 		SynthesizeScrollGestureParameters,
 	)
-	from cdp_use.cdp.page.commands import CaptureScreenshotParameters
+	from cdp_use.cdp.page.commands import CaptureScreenshotParameters, NavigateParameters, NavigateToHistoryEntryParameters
 	from cdp_use.cdp.runtime.commands import EvaluateParameters
 	from cdp_use.cdp.target.commands import (
 		AttachToTargetParameters,
@@ -276,6 +276,57 @@ class Target:
 		"""Get the current title."""
 		info = await self.getTargetInfo()
 		return info.get('title', '')
+
+	async def goto(self, url: str) -> None:
+		"""Navigate this target to a URL."""
+		session_id = await self._ensure_session()
+
+		params: 'NavigateParameters' = {'url': url}
+		await self._client.send.Page.navigate(params, session_id=session_id)
+
+	async def goBack(self) -> None:
+		"""Navigate back in history."""
+		session_id = await self._ensure_session()
+
+		try:
+			# Get navigation history
+			history = await self._client.send.Page.getNavigationHistory(session_id=session_id)
+			current_index = history['currentIndex']
+			entries = history['entries']
+
+			# Check if we can go back
+			if current_index <= 0:
+				raise RuntimeError('Cannot go back - no previous entry in history')
+
+			# Navigate to the previous entry
+			previous_entry_id = entries[current_index - 1]['id']
+			params: 'NavigateToHistoryEntryParameters' = {'entryId': previous_entry_id}
+			await self._client.send.Page.navigateToHistoryEntry(params, session_id=session_id)
+
+		except Exception as e:
+			raise RuntimeError(f'Failed to navigate back: {e}')
+
+	async def goForward(self) -> None:
+		"""Navigate forward in history."""
+		session_id = await self._ensure_session()
+
+		try:
+			# Get navigation history
+			history = await self._client.send.Page.getNavigationHistory(session_id=session_id)
+			current_index = history['currentIndex']
+			entries = history['entries']
+
+			# Check if we can go forward
+			if current_index >= len(entries) - 1:
+				raise RuntimeError('Cannot go forward - no next entry in history')
+
+			# Navigate to the next entry
+			next_entry_id = entries[current_index + 1]['id']
+			params: 'NavigateToHistoryEntryParameters' = {'entryId': next_entry_id}
+			await self._client.send.Page.navigateToHistoryEntry(params, session_id=session_id)
+
+		except Exception as e:
+			raise RuntimeError(f'Failed to navigate forward: {e}')
 
 	# Element finding methods (these would need to be implemented based on DOM queries)
 	async def getElementsByCSSSelector(self, selector: str) -> list['Element']:

@@ -86,6 +86,7 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	# To use only 'done' and 'execute_js' actions, pass this to exclude_actions parameter:
 	MINIMAL_ACTIONS_EXCLUDE_LIST = [
+		'go_to_url',
 		'search_google',
 		'go_back',
 		'wait',
@@ -1060,13 +1061,18 @@ Context: client (cdp client), target (current open target), Browser/Target/Eleme
 For example:
 ```python
 async def executor():
+    # Navigate existing target
+    await target.goto("https://example.com")
+    
+    # Or create new target and navigate
+    new_target = await browser.newTarget()
+    await new_target.goto("https://example.com")
+    
     element = await target.getElement(backend_node_id=12345)
     if element:
         await element.fill("text")
 
-	asyncio.sleep(1)
-
-	...
+    await asyncio.sleep(1)
 
     return # output passed to memory for next steps
 ```
@@ -1112,16 +1118,23 @@ async def executor():
 				else:
 					result = None
 
-				result = f"""✅ executed successfully. <code>{params.code}</code>"""
-				logger.info(result)
-				return ActionResult(extracted_content=result)
+				max_result_length = 2000
+				capped_result = (
+					str(result)[:max_result_length] + '...(capped at 2000 characters)'
+					if len(str(result)) > max_result_length
+					else str(result)
+				)
+
+				action_result = f"""✅ executed successfully. <code>{params.code}</code>, returned {capped_result}"""
+				logger.info(action_result)
+				return ActionResult(extracted_content=action_result)
 
 			except Exception as e:
-				result = f"""
+				action_result = f"""
 				❌ Code execution failed. <code>{params.code}</code>. Error was: {str(e)}
 				"""
-				logger.error(result)
-				return ActionResult(error=result)
+				logger.error(action_result)
+				return ActionResult(error=action_result)
 
 	def _get_javascript_debugging_tips(self, error_type: str, error_description: str, code: str) -> str:
 		"""Provide debugging tips based on the error type."""

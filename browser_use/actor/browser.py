@@ -3,7 +3,6 @@
 from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
-	from cdp_use.cdp.page.commands import NavigateToHistoryEntryParameters
 	from cdp_use.cdp.target.commands import (
 		CloseTargetParameters,
 		CreateTargetParameters,
@@ -19,78 +18,9 @@ class Browser:
 	def __init__(self, client: 'CDPClient'):
 		self._client = client
 
-	async def goto(self, url: str) -> 'Target':
-		"""Navigate to a URL and return the target."""
-		# Create a new target (tab)
-		params: 'CreateTargetParameters' = {'url': url}
-		result = await self._client.send.Target.createTarget(params)
-
-		target_id = result['targetId']
-
-		# Import here to avoid circular import
-		from .target import Target
-
-		return Target(self._client, target_id)
-
-	async def goBack(self) -> None:
-		"""Navigate back in history."""
-		targets = await self.getTargets()
-		if not targets:
-			raise RuntimeError('No targets available for navigation')
-
-		# Use the first target for navigation (typically the active one)
-		target = targets[0]
-		await target._ensure_session()
-
-		try:
-			# Get navigation history
-			history = await self._client.send.Page.getNavigationHistory(session_id=target._session_id)
-			current_index = history['currentIndex']
-			entries = history['entries']
-
-			# Check if we can go back
-			if current_index <= 0:
-				raise RuntimeError('Cannot go back - no previous entry in history')
-
-			# Navigate to the previous entry
-			previous_entry_id = entries[current_index - 1]['id']
-			params: 'NavigateToHistoryEntryParameters' = {'entryId': previous_entry_id}
-			await self._client.send.Page.navigateToHistoryEntry(params, session_id=target._session_id)
-
-		except Exception as e:
-			raise RuntimeError(f'Failed to navigate back: {e}')
-
-	async def goForward(self) -> None:
-		"""Navigate forward in history."""
-		targets = await self.getTargets()
-		if not targets:
-			raise RuntimeError('No targets available for navigation')
-
-		# Use the first target for navigation (typically the active one)
-		target = targets[0]
-		await target._ensure_session()
-
-		try:
-			# Get navigation history
-			history = await self._client.send.Page.getNavigationHistory(session_id=target._session_id)
-			current_index = history['currentIndex']
-			entries = history['entries']
-
-			# Check if we can go forward
-			if current_index >= len(entries) - 1:
-				raise RuntimeError('Cannot go forward - no next entry in history')
-
-			# Navigate to the next entry
-			next_entry_id = entries[current_index + 1]['id']
-			params: 'NavigateToHistoryEntryParameters' = {'entryId': next_entry_id}
-			await self._client.send.Page.navigateToHistoryEntry(params, session_id=target._session_id)
-
-		except Exception as e:
-			raise RuntimeError(f'Failed to navigate forward: {e}')
-
-	async def newTarget(self) -> 'Target':
+	async def newTarget(self, url: str | None = None) -> 'Target':
 		"""Create a new target (tab)."""
-		params: 'CreateTargetParameters' = {'url': 'about:blank'}
+		params: 'CreateTargetParameters' = {'url': url or 'about:blank'}
 		result = await self._client.send.Target.createTarget(params)
 
 		target_id = result['targetId']

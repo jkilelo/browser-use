@@ -15,9 +15,12 @@ browser = Browser(client)
 
 ```python
 # Get targets (multiple ways)
-target = await browser.goto("https://example.com")  # Navigate to URL
 target = await browser.newTarget()  # Create blank tab
+target = await browser.newTarget("https://example.com")  # Create tab with URL
 targets = await browser.getTargets()  # Get all existing tabs
+
+# Navigate target to URL
+await target.goto("https://example.com")
 
 await browser.closeTarget(target)
 ```
@@ -83,15 +86,15 @@ JavaScript execution always returns strings (objects/arrays are JSON-stringified
 ## API Reference
 
 ### Browser Methods
-- `goto(url: str)` → `Target` - Navigate to URL, returns new target
-- `newTarget()` → `Target` - Create blank tab
+- `newTarget(url=None)` → `Target` - Create blank tab or navigate to URL
 - `getTargets()` → `list[Target]` - Get all page/iframe targets
 - `closeTarget(target: Target | str)` - Close target by object or ID
-- `goBack()`, `goForward()` - Navigate browser history (with proper error handling)
 
 ### Target Methods
 - `getElementsByCSSSelector(selector: str)` → `list[Element]` - Find elements by CSS selector
 - `getElement(backend_node_id: int)` → `Element` - Get element by backend node ID
+- `goto(url: str)` - Navigate this target to URL
+- `goBack()`, `goForward()` - Navigate target history (with proper error handling)
 - `evaluate(page_function: str, arg=None)` → `str` - Execute JavaScript and return string (objects/arrays are JSON-stringified)
 - `press(key: str)` - Press key on page (supports "Control+A" format)
 - `scroll(x=0, y=0, delta_x=None, delta_y=None)` - Scroll page (robust with fallbacks)

@@ -10,6 +10,7 @@ This script demonstrates:
 """
 
 import asyncio
+import json
 import logging
 
 from browser_use.actor import Browser
@@ -40,7 +41,7 @@ async def main():
 
 		# Navigate to Wikipedia
 		logger.info('📖 Navigating to Wikipedia...')
-		target = await browser.goto('https://en.wikipedia.org')
+		target = await browser.newTarget('https://en.wikipedia.org')
 
 		# Get basic page info
 		url = await target.getUrl()
@@ -74,11 +75,8 @@ async def main():
 		})()
 		"""
 
-		link_info = await target.evaluate(js_code)
+		link_info = json.loads(await target.evaluate(js_code))
 		logger.info(f'🔗 Found {link_info["total"]} article links')
-		for i, sample in enumerate(link_info['sample']):
-			logger.info(f'  {i + 1}. "{sample["text"]}" -> {sample["href"]}')
-
 		# Try to find and interact with links using CSS selector
 		try:
 			# Find article links on the page
@@ -180,7 +178,7 @@ async def main():
 		# Test browser navigation with error handling
 		logger.info('⬅️ Testing browser back navigation...')
 		try:
-			await browser.goBack()
+			await target.goBack()
 			await asyncio.sleep(2)
 
 			back_url = await target.getUrl()
