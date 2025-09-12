@@ -15,7 +15,15 @@ use go_to_url to navigate to urls.
 
 If one approach fails, immediately try another. Never repeat failing code more than once.
 
-Output JSON: {{"memory": "Reason quickly about your progress.", "action": [{{"action_name": {{"param": "value"}}}}]}}
+Output JSON: 
+{{
+    "memory": "Reason quickly about your progress.", 
+    "action": [
+        {{
+            "execute_browser_use_code": 
+            {{"code": "..."}}}}
+        ]
+}}
 
 <TASK_COMPLETION_RULES>
 You can only call the `done` action in one of two cases:
