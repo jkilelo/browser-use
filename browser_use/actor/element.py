@@ -3,6 +3,7 @@
 import asyncio
 from typing import TYPE_CHECKING, Literal, Union
 
+from cdp_use.client import logger
 from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
@@ -249,7 +250,10 @@ class Element:
 	async def fill(self, value: str) -> None:
 		"""Fill the input element with text using robust clearing and typing."""
 		# Focus the element first
-		await self.focus()
+		try:
+			await self.focus()
+		except Exception:
+			logger.warning('Failed to focus element')
 
 		# Get object ID for advanced operations
 		result = await self._client.send.DOM.resolveNode(
@@ -390,7 +394,10 @@ class Element:
 			values = [values]
 
 		# Focus the element first
-		await self.focus()
+		try:
+			await self.focus()
+		except Exception:
+			logger.warning('Failed to focus element')
 
 		# For select elements, we need to find option elements and click them
 		# This is a simplified approach - in practice, you might need to handle

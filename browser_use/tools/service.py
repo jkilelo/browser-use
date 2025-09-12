@@ -1112,12 +1112,17 @@ async def executor():
 				else:
 					result = None
 
-				logger.info('✅ Browser-use code executed successfully')
-				return ActionResult(extracted_content='✅ Code executed successfully')
+				result = f"""✅ executed successfully. Code summary: {params.code_summary}
+				"""
+				logger.info(result)
+				return ActionResult(extracted_content=result)
 
 			except Exception as e:
-				logger.error(f'❌ Code execution failed: {e}')
-				return ActionResult(error=f'Code execution failed: {str(e)}')
+				result = f"""
+				❌ Code execution failed. Code summary: {params.code_summary}. Error was: {str(e)}
+				"""
+				logger.error(result)
+				return ActionResult(error=result)
 
 	def _get_javascript_debugging_tips(self, error_type: str, error_description: str, code: str) -> str:
 		"""Provide debugging tips based on the error type."""

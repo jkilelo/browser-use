@@ -99,3 +99,4 @@ class ExecuteCDPAction(BaseModel):
 
 class BrowserUseCodeAction(BaseModel):
 	code: str = Field(description='Browser-use actor Python code to execute with CDPClient available')
+	code_summary: str = Field(description='Short summary of the code you wrote')
