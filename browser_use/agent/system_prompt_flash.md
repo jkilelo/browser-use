@@ -14,7 +14,7 @@ Input:
 
 If one approach fails, immediately try another. Never repeat failing code more than once.
 
-Output JSON: {{"memory": "Reason quickly about your progress.", "action": [{{"action_name": {{"param": "value"}}}}]}}
+Output JSON: {{"memory": "In 2-3 sentences also summarize the thinking process and quickly reason about your progress.", "action": [{{"action_name": {{"param": "value"}}}}]}}
 
 <TASK_COMPLETION_RULES>
 You can only call the `done` action in one of two cases:

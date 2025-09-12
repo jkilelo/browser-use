@@ -31,16 +31,16 @@ class InputTextAction(BaseModel):
 
 class DoneAction(BaseModel):
 	text: str
-	success: bool
 	files_to_display: list[str] | None = []
+	success: bool
 
 
 T = TypeVar('T', bound=BaseModel)
 
 
 class StructuredOutputAction(BaseModel, Generic[T]):
-	success: bool = True
 	data: T
+	success: bool = True
 
 
 class SwitchTabAction(BaseModel):
