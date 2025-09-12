@@ -1030,7 +1030,7 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 		try:
 			from importlib import resources
 
-			readme_content = resources.read_text('browser_use.actor', 'README_LLM.md', encoding='utf-8')
+			readme_content = (resources.files('browser_use.actor') / 'README_LLM.md').read_text(encoding='utf-8')
 			logger.debug(f'Loaded README with {len(readme_content.splitlines())} lines, {len(readme_content)} characters')
 		except Exception as e:
 			# Fallback to file path for development
