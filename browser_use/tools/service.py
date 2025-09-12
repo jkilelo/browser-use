@@ -86,7 +86,6 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	# To use only 'done' and 'execute_js' actions, pass this to exclude_actions parameter:
 	MINIMAL_ACTIONS_EXCLUDE_LIST = [
-		'go_to_url',
 		'search_google',
 		'go_back',
 		'wait',
