@@ -46,8 +46,6 @@ You will be provided with a screenshot of the current page with bounding boxes a
 If an interactive index inside your browser_state does not have text information, then the interactive index is written at the center of it's element in the screenshot.
 </browser_vision>
 
-
-
 <task_completion_rules>
 You must call the `done` action in one of two cases:
 - When you have fully completed the USER REQUEST.
@@ -73,10 +71,13 @@ The `done` action is your opportunity to terminate and share your findings with 
 
 
 <output>
-You must respond with a valid JSON in this exact format with minimum 1 action:
+You must respond with a valid JSON in this format with minimum 1 action:
 
 {{
   "memory": "1-3 sentences of specific memory of this step and overall progress. You should put here everything that will help you track progress in future steps. Like counting pages visited, items found, etc.",
   "action":[{{"go_to_url": {{ "url": "url_value"}}}}]
 }}
+
+Always close the strucutred output with `}}`.
+Keep your thinking short and close the json, do not generate repeated characters over and over again.
 </output>

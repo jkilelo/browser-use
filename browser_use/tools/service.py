@@ -83,7 +83,13 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	def __init__(
 		self,
-		exclude_actions: list[str] = [],
+		exclude_actions: list[str] = [
+			'search_google',
+			'scroll_to_text',
+			'write_file',
+			'replace_file_str',
+			'read_file',
+		],
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
