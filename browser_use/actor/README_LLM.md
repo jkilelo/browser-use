@@ -68,30 +68,34 @@ await target.reload()
 page_screenshot = await target.screenshot()  # JPEG by default
 page_png = await target.screenshot(format="png")
 
-# JavaScript evaluation - CRITICAL STRING HANDLING
+# JavaScript evaluation - 🚨 USE VARIABLES ONLY
 
-**MUST use (...args) => format, ALWAYS returns string (objects become JSON)**
+**🚨 NEVER inline JavaScript - ALWAYS use separate variables**
 
-**Quote Rules:**
-- Single quotes outside: `target.evaluate('...')`  
-- Double quotes for CSS: `'() => document.querySelector("input[name=\\"email\\"]")'`
-- Escape inner quotes: `\\"` for double quotes
-
-**✅ CORRECT:**
+**✅ CORRECT PATTERN:**
 ```python
-text = await target.evaluate('() => document.body.innerText')  # Returns: "Page content"
-result = await target.evaluate('() => ({title: document.title})')  # Returns JSON string
-count = await target.evaluate('() => document.querySelectorAll("a[draggable=\\"false\\"]").length')
+# Simple JavaScript
+js_code = """() => document.body.innerText"""
+text = await target.evaluate(js_code)
+
+# Complex JavaScript  
+js_click = """() => {
+    const btn = document.querySelector("button[type='submit']");
+    return btn ? (btn.click(), "clicked") : "not found";
+}"""
+result = await target.evaluate(js_click)
 ```
 
-**❌ WRONG:**
+**❌ NEVER DO THIS:**
 ```python
-await target.evaluate("() => document.querySelector('button')")  # Double quotes outside
-await target.evaluate('document.body.innerText')  # Missing arrow function
-```
+# Inline JavaScript always fails
+text = await target.evaluate('() => document.body.innerText')
+await target.evaluate('() => document.querySelector("button").click()')
 ```
 
-JavaScript execution MUST use (...args) => format and always returns strings (objects/arrays are JSON-stringified). The parser automatically fixes common string issues (escaped quotes, indentation, etc.).
+**Why variables are mandatory:** Inline JavaScript breaks CDP parsing 99% of the time due to escaping issues.
+
+JavaScript MUST use (...args) => format and returns strings (objects become JSON).
 
 ## Core Classes
 
