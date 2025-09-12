@@ -257,7 +257,8 @@ class ChatOpenAI(BaseChatModel):
 				# Log response details including truncation
 				self._log_response_details(response, 'structured response')
 
-				if response.choices[0].message.content is None:
+				content = response.choices[0].message.content
+				if content is None or content == '':
 					raise ModelProviderError(
 						message='Failed to parse structured output from model response',
 						status_code=500,
@@ -266,7 +267,7 @@ class ChatOpenAI(BaseChatModel):
 
 				usage = self._get_usage(response)
 
-				parsed = output_format.model_validate_json(response.choices[0].message.content)
+				parsed = output_format.model_validate_json(content)
 
 				return ChatInvokeCompletion(
 					completion=parsed,
