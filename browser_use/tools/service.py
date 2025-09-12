@@ -1120,7 +1120,11 @@ async def executor():
 					result = None
 
 				logger.info('✅ Browser-use code executed successfully ')
-				return ActionResult(extracted_content=f'Executed successfully: Code: {params.code} Result: {result}')
+				result = f'Executed successfully: Code: {params.code} Result: {result}'
+				if len(result) > 20000:
+					result = result[:20000] + '... result truncated to 20000 characters'
+
+				return ActionResult(extracted_content=result)
 
 			except Exception as e:
 				logger.error(f'❌ Code execution failed: {e}')
