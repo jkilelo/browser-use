@@ -183,7 +183,8 @@ class ChatOpenAI(BaseChatModel):
 
 			if self.reasoning_models and any(str(m).lower() in str(self.model).lower() for m in self.reasoning_models):
 				if 'gpt-5-mini' in self.model:
-					model_params['reasoning_effort'] = 'minimal'
+					model_params['reasoning_effort'] = 'low'
+					model_params['verbosity'] = 'low'
 				else:
 					model_params['reasoning_effort'] = self.reasoning_effort
 				del model_params['temperature']
