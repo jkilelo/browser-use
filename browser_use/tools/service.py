@@ -1123,12 +1123,20 @@ async def executor():
 
 				max_result_length = 2000
 				capped_result = (
-					str(result)[:max_result_length] + '...(capped at 2000 characters)'
-					if len(str(result)) > max_result_length
-					else str(result)
+					(
+						str(result)[:max_result_length] + '...(capped at 2000 characters)'
+						if len(str(result)) > max_result_length
+						else str(result)
+					)
+					if result is not None
+					else None
 				)
 
-				action_result = f"""✅ executed successfully. <code>{params.code}</code>, returned {capped_result}"""
+				action_result = f"""✅ executed successfully. <code>{params.code}</code>"""
+
+				if capped_result:
+					action_result += f', returned {capped_result}'
+
 				logger.info(action_result)
 				return ActionResult(extracted_content=action_result)
 
