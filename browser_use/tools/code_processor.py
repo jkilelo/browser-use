@@ -145,19 +145,34 @@ class CodeProcessor:
 	def fix_js_code_for_evaluate(js_code: str) -> str:
 		"""Fix JavaScript code specifically for target.evaluate() execution"""
 
-		# Remove excessive escaping that might have been added by LLM
-		js_code = re.sub(r'\\{4,}', r'\\', js_code)  # Replace 4+ backslashes with single
-		js_code = re.sub(r'\\{3}', r'\\', js_code)  # Replace triple backslashes with single
-		js_code = re.sub(r'\\{2}', r'\\', js_code)  # Replace double backslashes with single
+		# CRITICAL: Remove ALL backslashes that would break CDP evaluation
+		# These aggressive fixes prevent CDP parsing errors
 
-		# Fix CSS selector escaping issues
-		js_code = re.sub(r'\\+"', r'"', js_code)  # Fix over-escaped quotes
-		js_code = re.sub(r"\\'", r"'", js_code)  # Fix escaped single quotes
+		# Remove excessive escaping that might have been added by LLM
+		js_code = re.sub(r'\\{4,}', '', js_code)  # Remove 4+ backslashes completely
+		js_code = re.sub(r'\\{3}', '', js_code)  # Remove triple backslashes completely
+		js_code = re.sub(r'\\{2}', '', js_code)  # Remove double backslashes completely
+
+		# Fix CSS selector escaping issues - remove escaping entirely
+		js_code = re.sub(r'\\"', '"', js_code)  # Remove quote escaping
+		js_code = re.sub(r"\\'", "'", js_code)  # Remove single quote escaping
 
 		# Fix hex-encoded characters back to normal
-		js_code = re.sub(r'\\x3d', r'=', js_code)  # \x3d -> =
-		js_code = re.sub(r'\\x22', r'"', js_code)  # \x22 -> "
-		js_code = re.sub(r'\\x27', r"'", js_code)  # \x27 -> '
+		js_code = re.sub(r'\\x3d', '=', js_code)  # \x3d -> =
+		js_code = re.sub(r'\\x22', '"', js_code)  # \x22 -> "
+		js_code = re.sub(r'\\x27', "'", js_code)  # \x27 -> '
+
+		# Remove any remaining problematic escape sequences
+		js_code = re.sub(r'\\n', ' ', js_code)  # Remove newline escapes
+		js_code = re.sub(r'\\t', ' ', js_code)  # Remove tab escapes
+		js_code = re.sub(r'\\r', ' ', js_code)  # Remove carriage return escapes
+
+		# AGGRESSIVE: Remove any remaining backslashes that could break CDP
+		# This is the nuclear option to prevent CDP evaluation failures
+		js_code = re.sub(r'\\+', '', js_code)  # Remove any remaining backslashes
+
+		# Fix improper nested quotes in selectors (after backslash removal)
+		js_code = re.sub(r'""([^"]*?)""', r'"\1"', js_code)  # Fix double-double quotes
 
 		# Validate CSS selectors in the JavaScript code before execution
 		js_code = CodeProcessor._validate_and_fix_css_selectors_in_js(js_code)
