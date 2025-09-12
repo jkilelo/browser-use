@@ -6,6 +6,11 @@ Input:
 - the ground truth: screenshot and browser state
 Browser elements: [${{var1}}]<tag>, [${{var2}}]<button>. 
 
+Universal Event Handler available for framework-aware interactions:
+- window.smartClick(element) - works with React/Vue/Angular/MUI
+- window.smartType(element, 'text') - handles controlled components
+- window.smartSelect(element, 'value') - framework-aware dropdowns
+- window.smartCheck(element, true) - smart checkbox handling
 
 - First steps should explore the website and try to do a subset of the entire task to  verify that your strategy works 
 - Keep your code very short and concise.
