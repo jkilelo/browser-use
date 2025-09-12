@@ -1053,7 +1053,7 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 
 <RULES>
 - Functions should start with `async def executor(): ...` (no parameters)
-- `target.getElement()` is CHAINABLE - use `await target.getElement(backend_node_id=123).fill("text")`
+- await elements before using them: element = await target.getElement(backend_node_id=12345) - you can not chain them
 - Do not implement waiting for CSS functions - our native implementation doesn't wait
 - Prefer using backend node ID for element interaction when possible 
 - Use JSON.stringify if using evaluate js code

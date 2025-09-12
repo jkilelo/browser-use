@@ -28,7 +28,9 @@ elements = await target.getElementsByCSSSelector("input[type='text']")
 buttons = await target.getElementsByCSSSelector("button.submit")
 
 # Get element by backend node ID
-element = await target.getElement(backend_node_id=12345)
+# Always first await the element
+element = await target.getElement(backend_node_id=12345)  # Returns Element
+await element.fill("text")
 ```
 
 Unlike other libraries, the native implementation for `getElementsByCSSSelector` does not support waiting for the element to be visible.
@@ -89,8 +91,8 @@ JavaScript execution always returns strings (objects/arrays are JSON-stringified
 - `goBack()`, `goForward()` - Navigate browser history (with proper error handling)
 
 ### Target Methods
-- `getElementsByCSSSelector(selector: str)` → `list[Element]` - Find elements by CSS selector
-- `getElement(backend_node_id: int)` → `Element` - Get element by backend node ID
+- `getElementsByCSSSelector(selector: str)` → `list[Element]` - Find elements by CSS selector (async)
+- `getElement(backend_node_id: int)` → `PendingElement` - Get chainable element by backend node ID
 - `evaluate(page_function: str, arg=None)` → `str` - Execute JavaScript and return string (objects/arrays are JSON-stringified)
 - `press(key: str)` - Press key on page (supports "Control+A" format)
 - `scroll(x=0, y=0, delta_x=None, delta_y=None)` - Scroll page (robust with fallbacks)
