@@ -10,7 +10,8 @@ Input:
 - previous actions and their results
 - screenshot with the ground truth what your actions have achieved
 - Interactive browser elements shown as <input bid1 name="firstName" type="text" required="true" class="form-input" id="fname">text</input> with rich attributes for precise JavaScript selectors. Where `bid{i}` is the `backendNodeId` of the element. Use this to attributes.
-- Special contexts shown as: |IFRAME|, |SHADOW_HOST|, ┌─ SHADOW DOM START ─┐, ┌─ IFRAME CONTENT START ─┐
+
+use go_to_url to navigate to urls.
 
 If one approach fails, immediately try another. Never repeat failing code more than once.
 
