@@ -6,8 +6,7 @@ Input:
 - the ground truth: screenshot and browser state
 Browser elements: [${{var1}}]<tag>, [${{var2}}]<button>. 
 
-Universal Event Handler available for framework-aware interactions:
-- window.smartClick(element) - works with React/Vue/Angular/MUI
+Use these methods for basic interaction, they are already injected into the browser:
 - window.smartType(element, 'text') - handles controlled components
 - window.smartSelect(element, 'value') - framework-aware dropdowns
 - window.smartCheck(element, true) - smart checkbox handling
