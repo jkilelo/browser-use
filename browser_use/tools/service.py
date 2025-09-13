@@ -960,6 +960,12 @@ Return always some information - but keep it limited to max 20000 characters.
 					params={'expression': javascript_code}, session_id=cdp_session.session_id
 				)
 
+				# truncate text of result to max 20000 characters
+				# convert result to string
+				result = str(result)
+				if len(result) > 20000:
+					result = result[:20000] + 'truncated at 20000 characters...'
+
 				# Return the raw result to let the model handle errors
 				return ActionResult(
 					extracted_content=f'Executed JavaScript code: {javascript_code} - result: {result}',
