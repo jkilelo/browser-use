@@ -104,7 +104,7 @@ Final context and reasoning from the agent:
 {formatted_context}
 
 Please provide a brief analysis covering:
-1. Strategy Notes: What approach was taken (not specific values/data)
+1. Strategy Notes: What approach was taken 
 2. Success Factors: What worked well in the strategy
 3. Improvement Areas: What could be done better next time for this website
 

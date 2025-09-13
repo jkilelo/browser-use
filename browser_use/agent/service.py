@@ -1464,6 +1464,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					if previous_insights:
 						insights_text = self.website_insights.format_insights_for_task(previous_insights, domain)
 						self.task += insights_text
+						self.message_manager.task = self.task
 						self.logger.debug(f'💡 Injected {len(previous_insights)} previous insights for {domain}')
 
 			self.logger.debug(f'🔄 Starting main execution loop with max {max_steps} steps...')
