@@ -930,6 +930,7 @@ Return always some information - but keep it limited to max 20000 characters.
 - Click: `document.querySelector('button').click()`
 - Input: `input.value = 'text'; input.dispatchEvent(new Event('input', {bubbles: true}))`
 - Coordinates: `document.elementFromPoint(150, 75).click()` (use x/y from browser_state)
+- Send keys 
 
 **Modern frameworks:**
 - React click: `el.dispatchEvent(new MouseEvent('click', {bubbles: true}))`
