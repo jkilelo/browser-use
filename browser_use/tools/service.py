@@ -949,6 +949,15 @@ Inspect React components: `document.querySelector('selector').getAttribute('clas
 Check for modals or overlays: `document.querySelector('.modal, [role="dialog"]')`
 Explore page structure: `document.body.innerHTML.substring(100, 400)`
 
+Examples:
+- event sequences for different website types, zoom, extract information, explore the page, Interact with coordinates, interact with dropdowns, hover, dblclick, drag and drop, right click, send_keys, sliders etc.
+Best Practices:
+- Write concise, robust code with try catch blocks if uncertain.
+- Do never use commands, save tokens, no human will read this.
+- Think about different elements like iframes, closed shadow roots, etc and how you can interact with them.
+- You have access to previous variables and functions which you use.
+
+
 **Coordinate-based fallbacks:**
 Use coordinates interaction only if execute_js fails twice.
 In the browser state, you see `x=150 y=75` - these are center coordinates of elements.
