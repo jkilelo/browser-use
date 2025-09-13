@@ -1,5 +1,6 @@
-"""Website insights service for capturing and retrieving site-specific feedback."""
+"""Website insights service for capturing and retrieving site-specific feedback using Upstash Redis."""
 
+import json
 import logging
 from typing import Any
 
@@ -59,19 +60,21 @@ def extract_core_domain(url: str) -> str:
 
 
 class WebsiteInsightsService:
-	"""Service for storing and retrieving website-specific insights."""
+	"""Service for storing and retrieving website-specific insights using Upstash Redis."""
 
 	def __init__(self):
 		"""Initialize the insights service."""
-		self.api_key = getattr(CONFIG, 'WEBSITE_INSIGHTS_API_KEY', None)
-		self.base_url = 'https://api.jsonbin.io/v3/b'
-		self.enabled = bool(self.api_key)
+		# Upstash Redis requires both URL and token
+		self.upstash_url = getattr(CONFIG, 'UPSTASH_REDIS_REST_URL', None)
+		self.upstash_token = getattr(CONFIG, 'UPSTASH_REDIS_REST_TOKEN', None)
+		self.enabled = bool(self.upstash_url and self.upstash_token)
 
 		if not self.enabled:
-			logger.warning('Website insights service disabled - no WEBSITE_INSIGHTS_API_KEY environment variable found')
+			logger.warning(
+				'Website insights service disabled - set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN environment variables'
+			)
 		else:
-			api_key_preview = self.api_key[:10] + '...' if self.api_key and len(self.api_key) > 10 else 'short key'
-			logger.debug(f'Website insights service enabled with API key: {api_key_preview}')
+			logger.debug('Website insights service enabled with Upstash Redis')
 
 	async def analyze_run_results(
 		self, llm: BaseChatModel, domain: str, last_input_messages: list[Any] | None, task: str
@@ -105,7 +108,7 @@ Final context and reasoning from the agent:
 {formatted_context}
 
 Please provide a brief analysis covering:
-1. Strategy Notes: What approach was taken 
+1. Strategy Notes: What approach was taken (not specific values/data)
 2. Success Factors: What worked well in the strategy
 3. Improvement Areas: What could be done better next time for this website
 
@@ -195,7 +198,7 @@ Focus on strategy patterns, not specific data values.
 
 	async def store_insight(self, insight: WebsiteInsight) -> bool:
 		"""
-		Store an insight in the remote database.
+		Store an insight in Upstash Redis.
 
 		Args:
 		    insight: The insight to store
@@ -204,7 +207,7 @@ Focus on strategy patterns, not specific data values.
 		    True if stored successfully, False otherwise
 		"""
 		if not self.enabled:
-			logger.warning('Cannot store insight - WEBSITE_INSIGHTS_API_KEY environment variable not set')
+			logger.warning('Cannot store insight - UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN not set')
 			return False
 
 		try:
@@ -218,33 +221,23 @@ Focus on strategy patterns, not specific data values.
 			if len(existing_insights) > 10:
 				existing_insights = existing_insights[-10:]
 
-			# Initialize bin cache if not exists
-			if not hasattr(self, '_bin_cache'):
-				self._bin_cache = {}
+			# Store in Redis using the domain as key
+			key = f'website_insights:{insight.domain}'
+			data = json.dumps(existing_insights)
 
-			# Store back to JSONBin
-			bin_name = f'website_insights_{insight.domain.replace(".", "_")}'
-			headers = {'Content-Type': 'application/json', 'X-Master-Key': self.api_key, 'X-Bin-Name': bin_name}
-			data = {'insights': existing_insights}
+			headers = {'Authorization': f'Bearer {self.upstash_token}', 'Content-Type': 'application/json'}
 
 			async with aiohttp.ClientSession() as session:
-				async with session.post(self.base_url, json=data, headers=headers) as response:
-					if response.status in [200, 201]:
+				# Use POST to set the value with the data in the body
+				async with session.post(f'{self.upstash_url}/set/{key}', data=data, headers=headers) as response:
+					if response.status == 200:
 						result = await response.json()
-						bin_id = result.get('metadata', {}).get('id')
-						if bin_id:
-							# Cache the bin ID for future use
-							self._bin_cache[insight.domain] = bin_id
-							logger.debug(f'Stored insight for domain: {insight.domain} (bin: {bin_id})')
-						else:
-							logger.debug(f'Stored insight for domain: {insight.domain}')
-						return True
-					elif response.status == 401:
-						logger.error('Failed to store insight: 401 Unauthorized. Check your WEBSITE_INSIGHTS_API_KEY is valid.')
-						return False
-					else:
-						logger.warning(f'Failed to store insight: {response.status}')
-						return False
+						if result.get('result') == 'OK':
+							logger.debug(f'Stored insights for domain: {insight.domain}')
+							return True
+
+					logger.warning(f'Failed to store insight: {response.status}')
+					return False
 
 		except Exception as e:
 			logger.error(f'Error storing insight: {e}')
@@ -252,7 +245,7 @@ Focus on strategy patterns, not specific data values.
 
 	async def get_insights(self, domain: str, limit: int = 3) -> list[dict]:
 		"""
-		Get recent insights for a domain.
+		Get recent insights for a domain from Upstash Redis.
 
 		Args:
 		    domain: The domain to get insights for
@@ -265,23 +258,26 @@ Focus on strategy patterns, not specific data values.
 			return []
 
 		try:
-			headers = {'X-Master-Key': self.api_key or ''}
-			bin_id = f'website_insights_{domain.replace(".", "_")}'
+			key = f'website_insights:{domain}'
+			headers = {'Authorization': f'Bearer {self.upstash_token}'}
+
 			async with aiohttp.ClientSession() as session:
-				async with session.get(f'{self.base_url}/{bin_id}', headers=headers) as response:
+				async with session.get(f'{self.upstash_url}/get/{key}', headers=headers) as response:
 					if response.status == 200:
-						data = await response.json()
-						insights = data.get('record', {}).get('insights', [])
-						return insights[-limit:] if insights else []
-					elif response.status == 404:
-						return []
-			# If no cached bin ID or bin was not found, return empty (will be created when storing)
-			return []
+						result = await response.json()
+						# Redis returns null for non-existent keys
+						if result.get('result') is None:
+							return []
+
+						# Parse the JSON stored in Redis
+						insights_data = json.loads(result['result'])
+						return insights_data[-limit:] if insights_data else []
+
+					return []
 
 		except Exception as e:
 			logger.debug(f'Could not retrieve insights for {domain}: {e}')
-
-		return []
+			return []
 
 	def format_insights_for_task(self, insights: list[dict], domain: str) -> str:
 		"""

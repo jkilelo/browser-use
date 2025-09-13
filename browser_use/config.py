@@ -176,10 +176,14 @@ class OldConfig:
 	def WIN_FONT_DIR(self) -> str:
 		return os.getenv('WIN_FONT_DIR', 'C:\\Windows\\Fonts')
 
-	# Website insights configuration
+	# Website insights configuration (Upstash Redis)
 	@property
-	def WEBSITE_INSIGHTS_API_KEY(self) -> str:
-		return os.getenv('WEBSITE_INSIGHTS_API_KEY', '')
+	def UPSTASH_REDIS_REST_URL(self) -> str:
+		return os.getenv('UPSTASH_REDIS_REST_URL', '')
+
+	@property
+	def UPSTASH_REDIS_REST_TOKEN(self) -> str:
+		return os.getenv('UPSTASH_REDIS_REST_TOKEN', '')
 
 
 class FlatEnvConfig(BaseSettings):
@@ -231,8 +235,9 @@ class FlatEnvConfig(BaseSettings):
 	BROWSER_USE_PROXY_USERNAME: str | None = Field(default=None)
 	BROWSER_USE_PROXY_PASSWORD: str | None = Field(default=None)
 
-	# Website insights configuration
-	WEBSITE_INSIGHTS_API_KEY: str | None = Field(default=None)
+	# Website insights configuration (Upstash Redis)
+	UPSTASH_REDIS_REST_URL: str | None = Field(default=None)
+	UPSTASH_REDIS_REST_TOKEN: str | None = Field(default=None)
 
 
 class DBStyleEntry(BaseModel):
