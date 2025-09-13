@@ -20,17 +20,20 @@ class CodeProcessor:
 		js_code = re.sub(r'\\x22', '"', js_code)
 		js_code = re.sub(r'\\x27', "'", js_code)
 
-		# Fix over-escaping in CSS attribute selectors only (not in regex patterns)
-		# Match: [draggable\\\\=\\\\"false\\\\"] and fix to: [draggable="false"]
-		def fix_css_attribute(match):
-			full_selector = match.group(0)
+		# ONLY fix extreme over-escaping in CSS selectors (4+ backslashes in a row)
+		# This preserves regex patterns and normal CSS selectors
+		def fix_extreme_escaping(match):
+			full_match = match.group(0)
 			inside = match.group(1)
-			# Remove excessive backslashes and quote escaping from inside bracket content
-			fixed_inside = re.sub(r'\\{2,}', '', inside)  # Remove excessive backslashes
-			fixed_inside = fixed_inside.replace('\\"', '"').replace("\\'", "'")  # Remove quote escaping
-			return f'[{fixed_inside}]'
+			# Only fix if there are 4+ consecutive backslashes (extreme over-escaping)
+			if '\\\\\\\\' in inside:
+				# Remove excessive backslashes but preserve single/double backslashes for regex
+				fixed_inside = re.sub(r'\\{4,}', r'\\\\', inside)
+				return f'[{fixed_inside}]'
+			# Leave everything else unchanged
+			return full_match
 
-		js_code = re.sub(r'\[([^]]+)\]', fix_css_attribute, js_code)
+		js_code = re.sub(r'\[([^]]+)\]', fix_extreme_escaping, js_code)
 
 		# Ensure arrow function format
 		if '=>' in js_code and not js_code.strip().startswith('('):

@@ -1160,12 +1160,7 @@ async def executor():
 					error_category = 'JavaScript evaluation error'
 					error_msg = f'❌ {error_category}: {error_str}'
 
-					# Add debugging hints for common JavaScript issues
-					error_msg += '\n🚨 CRITICAL: Did you write inline JavaScript in target.evaluate()? This ALWAYS fails!'
-					error_msg += '\n💡 REQUIRED FIX: Use separate variables:'
-					error_msg += '\n   js_code = """() => your_javascript_here"""'
-					error_msg += '\n   result = await target.evaluate(js_code)'
-
+					# Add debugging hints for specific JavaScript issues
 					if 'invalid selector' in error_str.lower() or 'queryselector' in error_str.lower():
 						error_msg += '\n💡 Additional tip: Check CSS selector syntax - avoid escaped quotes'
 					elif 'syntaxerror' in error_str.lower():
