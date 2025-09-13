@@ -176,6 +176,11 @@ class OldConfig:
 	def WIN_FONT_DIR(self) -> str:
 		return os.getenv('WIN_FONT_DIR', 'C:\\Windows\\Fonts')
 
+	# Website insights configuration
+	@property
+	def WEBSITE_INSIGHTS_API_KEY(self) -> str:
+		return os.getenv('WEBSITE_INSIGHTS_API_KEY', '')
+
 
 class FlatEnvConfig(BaseSettings):
 	"""All environment variables in a flat namespace."""
@@ -225,6 +230,9 @@ class FlatEnvConfig(BaseSettings):
 	BROWSER_USE_NO_PROXY: str | None = Field(default=None)
 	BROWSER_USE_PROXY_USERNAME: str | None = Field(default=None)
 	BROWSER_USE_PROXY_PASSWORD: str | None = Field(default=None)
+
+	# Website insights configuration
+	WEBSITE_INSIGHTS_API_KEY: str | None = Field(default=None)
 
 
 class DBStyleEntry(BaseModel):

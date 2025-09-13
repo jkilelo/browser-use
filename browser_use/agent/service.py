@@ -73,6 +73,7 @@ from browser_use.utils import (
 	time_execution_async,
 	time_execution_sync,
 )
+from browser_use.website_insights import WebsiteInsightsService, extract_core_domain
 
 logger = logging.getLogger(__name__)
 
@@ -246,6 +247,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.sensitive_data = sensitive_data
 
 		self.sample_images = sample_images
+
+		# Website insights service
+		self.website_insights = WebsiteInsightsService()
 
 		self.settings = AgentSettings(
 			use_vision=use_vision,
@@ -1451,6 +1455,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Log startup message on first step (only if we haven't already done steps)
 			self._log_first_step_startup()
 
+			# Check for website insights and inject previous experience
+			if self.website_insights:
+				target_url = self._extract_url_from_task(self.task)
+				if target_url:
+					domain = extract_core_domain(target_url)
+					previous_insights = await self.website_insights.get_insights(domain)
+					if previous_insights:
+						insights_text = self.website_insights.format_insights_for_task(previous_insights, domain)
+						self.task += insights_text
+						self.logger.debug(f'💡 Injected {len(previous_insights)} previous insights for {domain}')
+
 			self.logger.debug(f'🔄 Starting main execution loop with max {max_steps} steps...')
 			for step in range(max_steps):
 				# Use the consolidated pause state management
@@ -1533,6 +1548,21 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# set the model output schema and call it on the fly
 			if self.history._output_model_schema is None and self.output_model_schema is not None:
 				self.history._output_model_schema = self.output_model_schema
+
+			# Post-run website insights analysis and storage
+			if self.website_insights:
+				try:
+					insight = await self.website_insights.analyze_run_results(
+						llm=self.llm,
+						domain=domain,
+						last_input_messages=self._message_manager.last_input_messages,
+						task=self.task.split('--- Previous Experience')[0].strip(),  # Remove injected insights from task
+					)
+					if insight:
+						await self.website_insights.store_insight(insight)
+						self.logger.debug(f'📝 Stored insights for {domain}')
+				except Exception as e:
+					self.logger.debug(f'Failed to analyze/store insights: {e}')
 
 			self.logger.debug('🏁 Agent.run() completed successfully')
 			return self.history
