@@ -26,42 +26,47 @@ class TestJavaScriptEscapingFixes:
 		assert CodeProcessor.validate_css_selector('a[draggable="false"]')
 		assert CodeProcessor.validate_css_selector('input[name="email"]')
 
-		# Invalid selectors should fail
-		assert not CodeProcessor.validate_css_selector('a[draggable\\\\\\="false"]')  # Over-escaped
-		assert not CodeProcessor.validate_css_selector('button[type="unclosed')  # Unbalanced quotes
-		assert not CodeProcessor.validate_css_selector('input[name=\\x3d"test"]')  # Hex encoding
+		# Now accepts all selectors with balanced quotes/brackets
+		assert CodeProcessor.validate_css_selector('a[draggable\\\\\\="false"]')  # Over-escaped now valid
+		assert not CodeProcessor.validate_css_selector('button[type="unclosed')  # Unbalanced quotes still invalid
+		assert CodeProcessor.validate_css_selector('input[name=\\x3d"test"]')  # Hex encoding now valid
 
 	def test_css_selector_fixing(self):
-		"""Test CSS selector auto-fixing"""
+		"""Test CSS selector fixing (now returns as-is)"""
 
-		# Test fixing over-escaped selectors
-		fixed = CodeProcessor.fix_css_selector('a[draggable\\\\\\="false"]')
-		assert fixed == 'a[draggable="false"]'
+		# Test no-processing behavior - returns as-is
+		input_selector = 'a[draggable\\\\\\="false"]'
+		fixed = CodeProcessor.fix_css_selector(input_selector)
+		assert fixed == input_selector  # No changes made
 
-		# Test fixing hex-encoded characters
-		fixed = CodeProcessor.fix_css_selector('input[type\\x3d"text"]')
-		assert fixed == 'input[type="text"]'
+		# Test hex-encoded - returns as-is
+		input_selector = 'input[type\\x3d"text"]'
+		fixed = CodeProcessor.fix_css_selector(input_selector)
+		assert fixed == input_selector  # No changes made
 
-		# Test fixing escaped quotes
-		fixed = CodeProcessor.fix_css_selector('button[data-id=\\"123\\"]')
-		assert fixed == 'button[data-id="123"]'
+		# Test escaped quotes - returns as-is
+		input_selector = 'button[data-id=\\"123\\"]'
+		fixed = CodeProcessor.fix_css_selector(input_selector)
+		assert fixed == input_selector  # No changes made
 
 	def test_js_code_fixing_for_evaluate(self):
-		"""Test JavaScript code fixing for target.evaluate calls"""
+		"""Test JavaScript code fixing for target.evaluate calls (minimal processing)"""
 
-		# Test fixing over-escaped JavaScript (4+ backslashes)
+		# Test no processing - returns as-is
 		malformed_js = 'document.querySelectorAll("a[draggable\\\\\\\\=\\\\\\"false\\\\\\\\\\"]")'
 		fixed_js = CodeProcessor.fix_js_code_for_evaluate(malformed_js)
-		# Should reduce 4+ consecutive backslashes but preserve necessary escaping
-		assert '\\\\\\\\\\\\\\\\' not in fixed_js  # 8+ backslashes should be reduced
-		assert 'draggable' in fixed_js
+		assert fixed_js == malformed_js  # No changes made
 
-		# Test fixing hex-encoded characters
-		hex_js = '() => document.querySelector("input[type\\x3d\\"text\\"]")'
-		fixed_js = CodeProcessor.fix_js_code_for_evaluate(hex_js)
-		assert 'type=' in fixed_js  # Hex encoding should be fixed
-		assert '\\x3d' not in fixed_js
-		assert 'text' in fixed_js
+		# Test arrow function wrapping still works (only when => is present)
+		arrow_js = 'document.querySelector("input") => console.log("test")'
+		fixed_js = CodeProcessor.fix_js_code_for_evaluate(arrow_js)
+		assert fixed_js.startswith('() =>')  # Arrow function added
+		assert 'document.querySelector("input")' in fixed_js  # Content preserved
+
+		# Test no arrow function when no => present
+		no_arrow_js = 'document.querySelector("input[type=\\"text\\"]")'
+		fixed_js = CodeProcessor.fix_js_code_for_evaluate(no_arrow_js)
+		assert fixed_js == no_arrow_js  # No changes made
 
 	def test_browser_actor_code_issues_handling(self):
 		"""Test browser actor code issues are handled properly"""
@@ -139,9 +144,8 @@ result = await target.evaluate('() => document.querySelector("a[draggable=\\"fal
 		],
 	)
 	def test_css_selector_fix_examples(self, malformed_selector, expected_fix):
-		"""Test specific CSS selector fix examples"""
+		"""Test specific CSS selector fix examples (now returns as-is)"""
 
 		fixed = CodeProcessor.fix_css_selector(malformed_selector)
-		# The fix should improve the selector (remove excessive escaping)
-		assert len(fixed) <= len(malformed_selector)  # Should not add more characters
-		assert '\\\\' not in fixed  # Should not have double backslashes
+		# No processing - returns as-is
+		assert fixed == malformed_selector  # No changes made
