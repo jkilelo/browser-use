@@ -923,6 +923,7 @@ For interactions, click, scroll, zoom, extract data, click coordinates, drag and
 
 Think which website type it is and use the right approach. React/Vue/Angular ..., closed shadow DOM, iframes etc.
 Start with selectors if you have them available. Else use coordinates as fallback.
+Return always some information - but keep it limited to max 20000 characters.
 
 **Core patterns:**
 - Extract: `JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent))`
@@ -961,11 +962,11 @@ Start with selectors if you have them available. Else use coordinates as fallbac
 
 				# Return the raw result to let the model handle errors
 				return ActionResult(
-					extracted_content=f'JavaScript execution result: {result}',
+					extracted_content=f'Executed JavaScript code: {javascript_code} - result: {result}',
 				)
 			except Exception as e:
 				logger.error(f'❌ CDP execution failed with exception: {e}')
-				return ActionResult(error=f'CDP execution failed: {str(e)}')
+				return ActionResult(error=f'Could not execute JavaScript code: {javascript_code} - error: {str(e)}')
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
