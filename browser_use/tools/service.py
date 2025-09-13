@@ -925,11 +925,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 Use rich attributes from browser_state for precise selectors:
 
 ONE LINE EXAMPLES:
-- By name: document.querySelector('input[name="firstName"]').value
-- By ID: document.querySelector('#submit-btn').click()  
-- By class: document.querySelectorAll('.product-card').length
-- Extract: JSON.stringify(Array.from(document.querySelectorAll('input[required="true"]')).map(el => el.name))
-- Navigate: window.location.href = 'https://example.com/page'
+- By name: document.querySelector("input[name=\"firstName\"]").value
+- By ID: document.querySelector("#submit-btn").click()  
+- By class: document.querySelectorAll(".product-card").length
+- Extract: JSON.stringify(Array.from(document.querySelectorAll("input[required=\"true\"]")).map(el => el.name))
+- Navigate: window.location.href = "https://example.com/page"
 - Scroll: window.scrollBy(0, 500)
 
 ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never repeat failing code.""",
@@ -1042,7 +1042,8 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 </DOCS>
 
 <RULES>
-- Functions should start with `async def executor(): ...` (no parameters)
+- Functions should start with `async def executor(): ...` (no parameters)  
+- 🎯 JAVASCRIPT STANDARD: ALL target.evaluate() calls must use triple single quotes (''') with double quotes inside JavaScript
 - Do not implement waiting for CSS functions - our native implementation doesn't wait
 - Use backendNodeId for element interaction when possible
 - Don't return screenshots, that will not work
@@ -1052,10 +1053,10 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 - DO NOT TRY TO GUESS OTHER METHODS on `Target`, `Browser`, `Element`, `Mouse`. You can only use the ones defined in <DOCS>. Capital letters matter. This is extremely important, otherwise the execution will fail. If you need to remember the method names, write a comment with a method name reflected from <DOCS>.before the line of code.
 </RULES>
 
+
 <EXPECTED_OUTPUT>
 Use `async def executor():` - all variables available in context:
 Context: client (cdp client), target (current open target), Browser/Target/Element/Mouse classes, asyncio/json/os available.
-
 ```
 </EXPECTED_OUTPUT>
 """,

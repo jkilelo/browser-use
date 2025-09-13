@@ -71,60 +71,72 @@ page_png = await target.screenshot(format="png")
 
 # JavaScript evaluation - 🚨 USE VARIABLES ONLY
 **🚨 NEVER inline JavaScript - ALWAYS use separate variables**
+**🎯 SINGLE STANDARD: Always use triple single quotes (''') with double quotes inside JavaScript**
 
-**✅ CORRECT PATTERN:**
+**✅ SINGLE STANDARD PATTERN:**
 ```python
-# Simple JavaScript - use double quotes for JS strings
-js_code = """() => document.body.innerText"""
+# 🎯 ALWAYS use triple single quotes + double quotes inside JavaScript
+js_code = '''() => document.body.innerText'''
 text = await target.evaluate(js_code)
 
-# Complex JavaScript - CRITICAL: use double quotes inside, avoid quote mixing
-js_click = """() => {
-    const btn = document.querySelector("button[type='submit']");
-    return btn ? (btn.click(), "clicked") : "not found";
-}"""
+# Complex JavaScript - ALWAYS follow this pattern
+js_click = '''() => {
+    const btn = document.querySelector("#submit-btn");
+    const result = btn ? "clicked" : "not found";
+    if (btn) btn.click();
+    return result;
+}'''
 result = await target.evaluate(js_click)
 ```
 
-**🚨 QUOTE MIXING PREVENTION:**
+**🚨 SINGLE QUOTE STANDARD:**
 ```python
-# ❌ NEVER mix quotes like this (causes syntax errors):
-js = '''() => { return 'text'; }'  # Triple + single = BROKEN
+# ✅ ALWAYS use this pattern (prevents ALL syntax errors):
+js = '''() => {
+    const element = document.querySelector("#my-id");
+    const attr = element.getAttribute("data-value");
+    return "success";
+}'''
 
-# ✅ ALWAYS use consistent double quotes:
-js = """() => { return "text"; }"""  # Triple + double = WORKS
+# For complex selectors, use template literals inside JS:
+js = '''() => {
+    const prog = document.querySelector(`[role="progressbar"]`);
+    return "found";
+}'''
 ```
 
 ## Execute JavaScript
- Use execute_js to interact with the page when:
- - other interactions fail
- - you need special logic like scroll, zoom, extract data, click coordinates, drag and drop, wait, send keys, dispatch events sequences...
+**🎯 STANDARD: ALL JavaScript must use triple single quotes (''') with double quotes inside**
+
+Use execute_js to interact with the page when:
+- other interactions fail
+- you need special logic like scroll, zoom, extract data, click coordinates, drag and drop, wait, send keys, dispatch events sequences...
 
 Think which website type you see and use the right approach. React/Vue/Angular ..., closed shadow DOM, iframes etc.
 Start with selectors if you have them available. Else use coordinates as fallback.
 Return always some information - but keep it limited to max 20000 characters.
 
 **Core patterns:**
-- Extract: `JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent))`
-- Click: `document.querySelector('button').click()`
-- Input: `input.value = 'text'; input.dispatchEvent(new Event('input', {bubbles: true}))`
+- Extract: `JSON.stringify(Array.from(document.querySelectorAll("a")).map(el => el.textContent))`
+- Click: `document.querySelector("#button-id").click()`
+- Input: `input.value = "text"; input.dispatchEvent(new Event("input", {bubbles: true}))`
 - Coordinates: `document.elementFromPoint(150, 75).click()` (use x/y from browser_state)
 - Send keys 
 
 **Modern frameworks:**
-- React click: `el.dispatchEvent(new MouseEvent('click', {bubbles: true}))`
-- React input: `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'text')`
-- For React: Use both value setting AND input events: `input.value='text'; input.dispatchEvent(new Event('input', {bubbles: true}))`
+- React click: `el.dispatchEvent(new MouseEvent("click", {bubbles: true}))`
+- React input: `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, "text")`
+- For React: Use both value setting AND input events: `input.value="text"; input.dispatchEvent(new Event("input", {bubbles: true}))`
 - For Angular/Material: Focus inputs first, then type character-by-character
-- For Shadow DOM: Access via `.shadowRoot.querySelector()`
+- For Shadow DOM: Access via `.shadowRoot.querySelector("#element")`
 - For modals: Always check for and dismiss overlays before main interactions
 - Find in shadow: Use createTreeWalker to search shadowRoot elements
 
 
 **Extract:**
 - Explore structure: `document.body.innerHTML.substring(100, 500)`
-- Find modals: `document.querySelector('.modal, [role="dialog"]')`
-- Check components: `document.querySelectorAll('*').filter(el => el.tagName.includes('-'))`
+- Find modals: `document.querySelector(".modal, [role=\"dialog\"]")`
+- Check components: `document.querySelectorAll("*").filter(el => el.tagName.includes("-"))`
 - Get links and filter them
 
 **Constraints:**
@@ -137,7 +149,7 @@ Return always some information - but keep it limited to max 20000 characters.
 ```python
 # Inline JavaScript always fails
 text = await target.evaluate('() => document.body.innerText')
-await target.evaluate('() => document.querySelector("button").click()')
+await target.evaluate('() => document.querySelector("#button").click()')
 ```
 
 **Why variables are mandatory:** Inline JavaScript breaks CDP parsing 99% of the time due to escaping issues.
@@ -226,9 +238,9 @@ class ElementInfo(TypedDict):
 
 **CRITICAL JAVASCRIPT EVALUATION RULES:**
 - `target.evaluate()` MUST use (...args) => format and always returns string (objects become JSON strings)
-- **STRING QUOTES**: Always use `target.evaluate('...')` (single quotes outside, double inside for CSS)
-- **CSS SELECTORS**: Use `"input[name=\\"email\\"]"` format inside evaluate calls
-- **ESCAPING**: Use `\\"` to escape double quotes inside selectors, never mix quote patterns
+- **SINGLE STANDARD**: Always use `'''()=>{}'''` (triple single quotes + double quotes inside JS)
+- **CSS SELECTORS**: Use `"input[name=\"email\"]"` or template literals `\`[role="button"]\`` 
+- **NO ESCAPING NEEDED**: Double quotes inside triple single quotes work perfectly
 
 **METHOD RESTRICTIONS:**
 - `getElementsByCSSSelector()` returns immediately, no waiting
