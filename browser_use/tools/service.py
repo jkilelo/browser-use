@@ -916,60 +916,32 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			"""Execute JavaScript 
-## Basic DOM interaction (single line preferred):
-Return: 
-JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
-- execute_js can only return strings/numbers/booleans that are readable
-- Objects return "Executed successfully (returned object)" - useless!
+			"""Execute JavaScript in browser for interactions, click, scroll, zoom, extract data, coordinates
 
-## React/Modern Framework Components:
-Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
+**When to use:** Standard browser actions fail on React/Vue/Angular apps, shadow DOM, or complex UI
 
-1. **React synthetic events** 
-(function(){{ const el = document.querySelector('selector'); el.dispatchEvent(new MouseEvent('click', {{bubbles: true, cancelable: true}})); el.dispatchEvent(new Event('change', {{bubbles: true}})); return 'clicked'; }})()
+**Core patterns:**
+- Extract: `JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent))`
+- Click: `document.querySelector('button').click()`
+- Input: `input.value = 'text'; input.dispatchEvent(new Event('input', {bubbles: true}))`
+- Coordinates: `document.elementFromPoint(150, 75).click()` (use x/y from browser_state)
 
-2. **React input handling** (for form inputs that ignore value assignment):
-```javascript
-(function(){{ const input = document.querySelector('input'); const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; nativeInputValueSetter.call(input, 'new value'); input.dispatchEvent(new Event('input', {{bubbles: true}})); return 'input set'; }})()
+**Modern frameworks:**
+- React click: `el.dispatchEvent(new MouseEvent('click', {bubbles: true}))`
+- React input: `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'text')`
+- Shadow DOM: `document.querySelector('my-component').shadowRoot.querySelector('input')`
+- Find in shadow: Use createTreeWalker to search shadowRoot elements
 
-3. **Detect shadow DOM components, iframes, etc
-(function(){{ const host = document.querySelector('my-component'); if(host && host.shadowRoot) {{ const input = host.shadowRoot.querySelector('input'); return input ? 'found' : 'not found'; }} return 'no shadow'; }})()
+**Extract:**
+- Explore structure: `document.body.innerHTML.substring(100, 500)`
+- Find modals: `document.querySelector('.modal, [role="dialog"]')`
+- Check components: `document.querySelectorAll('*').filter(el => el.tagName.includes('-'))`
+- Get links and filter them
 
-4. **Real keyboard simulation** (for protected inputs):
-(function(){{ const input = document.querySelector('input'); if(input) {{ input.focus(); 'text'.split('').forEach(char => {{ ['keydown','keypress','input','keyup'].forEach(type => input.dispatchEvent(new KeyboardEvent(type, {{key: char, bubbles: true}}))) }}); }} return 'typed'; }})()
-
-5. **Shadow DOM **:
-(function(){{ function findInShadow(selector) {{ let el = document.querySelector(selector); if(el) return el; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT); let node; while(node = walker.nextNode()) {{ if(node.shadowRoot) {{ const found = node.shadowRoot.querySelector(selector); if(found) return found; }} }} return null; }} return findInShadow('input[name="city"]') ? 'found in shadow' : 'not found'; }})()
-
-(function(){{ const components = Array.from(document.querySelectorAll('*')).filter(el => el.tagName.includes('-') || el.shadowRoot !== undefined); return components.map(c => ({{tag: c.tagName.toLowerCase(), hasOpen: !!c.shadowRoot, hasClosed: c.shadowRoot === null && c.toString().includes('[object HTML')}})); }})()
-
-## When stuck explore new options:
-Inspect React components: `document.querySelector('selector').getAttribute('class')`
-Check for modals or overlays: `document.querySelector('.modal, [role="dialog"]')`
-Explore page structure: `document.body.innerHTML.substring(100, 400)`
-
-Examples:
-- event sequences for different website types, zoom, extract information, explore the page, Interact with coordinates, interact with dropdowns, hover, dblclick, drag and drop, right click, send_keys, sliders etc.
-Best Practices:
-- Write concise, robust code with try catch blocks if uncertain.
-- Do never use commands, save tokens, no human will read this.
-- Think about different elements like iframes, closed shadow roots, etc and how you can interact with them.
-- You have access to previous variables and functions which you use.
-
-
-**Coordinate-based fallbacks:**
-Use coordinates interaction only if execute_js fails twice.
-In the browser state, you see `x=150 y=75` - these are center coordinates of elements.
-(function(){{ const x = 150, y = 75; const el = document.elementFromPoint(x, y); if(el) {{ el.focus(); document.execCommand('insertText', false, 'your text'); return 'input at coordinates'; }} return 'no element at coordinates'; }})()
-(function(){{ const x = 150, y = 75; const el = document.elementFromPoint(x, y); if(el) {{ el.dispatchEvent(new MouseEvent('click', {{bubbles: true, cancelable: true}})); return 'clicked at coordinates'; }} return 'no element at coordinates'; }})()
-
-- this code gets executed with runtime evaluate, so you have access to previous functions and variables
-- You are not allowed to inject new elements to the DOM
-- Keep your code consice and save tokens as much as possible, do not write comments - no human reads it.
-- Use multiple execute_js calls instead of one large function.
-- If you are uncertain use try catch blocks
-
+**Constraints:**
+- Return strings/numbers/booleans only (objects are useless)
+- No DOM element injection.
+- Use try/catch, keep concise
 """,
 			param_model=ExecuteCDPAction,
 		)
