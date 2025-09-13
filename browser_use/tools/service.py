@@ -916,9 +916,13 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# General CDP execution tool
 		@self.registry.action(
-			"""Execute JavaScript in browser for interactions, click, scroll, zoom, extract data, coordinates
+			"""Execute JavaScript in browser 
+			
+Usecase:
+For interactions, click, scroll, zoom, extract data, click coordinates, drag and drop, wait, send keys, dispatch events sequences...
 
-**When to use:** Standard browser actions fail on React/Vue/Angular apps, shadow DOM, or complex UI
+Think which website type it is and use the right approach. React/Vue/Angular ..., closed shadow DOM, iframes etc.
+Start with selectors if you have them available. Else use coordinates as fallback.
 
 **Core patterns:**
 - Extract: `JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent))`
