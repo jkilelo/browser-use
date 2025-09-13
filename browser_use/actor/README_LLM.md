@@ -69,7 +69,6 @@ page_screenshot = await target.screenshot()  # JPEG by default
 page_png = await target.screenshot(format="png")
 
 # JavaScript evaluation - 🚨 USE VARIABLES ONLY
-
 **🚨 NEVER inline JavaScript - ALWAYS use separate variables**
 
 **✅ CORRECT PATTERN:**
@@ -86,6 +85,44 @@ js_click = """() => {
 result = await target.evaluate(js_click)
 ```
 
+## Execute JavaScript
+ Use execute_js to interact with the page when:
+ - other interactions fail
+ - you need special logic like scroll, zoom, extract data, click coordinates, drag and drop, wait, send keys, dispatch events sequences...
+
+Think which website type you see and use the right approach. React/Vue/Angular ..., closed shadow DOM, iframes etc.
+Start with selectors if you have them available. Else use coordinates as fallback.
+Return always some information - but keep it limited to max 20000 characters.
+
+**Core patterns:**
+- Extract: `JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent))`
+- Click: `document.querySelector('button').click()`
+- Input: `input.value = 'text'; input.dispatchEvent(new Event('input', {bubbles: true}))`
+- Coordinates: `document.elementFromPoint(150, 75).click()` (use x/y from browser_state)
+- Send keys 
+
+**Modern frameworks:**
+- React click: `el.dispatchEvent(new MouseEvent('click', {bubbles: true}))`
+- React input: `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'text')`
+- For React: Use both value setting AND input events: `input.value='text'; input.dispatchEvent(new Event('input', {bubbles: true}))`
+- For Angular/Material: Focus inputs first, then type character-by-character
+- For Shadow DOM: Access via `.shadowRoot.querySelector()`
+- For modals: Always check for and dismiss overlays before main interactions
+- Find in shadow: Use createTreeWalker to search shadowRoot elements
+
+
+**Extract:**
+- Explore structure: `document.body.innerHTML.substring(100, 500)`
+- Find modals: `document.querySelector('.modal, [role="dialog"]')`
+- Check components: `document.querySelectorAll('*').filter(el => el.tagName.includes('-'))`
+- Get links and filter them
+
+**Constraints:**
+- Return strings/numbers/booleans only (objects are useless)
+- No DOM element injection.
+- Use try/catch, keep concise
+
+
 **❌ NEVER DO THIS:**
 ```python
 # Inline JavaScript always fails
@@ -97,9 +134,14 @@ await target.evaluate('() => document.querySelector("button").click()')
 
 JavaScript MUST use (...args) => format and returns strings (objects become JSON).
 
+
+
+
 ## Core Classes
 
 - **Browser**, **Target**, **Element**, **Mouse**: Core classes for browser operations
+
+
 
 ## API Reference
 
