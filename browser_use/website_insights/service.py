@@ -70,7 +70,8 @@ class WebsiteInsightsService:
 		if not self.enabled:
 			logger.warning('Website insights service disabled - no WEBSITE_INSIGHTS_API_KEY environment variable found')
 		else:
-			logger.debug(f'Website insights service enabled with API key: {self.api_key[:10]}...')
+			api_key_preview = self.api_key[:10] + '...' if self.api_key and len(self.api_key) > 10 else 'short key'
+			logger.debug(f'Website insights service enabled with API key: {api_key_preview}')
 
 	async def analyze_run_results(
 		self, llm: BaseChatModel, domain: str, last_input_messages: list[Any] | None, task: str
@@ -217,17 +218,26 @@ Focus on strategy patterns, not specific data values.
 			if len(existing_insights) > 10:
 				existing_insights = existing_insights[-10:]
 
+			# Initialize bin cache if not exists
+			if not hasattr(self, '_bin_cache'):
+				self._bin_cache = {}
+
 			# Store back to JSONBin
-			bin_id = f'website_insights_{insight.domain.replace(".", "_")}'
-
-			headers = {'Content-Type': 'application/json', 'X-Master-Key': self.api_key, 'X-Bin-Name': bin_id}
-
+			bin_name = f'website_insights_{insight.domain.replace(".", "_")}'
+			headers = {'Content-Type': 'application/json', 'X-Master-Key': self.api_key, 'X-Bin-Name': bin_name}
 			data = {'insights': existing_insights}
 
 			async with aiohttp.ClientSession() as session:
 				async with session.post(self.base_url, json=data, headers=headers) as response:
 					if response.status in [200, 201]:
-						logger.debug(f'Stored insight for domain: {insight.domain}')
+						result = await response.json()
+						bin_id = result.get('metadata', {}).get('id')
+						if bin_id:
+							# Cache the bin ID for future use
+							self._bin_cache[insight.domain] = bin_id
+							logger.debug(f'Stored insight for domain: {insight.domain} (bin: {bin_id})')
+						else:
+							logger.debug(f'Stored insight for domain: {insight.domain}')
 						return True
 					elif response.status == 401:
 						logger.error('Failed to store insight: 401 Unauthorized. Check your WEBSITE_INSIGHTS_API_KEY is valid.')
@@ -255,38 +265,18 @@ Focus on strategy patterns, not specific data values.
 			return []
 
 		try:
-			bin_id = f'website_insights_{domain.replace(".", "_")}'
-
 			headers = {'X-Master-Key': self.api_key or ''}
-
-			# Try to get existing bin
+			bin_id = f'website_insights_{domain.replace(".", "_")}'
 			async with aiohttp.ClientSession() as session:
-				# First, try to find the bin by name
-				async with session.get('https://api.jsonbin.io/v3/c', headers=headers) as response:
-					if response.status != 200:
+				async with session.get(f'{self.base_url}/{bin_id}', headers=headers) as response:
+					if response.status == 200:
+						data = await response.json()
+						insights = data.get('record', {}).get('insights', [])
+						return insights[-limit:] if insights else []
+					elif response.status == 404:
 						return []
-
-					collections = await response.json()
-					bin_record = None
-
-					# Find our bin in the collections
-					for collection in collections:
-						for bin_item in collection.get('bins', []):
-							if bin_item.get('name') == bin_id:
-								bin_record = bin_item
-								break
-						if bin_record:
-							break
-
-					if not bin_record:
-						return []
-
-					# Get the bin content
-					async with session.get(f'{self.base_url}/{bin_record["id"]}', headers=headers) as bin_response:
-						if bin_response.status == 200:
-							data = await bin_response.json()
-							insights = data.get('record', {}).get('insights', [])
-							return insights[-limit:] if insights else []
+			# If no cached bin ID or bin was not found, return empty (will be created when storing)
+			return []
 
 		except Exception as e:
 			logger.debug(f'Could not retrieve insights for {domain}: {e}')
