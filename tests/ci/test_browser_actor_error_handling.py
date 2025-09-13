@@ -56,7 +56,7 @@ async def executor():
 			assert isinstance(result, ActionResult)
 			assert result.error is not None
 			assert 'JavaScript evaluation error' in result.error
-			assert '💡 Tip' in result.error  # Should include debugging tip
+			assert '💡 Additional tip:' in result.error  # Should include debugging tip
 
 	@pytest.mark.asyncio
 	async def test_python_error_detection(self):
