@@ -1054,26 +1054,8 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 
 <EXPECTED_OUTPUT>
 Use `async def executor():` - all variables available in context:
-
 Context: client (cdp client), target (current open target), Browser/Target/Element/Mouse classes, asyncio/json/os available.
 
-For example:
-```python
-async def executor():
-    # Navigate existing target
-    await target.goto("https://example.com")
-    
-    # Or create new target and navigate
-    new_target = await browser.newTarget()
-    await new_target.goto("https://example.com")
-    
-    element = await target.getElement(backend_node_id=12345)
-    if element:
-        await element.fill("text")
-
-    await asyncio.sleep(1)
-
-    return # output passed to memory for next steps
 ```
 </EXPECTED_OUTPUT>
 """,
