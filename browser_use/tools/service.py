@@ -84,7 +84,7 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	# To use only 'done' and 'execute_js' actions, pass this to exclude_actions parameter:
 	MINIMAL_ACTIONS_EXCLUDE_LIST = [
-		'search_google',
+		# 'search_google',
 		# 'go_back',
 		'wait',
 		'click_element_by_index',
@@ -118,7 +118,7 @@ class Tools(Generic[Context]):
 
 		# Basic Navigation Actions
 		@self.registry.action(
-			'Search the query in Google, the query should be a search query like humans search in Google, concrete and not vague or super long.',
+			'Search the query in Google, the query should be a search query like humans search in Google, concrete and not vague and not keep it short like a human would do.',
 			param_model=SearchGoogleAction,
 		)
 		async def search_google(params: SearchGoogleAction, browser_session: BrowserSession):
