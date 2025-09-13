@@ -5,13 +5,26 @@ from openai.types.chat import (
 	ChatCompletionContentPartImageParam,
 	ChatCompletionContentPartRefusalParam,
 	ChatCompletionContentPartTextParam,
-	ChatCompletionMessageFunctionToolCallParam,
 	ChatCompletionMessageParam,
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam,
 )
 from openai.types.chat.chat_completion_content_part_image_param import ImageURL
-from openai.types.chat.chat_completion_message_function_tool_call_param import Function
+
+# Try direct import for function tool call types
+try:
+	from openai.types.chat.chat_completion_message_function_tool_call_param import (
+		ChatCompletionMessageFunctionToolCallParam,
+		Function,
+	)
+except ImportError:
+	# Fallback for older/newer OpenAI library versions
+	from openai.types.chat.chat_completion_message_function_tool_call import (
+		Function,
+	)
+	from openai.types.chat.chat_completion_message_tool_call_param import (
+		ChatCompletionMessageToolCallParam as ChatCompletionMessageFunctionToolCallParam,
+	)
 
 from browser_use.llm.messages import (
 	AssistantMessage,
