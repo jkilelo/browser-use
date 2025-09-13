@@ -77,7 +77,7 @@ class Target:
 		return Element(self._client, backend_node_id, session_id)
 
 	async def evaluate(self, page_function: str, *args) -> str:
-		"""Execute JavaScript in the target.
+		"""Execute JavaScript in the target with enhanced safety and error handling.
 
 		Args:
 			page_function: JavaScript code that MUST start with (...args) => format
@@ -88,6 +88,9 @@ class Target:
 			Objects and arrays are JSON-stringified.
 		"""
 		session_id = await self._ensure_session()
+
+		# Import safe evaluation utilities
+		from browser_use.tools.code_processor import patch_js_source, wrap_js_base64
 
 		# Clean and fix common JavaScript string parsing issues
 		page_function = self._fix_javascript_string(page_function)
@@ -106,10 +109,24 @@ class Target:
 		else:
 			expression = f'({page_function})()'
 
-		# Debug: print the actual expression being evaluated
-		print(f'DEBUG: Evaluating JavaScript: {repr(expression)}')
+		# Apply safety patches and Base64 trampoline to prevent common JS errors
+		try:
+			# First apply source patches for regex/selector issues
+			patched_expression = patch_js_source(expression)
 
-		params: 'EvaluateParameters' = {'expression': expression, 'returnByValue': True, 'awaitPromise': True}
+			# Then wrap in Base64 trampoline for quote/backtick safety
+			safe_expression = wrap_js_base64(patched_expression)
+
+		except Exception as patch_error:
+			# If patching fails, fall back to original but still log the issue
+			print(f'WARNING: JS patching failed: {patch_error}, using original expression')
+			safe_expression = expression
+
+		# Debug: print the actual expression being evaluated (truncated for readability)
+		debug_expr = safe_expression[:200] + ('...' if len(safe_expression) > 200 else '')
+		print(f'DEBUG: Evaluating JavaScript: {repr(debug_expr)}')
+
+		params: 'EvaluateParameters' = {'expression': safe_expression, 'returnByValue': True, 'awaitPromise': True}
 		result = await self._client.send.Runtime.evaluate(
 			params,
 			session_id=session_id,
@@ -119,6 +136,17 @@ class Target:
 			raise RuntimeError(f'JavaScript evaluation failed: {result["exceptionDetails"]}')
 
 		value = result.get('result', {}).get('value')
+
+		# Handle Base64 trampoline error responses
+		if isinstance(value, str):
+			try:
+				import json
+
+				parsed = json.loads(value)
+				if isinstance(parsed, dict) and '__error' in parsed:
+					raise RuntimeError(f'JavaScript execution error: {parsed["__error"]}')
+			except (json.JSONDecodeError, TypeError):
+				pass  # Not JSON, treat as regular string result
 
 		# Always return string representation
 		if value is None:
