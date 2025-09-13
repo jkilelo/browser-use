@@ -100,7 +100,7 @@ async def executor():
     js_code = '''() => {
         const items = Array.from(document.querySelectorAll("main [data-testid=SummaryRiverWrapper] > div")).slice(0,3);
         return JSON.stringify(items.map(i=>{
-            const titleEl = i.querySelector("a[target=\"_self\"]");
+            const titleEl = i.querySelector("a[target="_self"]");
             const title = titleEl ? titleEl.innerText.trim() : null;
             const dateMatch = i.innerText.match(/\\b(?:January|February|March|April|May|June|July|August|September|October|November|December) \\d{1,2}, \\d{4}\\b/);
             return {title, date: dateMatch?dateMatch[0]:null};

@@ -239,7 +239,7 @@ class ElementInfo(TypedDict):
 **CRITICAL JAVASCRIPT EVALUATION RULES:**
 - `target.evaluate()` MUST use (...args) => format and always returns string (objects become JSON strings)
 - **SINGLE STANDARD**: Always use `'''()=>{}'''` (triple single quotes + double quotes inside JS)
-- **CSS SELECTORS**: Use `"input[name=\"email\"]"` or template literals `\`[role="button"]\`` 
+- **CSS SELECTORS**: Use `"input[name="email"]"` or template literals `\`[role="button"]\`` 
 - **NO ESCAPING NEEDED**: Double quotes inside triple single quotes work perfectly
 
 **METHOD RESTRICTIONS:**
