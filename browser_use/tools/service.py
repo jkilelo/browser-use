@@ -1044,6 +1044,7 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 <RULES>
 - Functions should start with `async def executor(): ...` (no parameters)  
 - 🎯 JAVASCRIPT STANDARD: ALL target.evaluate() calls must use triple single quotes (''') with double quotes inside JavaScript
+- 🚨 REGEX CRITICAL: Use single backslashes in regex: /\d+/ NOT /\\d+/ (double-escape breaks execution)
 - 🚨 NEVER mix Python/JavaScript methods: use .lower() in Python, .toLowerCase() in JavaScript
 - Do not implement waiting for CSS functions - our native implementation doesn't wait
 - Use backendNodeId for element interaction when possible
@@ -1148,6 +1149,12 @@ Context: client (cdp client), target (current open target), Browser/Target/Eleme
 		# Fix missing quotes around selectors (use double quotes to match our standard)
 		code = re.sub(r'querySelectorAll\(([a-zA-Z]\w*)\)', r'querySelectorAll("\1")', code)
 		code = re.sub(r'querySelector\(([a-zA-Z]\w*)\)', r'querySelector("\1")', code)
+
+		# 🚨 CRITICAL: Fix regex double-escaping (most common error in evaluations)
+		# Fix double-escaped regex patterns that break JavaScript execution
+		code = re.sub(r'/\\\\([nrtbfv])/g', r'/\\\1/g', code)  # Fix \\n -> \n in regex
+		code = re.sub(r'/\\\\([sdwSDW])/g', r'/\\\1/g', code)  # Fix \\d -> \d in regex
+		code = re.sub(r'/\\\\b/g', r'/\\b/g', code)  # Fix \\b -> \b word boundaries
 
 		# Handle multiline code - convert to single expression or add return
 		lines = [line.strip() for line in code.strip().split('\n') if line.strip()]

@@ -104,11 +104,18 @@ js = '''() => {
     return "found";
 }'''
 
-# 🚨 REGEX PATTERNS - use single backslashes:
+# 🚨 REGEX PATTERNS - CRITICAL ESCAPING RULES:
 js = '''() => {
-    const pattern = /\d+\s*[+\-*/]\s*\d+/;  // Single backslash for regex
-    const text = "123 + 456";
-    return pattern.test(text) ? "found" : "not found";
+    // ✅ CORRECT - single backslashes in regex:
+    const pattern = /\d+\s*[+\-*/]\s*\d+/;        // Single \ for regex
+    const lines = text.split(/\n+/);              // Single \ for newlines
+    const match = text.match(/\b\w+\b/);          // Single \ for word boundaries
+    
+    // ❌ NEVER use double backslashes in regex (common error):
+    // const wrong = /\\d+\\s*/;                  // BROKEN - double escape
+    // const bad = text.split(/\\n+/);            // BROKEN - invalid regex
+    
+    return pattern.test("123 + 456") ? "found" : "not found";
 }'''
 ```
 

@@ -73,6 +73,9 @@ Keep your thinking short.
 
 
 <example_code_execution>
+🚨 **CRITICAL**: ALL target.evaluate() must use triple single quotes (''') with double quotes inside JavaScript
+🚨 **REGEX CRITICAL**: Use single backslashes in regex: /\d+/ NOT /\\d+/ (double-escape breaks execution)
+
 ```python
 async def executor():
   element = await target.getElement(backend_node_id=1234)
@@ -104,7 +107,7 @@ async def executor():
         return JSON.stringify(items.map(i=>{
             const titleEl = i.querySelector("a[target="_self"]");
             const title = titleEl ? titleEl.innerText.trim() : null;
-            const dateMatch = i.innerText.match(/\\b(?:January|February|March|April|May|June|July|August|September|October|November|December) \\d{1,2}, \\d{4}\\b/);
+            const dateMatch = i.innerText.match(/\b(?:January|February|March|April|May|June|July|August|September|October|November|December) \d{1,2}, \d{4}\b/);
             return {title, date: dateMatch?dateMatch[0]:null};
         }));
     }'''
