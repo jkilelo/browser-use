@@ -14,6 +14,7 @@ class CodeProcessor:
 		if '=>' in js_code and not js_code.strip().startswith('('):
 			if not js_code.strip().startswith('() =>'):
 				js_code = f'() => {js_code.strip()}'
+				js_code.replace('\\', '\\\\')  # double escape, because we will load the code again
 
 		return js_code
 
