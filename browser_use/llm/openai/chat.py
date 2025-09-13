@@ -203,9 +203,11 @@ class ChatOpenAI(BaseChatModel):
 			else:
 				response_format: JSONSchema = {
 					'name': 'agent_output',
-					'strict': True,
-					'schema': SchemaOptimizer.create_optimized_json_schema(output_format),
+					'strict': False,
+					'schema': output_format.model_json_schema(),
 				}
+
+				old = SchemaOptimizer.create_optimized_json_schema(output_format)
 
 				# Add JSON schema to system prompt if requested
 				if self.add_schema_to_system_prompt and openai_messages and openai_messages[0]['role'] == 'system':
