@@ -10,47 +10,29 @@ class CodeProcessor:
 
 	@staticmethod
 	def fix_js_code_for_evaluate(js_code: str) -> str:
-		"""Fix JavaScript code for target.evaluate() - preserve regex patterns"""
+		"""Fix JavaScript code for target.evaluate() - minimal processing for variable pattern"""
 
-		# Step 1: Extract and protect JavaScript regex patterns
-		regex_patterns = []
-		regex_placeholder = '___REGEX_PATTERN_{}_PLACEHOLDER___'
+		# When using variable pattern (js_code = """..."""), minimal escaping fixes needed
+		# Only fix extreme over-escaping that LLMs sometimes still generate
 
-		# Find regex patterns: /pattern/flags and preserve them
-		regex_matches = list(re.finditer(r'/([^/\n\\]|\\.)*/[gimuy]*', js_code))
-		for i, match in enumerate(regex_matches):
-			pattern_text = match.group(0)
-			placeholder = regex_placeholder.format(i)
-			regex_patterns.append(pattern_text)
-			js_code = js_code.replace(pattern_text, placeholder, 1)
+		# Fix hex encoding issues first
+		js_code = re.sub(r'\\x3d', '=', js_code)
+		js_code = re.sub(r'\\x22', '"', js_code)
+		js_code = re.sub(r'\\x27', "'", js_code)
 
-		# Step 2: Fix problematic escaping (now safe since regex is protected)
-		js_code = re.sub(r'\\{3,}', r'\\', js_code)  # Reduce excessive backslashes
-		js_code = re.sub(r'\\x3d', '=', js_code)  # Fix hex encoding first
-		js_code = re.sub(r'\\x22', '"', js_code)  # Fix hex encoding first
-		js_code = re.sub(r'\\x27', "'", js_code)  # Fix hex encoding first
-		js_code = js_code.replace('\\"', '"').replace("\\'", "'")  # Fix quote escaping
-		js_code = re.sub(r'\\n', ' ', js_code)  # Remove \n
-		js_code = re.sub(r'\\t', ' ', js_code)  # Remove \t
-		js_code = re.sub(r'\\r', ' ', js_code)  # Remove \r
+		# Fix over-escaping in CSS attribute selectors only (not in regex patterns)
+		# Match: [draggable\\\\=\\\\"false\\\\"] and fix to: [draggable="false"]
+		def fix_css_attribute(match):
+			full_selector = match.group(0)
+			inside = match.group(1)
+			# Remove excessive backslashes and quote escaping from inside bracket content
+			fixed_inside = re.sub(r'\\{2,}', '', inside)  # Remove excessive backslashes
+			fixed_inside = fixed_inside.replace('\\"', '"').replace("\\'", "'")  # Remove quote escaping
+			return f'[{fixed_inside}]'
 
-		# Step 3: Fix CSS selectors in JavaScript (querySelector calls)
-		pattern = r'(querySelector(?:All)?\s*\(\s*[\'"])([^\'\"]+)([\'\"]\s*\))'
+		js_code = re.sub(r'\[([^]]+)\]', fix_css_attribute, js_code)
 
-		def fix_selector(match):
-			prefix, selector, suffix = match.groups()
-			if not CodeProcessor.validate_css_selector(selector):
-				selector = CodeProcessor.fix_css_selector(selector)
-			return f'{prefix}{selector}{suffix}'
-
-		js_code = re.sub(pattern, fix_selector, js_code)
-
-		# Step 4: Restore protected regex patterns
-		for i, pattern in enumerate(regex_patterns):
-			placeholder = regex_placeholder.format(i)
-			js_code = js_code.replace(placeholder, pattern)
-
-		# Step 5: Ensure arrow function format
+		# Ensure arrow function format
 		if '=>' in js_code and not js_code.strip().startswith('('):
 			if not js_code.strip().startswith('() =>'):
 				js_code = f'() => {js_code.strip()}'
