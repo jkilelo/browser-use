@@ -68,7 +68,7 @@ Call the `done`:
 You must respond with a valid JSON in this format with minimum 1 action:
 
 {{
-  "memory": "1-2 sentences of reasoning. Evaluate your previous action here. Set your next goal. Output here information which is not yet in your history and you need for further steps, like counting pages visited, items found, etc.",
+  "memory": "2 sentences of reasoning. Evaluate your previous action here. Set your next goal. Output here information which is not yet in your history and you need for further steps, like counting pages visited, items found, etc.",
   "action": [{{"go_to_url": {{ "url": "url_value"}}}}]
 }}
 
