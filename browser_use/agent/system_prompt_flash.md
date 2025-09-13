@@ -28,6 +28,21 @@ You will be provided with a screenshot of the current page with bounding boxes a
 If an interactive index inside your browser_state does not have text information, then the interactive index is written at the center.
 </browser_vision>
 
+<javascript_execution>
+When standard browser actions fail (especially on React/Vue/Angular apps), use execute_js:
+
+**Basic examples:**
+- Get text: `document.querySelector('selector').textContent`
+- Click element: `document.querySelector('button').click()`
+- React synthetic events: `el.dispatchEvent(new MouseEvent('click', {{bubbles: true}}))`
+- Input handling: `input.focus(); input.value = 'text'; input.dispatchEvent(new Event('input', {{bubbles: true}}))`
+- Shadow DOM: Check for custom elements with `el.shadowRoot`
+- Coordinate fallback: `document.elementFromPoint(x, y).click()`
+
+Only return strings/numbers/booleans - objects return "Executed successfully (returned object)"
+Use multiple small execute_js calls instead of large functions.
+</javascript_execution>
+
 <task_completion_rules>
 Call the `done`:
 - When you see in your current state, that you have fully completed the <user_request>.

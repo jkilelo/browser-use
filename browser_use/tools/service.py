@@ -37,6 +37,7 @@ from browser_use.tools.views import (
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
+	ExecuteCDPAction,
 	GetDropdownOptionsAction,
 	GoToUrlAction,
 	InputTextAction,
@@ -81,21 +82,30 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 
 
 class Tools(Generic[Context]):
+	# To use only 'done' and 'execute_js' actions, pass this to exclude_actions parameter:
+	MINIMAL_ACTIONS_EXCLUDE_LIST = [
+		'search_google',
+		'go_back',
+		'wait',
+		'click_element_by_index',
+		'input_text',
+		'upload_file_to_element',
+		'switch_tab',
+		'close_tab',
+		'extract_structured_data',
+		'scroll',
+		'send_keys',
+		'scroll_to_text',
+		'get_dropdown_options',
+		'select_dropdown_option',
+		'write_file',
+		'replace_file_str',
+		'read_file',
+	]
+
 	def __init__(
 		self,
-		exclude_actions: list[str] = [
-			'search_google',
-			'scroll_to_text',
-			'write_file',
-			'replace_file_str',
-			'go_back',
-			'read_file',
-			'extract_structured_data',
-			'scroll',
-			'get_dropdown_options',
-			'select_dropdown_option',
-			'upload_file_to_element',
-		],
+		exclude_actions: list[str] = MINIMAL_ACTIONS_EXCLUDE_LIST,
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
@@ -903,6 +913,74 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				long_term_memory=memory,
 				include_extracted_content_only_once=True,
 			)
+
+		# General CDP execution tool
+		@self.registry.action(
+			"""Execute JavaScript 
+## Basic DOM interaction (single line preferred):
+Return: 
+JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
+- execute_js can only return strings/numbers/booleans that are readable
+- Objects return "Executed successfully (returned object)" - useless!
+
+## React/Modern Framework Components:
+Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
+
+1. **React synthetic events** 
+(function(){{ const el = document.querySelector('selector'); el.dispatchEvent(new MouseEvent('click', {{bubbles: true, cancelable: true}})); el.dispatchEvent(new Event('change', {{bubbles: true}})); return 'clicked'; }})()
+
+2. **React input handling** (for form inputs that ignore value assignment):
+```javascript
+(function(){{ const input = document.querySelector('input'); const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set; nativeInputValueSetter.call(input, 'new value'); input.dispatchEvent(new Event('input', {{bubbles: true}})); return 'input set'; }})()
+
+3. **Detect shadow DOM components, iframes, etc
+(function(){{ const host = document.querySelector('my-component'); if(host && host.shadowRoot) {{ const input = host.shadowRoot.querySelector('input'); return input ? 'found' : 'not found'; }} return 'no shadow'; }})()
+
+4. **Real keyboard simulation** (for protected inputs):
+(function(){{ const input = document.querySelector('input'); if(input) {{ input.focus(); 'text'.split('').forEach(char => {{ ['keydown','keypress','input','keyup'].forEach(type => input.dispatchEvent(new KeyboardEvent(type, {{key: char, bubbles: true}}))) }}); }} return 'typed'; }})()
+
+5. **Shadow DOM **:
+(function(){{ function findInShadow(selector) {{ let el = document.querySelector(selector); if(el) return el; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT); let node; while(node = walker.nextNode()) {{ if(node.shadowRoot) {{ const found = node.shadowRoot.querySelector(selector); if(found) return found; }} }} return null; }} return findInShadow('input[name="city"]') ? 'found in shadow' : 'not found'; }})()
+
+(function(){{ const components = Array.from(document.querySelectorAll('*')).filter(el => el.tagName.includes('-') || el.shadowRoot !== undefined); return components.map(c => ({{tag: c.tagName.toLowerCase(), hasOpen: !!c.shadowRoot, hasClosed: c.shadowRoot === null && c.toString().includes('[object HTML')}})); }})()
+
+## When stuck explore new options:
+Inspect React components: `document.querySelector('selector').getAttribute('class')`
+Check for modals or overlays: `document.querySelector('.modal, [role="dialog"]')`
+Explore page structure: `document.body.innerHTML.substring(100, 400)`
+
+**Coordinate-based fallbacks:**
+Use coordinates interaction only if execute_js fails twice.
+In the browser state, you see `x=150 y=75` - these are center coordinates of elements.
+(function(){{ const x = 150, y = 75; const el = document.elementFromPoint(x, y); if(el) {{ el.focus(); document.execCommand('insertText', false, 'your text'); return 'input at coordinates'; }} return 'no element at coordinates'; }})()
+(function(){{ const x = 150, y = 75; const el = document.elementFromPoint(x, y); if(el) {{ el.dispatchEvent(new MouseEvent('click', {{bubbles: true, cancelable: true}})); return 'clicked at coordinates'; }} return 'no element at coordinates'; }})()
+
+- this code gets executed with runtime evaluate, so you have access to previous functions and variables
+- You are not allowed to inject new elements to the DOM
+- Keep your code consice and save tokens as much as possible, do not write comments - no human reads it.
+- Use multiple execute_js calls instead of one large function.
+- If you are uncertain use try catch blocks
+
+""",
+			param_model=ExecuteCDPAction,
+		)
+		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):
+			# Use the raw JavaScript code without preprocessing
+			javascript_code = params.javascript_code
+
+			cdp_session = await browser_session.get_or_create_cdp_session()
+			try:
+				result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': javascript_code}, session_id=cdp_session.session_id
+				)
+
+				# Return the raw result to let the model handle errors
+				return ActionResult(
+					extracted_content=f'JavaScript execution result: {result}',
+				)
+			except Exception as e:
+				logger.error(f'❌ CDP execution failed with exception: {e}')
+				return ActionResult(error=f'CDP execution failed: {str(e)}')
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(

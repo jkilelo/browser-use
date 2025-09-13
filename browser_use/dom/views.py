@@ -18,6 +18,8 @@ from browser_use.observability import observe_debug
 DEFAULT_INCLUDE_ATTRIBUTES = [
 	'title',
 	'type',
+	'class',
+	'id',
 	'checked',
 	'name',
 	'role',
@@ -345,6 +347,43 @@ class EnhancedDOMTreeNode:
 			current_element = current_element.parent_node
 
 		return '/'.join(segments)
+
+	@property
+	def css_selector(self) -> str:
+		"""Generate CSS selector for this DOM node - works across iframe boundaries."""
+		current_element = self
+
+		# Try to find a unique identifier first
+		if current_element.attributes.get('id'):
+			element_id = current_element.attributes['id']
+			# Escape CSS special characters in ID
+			element_id = element_id.replace(':', '\\:').replace('.', '\\.')
+			unique_selector = f'{current_element.tag_name}#{element_id}'
+			return unique_selector
+
+		# Build selector path if no unique ID
+		tag_name = current_element.tag_name.lower()
+
+		# Use class if available
+		if current_element.attributes.get('class'):
+			classes = current_element.attributes['class'].strip().split()
+			if classes:
+				class_selector = '.' + '.'.join(classes)
+				return f'{tag_name}{class_selector}'
+
+		# Use nth-child as fallback
+		if current_element.parent_node:
+			siblings = [
+				child for child in current_element.parent_node.children_nodes or [] if child.tag_name == current_element.tag_name
+			]
+			if len(siblings) > 1:
+				try:
+					position = siblings.index(current_element) + 1
+					return f'{tag_name}:nth-child({position})'
+				except ValueError:
+					pass
+
+		return tag_name
 
 	def _get_element_position(self, element: 'EnhancedDOMTreeNode') -> int:
 		"""Get the position of an element among its siblings with the same tag name.
