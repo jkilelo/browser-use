@@ -33,7 +33,6 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
-from browser_use.tools.code_processor import CodeProcessor
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.views import (
 	BrowserUseCodeAction,
@@ -1109,11 +1108,8 @@ async def executor():
 					'os': os,
 				}
 
-				# Fix code issues specifically for browser actor execution
-				cleaned_code = self._fix_browser_actor_code_issues(params.code)
-
 				# Just exec the code directly - use local_vars as globals so everything is accessible
-				exec(cleaned_code, local_vars)
+				exec(params.code, local_vars)
 
 				# If there's an executor function, call it (no args needed - everything is in context)
 				if 'executor' in local_vars:
@@ -1121,64 +1117,18 @@ async def executor():
 				else:
 					result = None
 
-				max_result_length = 2000
-				capped_result = (
-					(
-						str(result)[:max_result_length] + '...(capped at 2000 characters)'
-						if len(str(result)) > max_result_length
-						else str(result)
-					)
-					if result is not None
-					else None
-				)
+				action_result = f"""```python\n{params.code}\n```"""
 
-				action_result = f"""✅ executed successfully. <code>{params.code}</code>"""
+				if result is not None:
+					action_result += f'\nResult: {result}'
 
-				if capped_result:
-					action_result += f', returned {capped_result}'
-
-				logger.info(action_result)
 				return ActionResult(extracted_content=action_result)
 
 			except Exception as e:
-				# Enhanced error detection and reporting
-				error_str = str(e)
+				action_result = f"""```python\n{params.code}\n```"""
+				action_result += f'\nError: {str(e)}'
 
-				# Check if error is from JavaScript evaluation
-				if any(
-					js_error in error_str.lower()
-					for js_error in [
-						'javascript evaluation failed',
-						'syntaxerror',
-						'uncaught',
-						'invalid selector',
-						'queryselector',
-						'cdp',
-						'evaluate',
-					]
-				):
-					error_category = 'JavaScript evaluation error'
-					error_msg = f'❌ {error_category}: {error_str}'
-
-					# Add debugging hints for specific JavaScript issues
-					if 'invalid selector' in error_str.lower() or 'queryselector' in error_str.lower():
-						error_msg += '\n💡 Additional tip: Check CSS selector syntax - avoid escaped quotes'
-					elif 'syntaxerror' in error_str.lower():
-						error_msg += '\n💡 Additional tip: Ensure JavaScript uses arrow function format: () => expression'
-				elif 'python' in error_str.lower() or 'syntax error' in error_str.lower():
-					error_category = 'Python code error'
-					error_msg = f'❌ {error_category}: {error_str}'
-				else:
-					error_category = 'Code execution error'
-					error_msg = f'❌ {error_category}: {error_str}'
-
-				action_result = f"""
-				{error_msg}
-				
-				Failed code: <code>{params.code}</code>
-				"""
-				logger.error(f'Browser actor code execution failed: {error_category} - {error_str}')
-				return ActionResult(error=action_result.strip())
+				return ActionResult(error=action_result)
 
 	def _get_javascript_debugging_tips(self, error_type: str, error_description: str, code: str) -> str:
 		"""Provide debugging tips based on the error type."""
@@ -1198,10 +1148,6 @@ async def executor():
 			return 'Invalid CSS selector. Check syntax and escape special characters.'
 
 		return ''
-
-	def _fix_browser_actor_code_issues(self, code: str) -> str:
-		"""Fix code issues specifically for browser actor execution"""
-		return CodeProcessor.fix_browser_actor_code_issues(code)
 
 	def _fix_common_js_issues(self, code: str) -> str:
 		"""Fix JavaScript issues - but only for execute_js, not browser actor code"""
