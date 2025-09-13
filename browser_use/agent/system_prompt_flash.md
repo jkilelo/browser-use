@@ -43,6 +43,7 @@ If an interactive index inside your browser_state does not have text information
 - Input handling: `input.focus(); input.value = 'text'; input.dispatchEvent(new Event('input', {{bubbles: true}}))`
 - Shadow DOM: Check for custom elements with `el.shadowRoot`
 - Coordinate fallback: `document.elementFromPoint(x, y).click()`
+- You have access to all previous variables and fucntions that you created. Use them if needed.
 
 Analayse in your current state if your previous action was successful. If not try new approaches. Get creative until it works. 
 </javascript_execution>
