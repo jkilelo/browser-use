@@ -925,10 +925,10 @@ You will be given a query and the markdown of a webpage that has been filtered t
 Use rich attributes from browser_state for precise selectors:
 
 ONE LINE EXAMPLES:
-- By name: document.querySelector("input[name=\"firstName\"]").value
+- By name: document.querySelector("input[name="firstName"]").value
 - By ID: document.querySelector("#submit-btn").click()  
 - By class: document.querySelectorAll(".product-card").length
-- Extract: JSON.stringify(Array.from(document.querySelectorAll("input[required=\"true\"]")).map(el => el.name))
+- Extract: JSON.stringify(Array.from(document.querySelectorAll("input[required="true"]")).map(el => el.name))
 - Navigate: window.location.href = "https://example.com/page"
 - Scroll: window.scrollBy(0, 500)
 
@@ -1044,6 +1044,7 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 <RULES>
 - Functions should start with `async def executor(): ...` (no parameters)  
 - 🎯 JAVASCRIPT STANDARD: ALL target.evaluate() calls must use triple single quotes (''') with double quotes inside JavaScript
+- 🚨 NEVER mix Python/JavaScript methods: use .lower() in Python, .toLowerCase() in JavaScript
 - Do not implement waiting for CSS functions - our native implementation doesn't wait
 - Use backendNodeId for element interaction when possible
 - Don't return screenshots, that will not work
@@ -1144,9 +1145,9 @@ Context: client (cdp client), target (current open target), Browser/Target/Eleme
 		# Remove optional chaining which isn't supported in older CDP
 		code = re.sub(r'\?\.\s*', '.', code)
 
-		# Fix missing quotes around selectors
-		code = re.sub(r'querySelectorAll\(([a-zA-Z]\w*)\)', r"querySelectorAll('\1')", code)
-		code = re.sub(r'querySelector\(([a-zA-Z]\w*)\)', r"querySelector('\1')", code)
+		# Fix missing quotes around selectors (use double quotes to match our standard)
+		code = re.sub(r'querySelectorAll\(([a-zA-Z]\w*)\)', r'querySelectorAll("\1")', code)
+		code = re.sub(r'querySelector\(([a-zA-Z]\w*)\)', r'querySelector("\1")', code)
 
 		# Handle multiline code - convert to single expression or add return
 		lines = [line.strip() for line in code.strip().split('\n') if line.strip()]

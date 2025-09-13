@@ -103,6 +103,13 @@ js = '''() => {
     const prog = document.querySelector(`[role="progressbar"]`);
     return "found";
 }'''
+
+# 🚨 REGEX PATTERNS - use single backslashes:
+js = '''() => {
+    const pattern = /\d+\s*[+\-*/]\s*\d+/;  // Single backslash for regex
+    const text = "123 + 456";
+    return pattern.test(text) ? "found" : "not found";
+}'''
 ```
 
 ## Execute JavaScript
@@ -135,7 +142,7 @@ Return always some information - but keep it limited to max 20000 characters.
 
 **Extract:**
 - Explore structure: `document.body.innerHTML.substring(100, 500)`
-- Find modals: `document.querySelector(".modal, [role=\"dialog\"]")`
+- Find modals: `document.querySelector(".modal, [role='dialog']")`
 - Check components: `document.querySelectorAll("*").filter(el => el.tagName.includes("-"))`
 - Get links and filter them
 
@@ -143,6 +150,47 @@ Return always some information - but keep it limited to max 20000 characters.
 - Return strings/numbers/booleans only (objects are useless)
 - No DOM element injection.
 - Use try/catch, keep concise
+
+**🚨 CRITICAL SYNTAX RULES:**
+```python
+# ✅ CORRECT try/catch structure:
+js = '''() => {
+    try {
+        const btn = document.querySelector("#submit");
+        btn.click();
+        return "clicked";
+    } catch(e) {
+        return "error: " + e.message;
+    }
+}'''
+
+# ✅ CORRECT complex selectors (avoid double-escaping):
+js = '''() => {
+    const alert = document.querySelector(".alert");           // Simple
+    const role = document.querySelector("[role='alert']");    // Mixed quotes  
+    const complex = document.querySelector(`[data-id="123"]`); // Template literals
+    return alert ? "found" : "not found";
+}'''
+
+# ❌ NEVER do this (common errors):
+js = '''() => {
+    const btn = document.querySelector("button[type=\"submit\"]");  // Double-escaped - BAD
+    }catch(e){return "error"}  // Missing try block - BAD
+    const x = text.toLowerCase();  // JavaScript method in Python context - BAD
+}'''
+
+# ✅ CORRECT versions:
+js = '''() => {
+    const btn = document.querySelector("button[type='submit']");  // Mixed quotes - GOOD
+    try {
+        btn.click();
+        return "clicked";
+    } catch(e) {
+        return "error: " + e.message;  // Proper try/catch - GOOD
+    }
+}'''
+# Python string methods: text.lower() not text.toLowerCase()
+```
 
 
 **❌ NEVER DO THIS:**
