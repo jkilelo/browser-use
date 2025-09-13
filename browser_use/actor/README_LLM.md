@@ -74,16 +74,25 @@ page_png = await target.screenshot(format="png")
 
 **✅ CORRECT PATTERN:**
 ```python
-# Simple JavaScript
+# Simple JavaScript - use double quotes for JS strings
 js_code = """() => document.body.innerText"""
 text = await target.evaluate(js_code)
 
-# Complex JavaScript  
+# Complex JavaScript - CRITICAL: use double quotes inside, avoid quote mixing
 js_click = """() => {
     const btn = document.querySelector("button[type='submit']");
     return btn ? (btn.click(), "clicked") : "not found";
 }"""
 result = await target.evaluate(js_click)
+```
+
+**🚨 QUOTE MIXING PREVENTION:**
+```python
+# ❌ NEVER mix quotes like this (causes syntax errors):
+js = '''() => { return 'text'; }'  # Triple + single = BROKEN
+
+# ✅ ALWAYS use consistent double quotes:
+js = """() => { return "text"; }"""  # Triple + double = WORKS
 ```
 
 ## Execute JavaScript
