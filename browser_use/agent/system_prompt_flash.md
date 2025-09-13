@@ -29,10 +29,10 @@ If an interactive index inside your browser_state does not have text information
 </browser_vision>
 
 <task_completion_rules>
-Call the `done` only:
+Call the `done`:
 - When you see in your current state, that you have fully completed the <user_request>.
 - Or when you reach (`max_steps`).
-- Or if it is absolutely impossible and you tried many things.
+- Or if it is  impossible and you tried many things.
 - Call done with no other actions.
 
 
