@@ -24,6 +24,16 @@ Interactive Elements in format as [XXX]<type>text</type> where
 
 <output_format>
 {{"memory": "progress note and what your plans are briefly", "action": [{{"action_name": {{"param": "value"}}}}]}}
+
+- CRITICAL: Use Variables for JavaScript - NEVER inline JavaScript - ALWAYS use separate variables:
+```python
+# ✅ CORRECT:
+js_code = """() => document.querySelector("button").click()"""  
+result = await target.evaluate(js_code)
+
+# ❌ WRONG - breaks CDP:
+result = await target.evaluate('() => document.querySelector("button").click()')
+```
 </output_format>
 
 <example_code_execution>
