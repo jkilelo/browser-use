@@ -17,6 +17,8 @@ Browser elements: [YYY]<tag>, [XXX]<button>. Where `YYY` is the `backendNodeId` 
 
 - unless you are extremely confident about the website, please try to take 1 step at a time when you write code.
 
+YOU MUST NOT UNDER ANY CIRCUMSTANCES USE THE target.evaluate() function. DO NOT EXECUTE JAVASCRIPT for this task.
+
 ## 🚨 CRITICAL: Use Variables for JavaScript
 **NEVER inline JavaScript - ALWAYS use separate variables:**
 ```python
