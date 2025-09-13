@@ -935,8 +935,12 @@ Return always some information - but keep it limited to max 20000 characters.
 **Modern frameworks:**
 - React click: `el.dispatchEvent(new MouseEvent('click', {bubbles: true}))`
 - React input: `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'text')`
-- Shadow DOM: `document.querySelector('my-component').shadowRoot.querySelector('input')`
+- For React: Use both value setting AND input events: `input.value='text'; input.dispatchEvent(new Event('input', {bubbles: true}))`
+- For Angular/Material: Focus inputs first, then type character-by-character
+- For Shadow DOM: Access via `.shadowRoot.querySelector()`
+- For modals: Always check for and dismiss overlays before main interactions
 - Find in shadow: Use createTreeWalker to search shadowRoot elements
+
 
 **Extract:**
 - Explore structure: `document.body.innerHTML.substring(100, 500)`
