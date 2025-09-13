@@ -53,8 +53,9 @@ info = await element.getBasicInfo()
 
 ```python
 # Mouse operations
-mouse = await target.mouse
-await mouse.click(x=100, y=200, button='left')
+# 🚨 CRITICAL: Always await coroutines first before calling methods
+mouse = await target.mouse  # Await the coroutine first
+await mouse.click(x=100, y=200, button='left')  # Then call methods
 await mouse.move(x=300, y=400)
 ```
 
