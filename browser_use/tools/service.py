@@ -84,7 +84,7 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	def __init__(
 		self,
-		exclude_actions: list[str] = ['extract_structured_data', 'scroll_to_text', 'scroll'],
+		exclude_actions: list[str] = ['extract_structured_data', 'scroll_to_text', 'scroll', 'wait'],
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
@@ -906,6 +906,7 @@ You can also use it to explore the website.
 - juse this to e.g. extract + filter links, convert the page to json into the format you need etc...
 - wrap your code in a function(){{ ... }})() 
 - wrap your code in a try catch block
+- limit the output otherwise your context will explode
 
 ## Basic DOM interaction (single line preferred):
 Return: 
@@ -932,6 +933,25 @@ Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
 5. **Shadow DOM **:
 (function(){{ function findInShadow(selector) {{ let el = document.querySelector(selector); if(el) return el; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT); let node; while(node = walker.nextNode()) {{ if(node.shadowRoot) {{ const found = node.shadowRoot.querySelector(selector); if(found) return found; }} }} return null; }} return findInShadow('input[name="city"]') ? 'found in shadow' : 'not found'; }})()
 
+5. **Try catch block**:
+try {
+  const headlines = [];
+  const selectors = ['a.sidebar__link', 'a[class*="sidebar"]', '.headline', 'h1, h2, h3'];
+  
+  for (let selector of selectors) {
+    const elements = document.querySelectorAll(selector);
+    if (elements.length > 0) {
+      headlines.push(...Array.from(elements).map(el => el.textContent.trim()));
+      break;
+    }
+  }
+  
+  return JSON.stringify(headlines.slice(0, 5));
+} catch (e) {
+  return JSON.stringify({error: e.message, fallback: []});
+}
+
+
 (function(){{ const components = Array.from(document.querySelectorAll('*')).filter(el => el.tagName.includes('-') || el.shadowRoot !== undefined); return components.map(c => ({{tag: c.tagName.toLowerCase(), hasOpen: !!c.shadowRoot, hasClosed: c.shadowRoot === null && c.toString().includes('[object HTML')}})); }})()
 
 ## When stuck explore new options:
@@ -949,23 +969,55 @@ In the browser state, you see `x=150 y=75` - these are center coordinates of ele
 			param_model=ExecuteCDPAction,
 		)
 		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):
-			# Pre-process JavaScript to fix common issues
+			# Pre-process JavaScript to fix common issues and add error handling
 			code = params.js_code
+
+			# Wrap user code in try-catch for better error handling
+			wrapped_code = f"""
+			(function() {{
+				try {{
+					{code}
+				}} catch (error) {{
+					return JSON.stringify({{
+						error: error.message,
+						stack: error.stack,
+						fallback: []
+					}});
+				}}
+			}})()
+			"""
+
 			cdp_session = await browser_session.get_or_create_cdp_session()
 			try:
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': code, 'returnByValue': True}, session_id=cdp_session.session_id
+					params={'expression': wrapped_code, 'returnByValue': True}, session_id=cdp_session.session_id
 				)
 				result_text = result.get('result', {}).get('value', '')
 				description = result.get('result', {}).get('description', '')
-				error_message = result.get('exceptionDetails', {}).get('text', '')
 
 				# Check for JavaScript execution errors
 				if result.get('exceptionDetails'):
 					exception_details = result.get('exceptionDetails', {})
 					error_text = exception_details.get('text', 'Unknown JavaScript error')
 					line_number = exception_details.get('lineNumber', 'unknown')
+
+					# Try to provide more helpful error context
+					if 'querySelectorAll' in code and ('Uncaught' in error_text or error_text == ''):
+						return ActionResult(
+							error=f'JavaScript error at line {line_number}: Likely CSS selector issue. Try simpler selectors or use extract_structured_data instead. Original error: {error_text}'
+						)
+
 					return ActionResult(error=f'JavaScript error at line {line_number}: {error_text}')
+
+				# Check if result contains error information from our try-catch
+				try:
+					parsed_result = (
+						json.loads(result_text) if isinstance(result_text, str) and result_text.startswith('{') else None
+					)
+					if parsed_result and 'error' in parsed_result:
+						return ActionResult(error=f'JavaScript execution error: {parsed_result["error"]}')
+				except (json.JSONDecodeError, TypeError, KeyError):
+					pass
 
 				# Return the result (could be empty string, which is valid)
 				return ActionResult(extracted_content=f'Code: {code}\n\nResult: {result_text}')
