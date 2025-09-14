@@ -84,7 +84,7 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	def __init__(
 		self,
-		exclude_actions: list[str] = [],
+		exclude_actions: list[str] = ['extract_structured_data'],
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
@@ -897,12 +897,12 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		@self.registry.action(
 			"""This JavaScript code gets executed with Runtime.evaluate
-			 - Write code to solve problems you could not solve with other tools.
-			 - Don't write comments in here, no human reads that.
-			 - Write only valid code. 
 EXAMPLES:
-Clicking on coordinates, using when other tools fail, filling a form all at once, hovering, dragging, extracting only links, extracting query, zooming ....
+Clicking on coordinates, using when other tools fail, filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, zooming ....
 You can also use it to explore the website.
+- Write code to solve problems you could not solve with other tools.
+- Don't write comments in here, no human reads that.
+- Write only valid code. 
 """,
 			param_model=ExecuteCDPAction,
 		)
