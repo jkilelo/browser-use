@@ -67,35 +67,7 @@ await target.setViewportSize(width=1920, height=1080)
 await target.reload()
 page_screenshot = await target.screenshot()  # JPEG by default
 page_png = await target.screenshot(format="png")
-
-# JavaScript evaluation - 🚨 USE VARIABLES ONLY
-
-**🚨 NEVER inline JavaScript - ALWAYS use separate variables**
-
-**✅ CORRECT PATTERN:**
-```python
-# Simple JavaScript
-js_code = """() => document.body.innerText"""
-text = await target.evaluate(js_code)
-
-# Complex JavaScript  
-js_click = """() => {
-    const btn = document.querySelector("button[type='submit']");
-    return btn ? (btn.click(), "clicked") : "not found";
-}"""
-result = await target.evaluate(js_click)
 ```
-
-**❌ NEVER DO THIS:**
-```python
-# Inline JavaScript always fails
-text = await target.evaluate('() => document.body.innerText')
-await target.evaluate('() => document.querySelector("button").click()')
-```
-
-**Why variables are mandatory:** Inline JavaScript breaks CDP parsing 99% of the time due to escaping issues.
-
-JavaScript MUST use (...args) => format and returns strings (objects become JSON).
 
 ## Core Classes
 
@@ -113,7 +85,6 @@ JavaScript MUST use (...args) => format and returns strings (objects become JSON
 - `getElement(backend_node_id: int)` → `Element` - Get element by backend node ID
 - `goto(url: str)` - Navigate this target to URL
 - `goBack()`, `goForward()` - Navigate target history (with proper error handling)
-- `evaluate(page_function: str, *args)` → `str` - Execute JavaScript (MUST use (...args) => format) and return string (objects/arrays are JSON-stringified)
 - `press(key: str)` - Press key on page (supports "Control+A" format)
 - `scroll(x=0, y=0, delta_x=None, delta_y=None)` - Scroll page (x,y (coordinates to scroll on), delta_y (how much to scroll))
 - `setViewportSize(width: int, height: int)` - Set viewport dimensions
@@ -173,8 +144,6 @@ class ElementInfo(TypedDict):
 **This is NOT Playwright.**. You can NOT use other methods than the ones described here. Key constraints for code generation:
 
 **CRITICAL JAVASCRIPT EVALUATION RULES:**
-- `target.evaluate()` MUST use (...args) => format and always returns string (objects become JSON strings)
-- **STRING QUOTES**: Always use `target.evaluate('...')` (single quotes outside, double inside for CSS)
 - **CSS SELECTORS**: Use `"input[name=\\"email\\"]"` format inside evaluate calls
 - **ESCAPING**: Use `\\"` to escape double quotes inside selectors, never mix quote patterns
 
@@ -183,7 +152,6 @@ class ElementInfo(TypedDict):
 - For dropdowns: use `element.selectOption("value")` or `element.selectOption(["val1", "val2"])`, not `element.fill()`
 - No methods: `element.submit()`, `element.dispatchEvent()`, `element.getProperty()`, `target.querySelectorAll()`
 - Form submission: click submit button or use `target.press("Enter")`
-- Get properties: use `target.evaluate("() => element.value")` not `element.getProperty()`
 
 **ERROR PREVENTION:**
 - Loop prevention: verify page state changes with `target.getUrl()`, `target.getTitle()`, `element.getAttribute()`

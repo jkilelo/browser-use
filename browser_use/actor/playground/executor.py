@@ -8,7 +8,7 @@ from browser_use.actor import Browser
 
 async def executor(client: CDPClient):
 	browser = Browser(client)
-	target = await browser.goto('https://www.google.com/travel/flights')
+	target = await browser.newTarget('https://www.google.com/travel/flights')
 	await asyncio.sleep(3)  # let the page load
 
 	# Try to accept consent if it appears (EU/UK regions)

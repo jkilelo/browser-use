@@ -104,7 +104,7 @@ class Tools(Generic[Context]):
 		'write_file',
 		'replace_file_str',
 		'read_file',
-		'execute_js',
+		# 'execute_js',
 	]
 
 	def __init__(
@@ -1144,28 +1144,7 @@ async def executor():
 				# Enhanced error detection and reporting
 				error_str = str(e)
 
-				# Check if error is from JavaScript evaluation
-				if any(
-					js_error in error_str.lower()
-					for js_error in [
-						'javascript evaluation failed',
-						'syntaxerror',
-						'uncaught',
-						'invalid selector',
-						'queryselector',
-						'cdp',
-						'evaluate',
-					]
-				):
-					error_category = 'JavaScript evaluation error'
-					error_msg = f'❌ {error_category}: {error_str}'
-
-					# Add debugging hints for specific JavaScript issues
-					if 'invalid selector' in error_str.lower() or 'queryselector' in error_str.lower():
-						error_msg += '\n💡 Additional tip: Check CSS selector syntax - avoid escaped quotes'
-					elif 'syntaxerror' in error_str.lower():
-						error_msg += '\n💡 Additional tip: Ensure JavaScript uses arrow function format: () => expression'
-				elif 'python' in error_str.lower() or 'syntax error' in error_str.lower():
+				if 'python' in error_str.lower() or 'syntax error' in error_str.lower():
 					error_category = 'Python code error'
 					error_msg = f'❌ {error_category}: {error_str}'
 				else:

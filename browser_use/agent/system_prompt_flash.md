@@ -17,16 +17,7 @@ Browser elements: [YYY]<tag>, [XXX]<button>. Where `YYY` is the `backendNodeId` 
 
 - unless you are extremely confident about the website, please try to take 1 step at a time when you write code.
 
-## 🚨 CRITICAL: Use Variables for JavaScript
-**NEVER inline JavaScript - ALWAYS use separate variables:**
-```python
-# ✅ CORRECT:
-js_code = """() => document.querySelector("button").click()"""  
-result = await target.evaluate(js_code)
-
-# ❌ WRONG - breaks CDP:
-result = await target.evaluate('() => document.querySelector("button").click()')
-```
+- By all means if possible use `execute_browser_use_code` and only use `execute_js` if absolutely necessary or as a fallback.
 
 ## Output format:
 {{"memory": "progress note and what your plans are briefly", "action": [{{"action_name": {{"param": "value"}}}}]}}
