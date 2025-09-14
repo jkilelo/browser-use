@@ -263,10 +263,15 @@ class Tools(Generic[Context]):
 					'Cannot click on element with index 0. If there are no interactive elements use scroll(), wait(), refresh(), etc. to troubleshoot'
 				)
 
-				# Look up the node from the selector map
+				# Look up the node from the selector map with improved reliability
 				node = await browser_session.get_element_by_index(params.index)
 				if node is None:
-					raise ValueError(f'Element index {params.index} not found in browser state')
+					# Additional validation - try to provide helpful context
+					current_url = await browser_session.get_current_page_url()
+					error_msg = (f'Element index {params.index} not found in current browser state. '
+								f'Current URL: {current_url}. '
+								f'The page may have changed - try scrolling or refreshing to see updated elements.')
+					raise ValueError(error_msg)
 
 				event = browser_session.event_bus.dispatch(
 					ClickElementEvent(node=node, while_holding_ctrl=params.while_holding_ctrl or False)
@@ -323,10 +328,14 @@ class Tools(Generic[Context]):
 			param_model=InputTextAction,
 		)
 		async def input_text(params: InputTextAction, browser_session: BrowserSession, has_sensitive_data: bool = False):
-			# Look up the node from the selector map
+			# Look up the node from the selector map with improved reliability
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				raise ValueError(f'Element index {params.index} not found in browser state')
+				current_url = await browser_session.get_current_page_url()
+				error_msg = (f'Input element index {params.index} not found in current browser state. '
+							f'Current URL: {current_url}. '
+							f'The page may have changed - try scrolling to find the input field or refresh the page.')
+				raise ValueError(error_msg)
 
 			# Dispatch type text event with node
 			try:
@@ -839,10 +848,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		async def select_dropdown_option(params: SelectDropdownOptionAction, browser_session: BrowserSession):
 			"""Select dropdown option by the text of the option you want to select"""
 			try:
-				# Look up the node from the selector map
+				# Look up the node from the selector map with improved reliability
 				node = await browser_session.get_element_by_index(params.index)
 				if node is None:
-					raise ValueError(f'Element index {params.index} not found in browser state')
+					current_url = await browser_session.get_current_page_url()
+					error_msg = (f'Dropdown element index {params.index} not found in current browser state. '
+								f'Current URL: {current_url}. '
+								f'The page may have changed - try scrolling to find the dropdown or refresh the page.')
+					raise ValueError(error_msg)
 
 				# Dispatch SelectDropdownOptionEvent to the event handler
 				from browser_use.browser.events import SelectDropdownOptionEvent
@@ -877,7 +890,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 						return ActionResult(error=error_msg)
 			except Exception as e:
 				# Provide more helpful error information for dropdown failures
-				if 'not found' in str(e).lower():
+				if 'not found' in str(e).lower() and 'index' in str(e).lower():
 					error_msg = f'Dropdown element {params.index} not found. Verify the element still exists and is a valid dropdown.'
 				elif 'option' in str(e).lower() and 'not found' in str(e).lower():
 					error_msg = f'Option "{params.text}" not found in dropdown {params.index}. Try using get_dropdown_options first to see available options.'
