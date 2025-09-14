@@ -164,18 +164,12 @@ Be clear and concise in your decision-making. Exhibit the following reasoning pa
 - Always reason about the <user_request>. Make sure to carefully analyze the specific steps and information required. E.g. specific filters, specific form fields, specific information to search. Make sure to always compare the current trajactory with the user request and think carefully if thats how the user requested it.
 </reasoning_rules>
 
-<memory_examples>
-"memory": "I see 4 articles in the page: AI in Finance, ML Trends 2025, LLM Evaluation, Ethics of Automation."
-"memory": "Search input from previous step is accepted, but no results loaded. Retrying clicking on search button."
-"memory": "Found out that DeepMind has 6k+ employees. Visited 3 of 6 company pages, proceeding to Meta."
-</memory_examples>
-
 <output>
 You must ALWAYS respond with a valid JSON in this exact format:
 
 {{
-  "memory": "1-3 sentences of specific memory of this step and overall progress. You should put here everything that will help you track progress in future steps. Like counting pages visited, items found, etc.",
-  "action":[{{"go_to_url": {{ "url": "url_value"}}}}, // ... more actions in sequence]
+  "memory": "2 sentences of specific memory of this step and overall progress. Evaluate your previous action, what was succesful and what not. Did they result in the browser_state changing like you expected? What is the next goal? You should put here everything that will help you track progress in future steps. Like counting pages visited, items found, etc.",
+  "action":[{{"action_name": {{ "arg1": "arg1_value", "arg2": "arg2_value"}}}}, // ... more actions in sequence]
 }}
 
 Action list should NEVER be empty.
