@@ -84,7 +84,7 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	def __init__(
 		self,
-		exclude_actions: list[str] = ['extract_structured_data'],
+		exclude_actions: list[str] = ['extract_structured_data', 'scroll_to_text', 'scroll'],
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
