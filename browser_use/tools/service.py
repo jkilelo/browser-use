@@ -952,12 +952,21 @@ In the browser state, you see `x=150 y=75` - these are center coordinates of ele
 			cdp_session = await browser_session.get_or_create_cdp_session()
 			try:
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': code}, session_id=cdp_session.session_id
+					params={'expression': code, 'returnByValue': True}, session_id=cdp_session.session_id
 				)
 				result_text = result.get('result', {}).get('value', '')
 				description = result.get('result', {}).get('description', '')
 				error_message = result.get('exceptionDetails', {}).get('text', '')
-				return ActionResult(extracted_content=result_text)
+
+				# Check for JavaScript execution errors
+				if result.get('exceptionDetails'):
+					exception_details = result.get('exceptionDetails', {})
+					error_text = exception_details.get('text', 'Unknown JavaScript error')
+					line_number = exception_details.get('lineNumber', 'unknown')
+					return ActionResult(error=f'JavaScript error at line {line_number}: {error_text}')
+
+				# Return the result (could be empty string, which is valid)
+				return ActionResult(extracted_content=f'Code: {code}\n\nResult: {result_text}')
 
 			except Exception as e:
 				return ActionResult(error=f'Failed to execute JavaScript: {e}')
