@@ -894,18 +894,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			retry_messages = input_messages + [clarification_message]
 			model_output = await self.get_model_output(retry_messages)
 
-			if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
-				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
-				action_instance = self.ActionModel()
-				setattr(
-					action_instance,
-					'done',
-					{
-						'success': False,
-						'text': 'No next action returned by LLM!',
-					},
-				)
-				model_output.action = [action_instance]
+			# if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
+			# 	self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
+			# 	action_instance = self.ActionModel()
+			# 	setattr(
+			# 		action_instance,
+			# 		'done',
+			# 		{
+			# 			'success': False,
+			# 			'text': 'No next action returned by LLM!',
+			# 		},
+			# 	)
+			# 	model_output.action = [action_instance]
 
 		return model_output
 
