@@ -834,7 +834,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 		# File System Actions
 		@self.registry.action(
-			'Write or append content to file_name in file system. Allowed extensions are .md, .txt, .json, .csv, .pdf. For .pdf files, write the content in markdown format and it will automatically be converted to a properly formatted PDF document.'
+			'Write or append content to file_name in file system. Allowed extensions are .md, .txt, .json, .csv, .pdf. For .pdf files, write the content in markdown format and it will automatically be converted to a properly formatted PDF document. IMPORTANT: Only use this tool when the task explicitly requires creating/saving files. For data extraction tasks, return results directly in text responses instead of creating files.'
 		)
 		async def write_file(
 			file_name: str,
@@ -844,6 +844,26 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			trailing_newline: bool = True,
 			leading_newline: bool = False,
 		):
+			# Discourage creating files for data extraction by checking for common patterns
+			extraction_file_patterns = [
+				'results', 'data', 'output', 'extracted', 'summary', 'info',
+				'articles', 'titles', 'addresses', 'events', 'papers', 'listings',
+				'reviews', 'headlines', 'climate_change', 'top_communities', 'nutrition'
+			]
+
+			file_base = file_name.lower().split('.')[0]
+			if any(pattern in file_base for pattern in extraction_file_patterns):
+				warning_msg = (f"WARNING: Creating file '{file_name}' for data extraction. "
+							  f"Consider returning results directly in done() text instead of creating files. "
+							  f"Files should only be created when explicitly required by the task.")
+				logger.warning(warning_msg)
+
+				# Return the content with a suggestion to use structured response instead
+				return ActionResult(
+					extracted_content=f"{warning_msg}\n\nFile content would be:\n{content}",
+					long_term_memory=f"Avoided creating potentially unnecessary file '{file_name}' for data extraction",
+				)
+
 			if trailing_newline:
 				content += '\n'
 			if leading_newline:
@@ -1014,7 +1034,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		else:
 
 			@self.registry.action(
-				'Complete task - provide a summary of results for the user. Set success=True if task completed successfully, false otherwise. Text should be your response to the user summarizing results. Include files you would like to display to the user in files_to_display.',
+				'Complete task - provide a summary of results for the user. Set success=True if task completed successfully, false otherwise. Text should be your response to the user summarizing results. IMPORTANT: For data extraction tasks, include extracted data directly in the text field rather than creating files. Only use files_to_display for files that were explicitly created per task requirements.',
 				param_model=DoneAction,
 			)
 			async def done(params: DoneAction, file_system: FileSystem):
