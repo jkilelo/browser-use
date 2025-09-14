@@ -29,6 +29,9 @@ from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 T = TypeVar('T', bound=BaseModel)
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -579,18 +582,15 @@ class ChatOpenAI(BaseChatModel):
 			item_type = getattr(item, 'type', 'unknown')
 			if item_type == 'function_call' and hasattr(item, 'name') and hasattr(item, 'arguments'):
 				function_calls.append(item)
-			elif item_type == 'message':
+			elif item_type == 'message' and output_text == '':
+				# only take the first message
 				try:
-					output_text += item.content[0].text
+					output_text = item.content[0].text
 				except Exception:
 					pass
 
 		if not function_calls:
-			raise ModelProviderError(
-				message=f'No function calls found in Response: Output text: {output_text}',
-				status_code=500,
-				model=self.name,
-			)
+			logger.debug(f'No function calls found in Response: Output text: {output_text}')
 
 		# Reconstruct the actions list from individual function calls
 		# Each action needs to be in the exact format that the ActionModel Union expects
