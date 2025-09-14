@@ -1501,7 +1501,8 @@ class BrowserSession(BaseModel):
 	async def get_dom_element_by_index(self, index: int) -> EnhancedDOMTreeNode | None:
 		"""Get DOM element by index.
 
-		Get element from cached selector map.
+		Get element from cached selector map. If element not found, attempts
+		to rebuild DOM state once to handle dynamic page changes.
 
 		Args:
 			index: The element index from the serialized DOM
@@ -1513,7 +1514,32 @@ class BrowserSession(BaseModel):
 		if self._cached_selector_map and index in self._cached_selector_map:
 			return self._cached_selector_map[index]
 
-		return None
+		# Element not found in cache - try rebuilding DOM state once
+		# This handles cases where the page has changed since last DOM build
+		try:
+			from browser_use.browser.events import BrowserStateRequestEvent
+
+			self.logger.debug(f'Element {index} not found in cache, rebuilding DOM state')
+
+			# Request fresh DOM state from DOM watchdog
+			event = self.event_bus.dispatch(BrowserStateRequestEvent())
+			await event
+			fresh_state = await event.event_result(raise_if_any=False, raise_if_none=False)
+
+			if fresh_state and hasattr(fresh_state, 'selector_map'):
+				# Update our cache with fresh selector map
+				self._cached_selector_map = fresh_state.selector_map
+				# Try lookup again with fresh cache
+				if index in self._cached_selector_map:
+					self.logger.debug(f'Element {index} found after DOM rebuild')
+					return self._cached_selector_map[index]
+
+			self.logger.debug(f'Element {index} still not found after DOM rebuild')
+			return None
+
+		except Exception as e:
+			self.logger.warning(f'Failed to rebuild DOM state for element lookup: {e}')
+			return None
 
 	def update_cached_selector_map(self, selector_map: dict[int, EnhancedDOMTreeNode]) -> None:
 		"""Update the cached selector map with new DOM state.
