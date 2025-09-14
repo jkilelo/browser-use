@@ -304,8 +304,19 @@ class Tools(Generic[Context]):
 
 				return handle_browser_error(e)
 			except Exception as e:
-				error_msg = f'Failed to click element {params.index}: {str(e)}'
-				return ActionResult(error=error_msg)
+				# Provide more detailed error information to help LLM recover
+				if 'not found' in str(e).lower():
+					error_msg = f'Element {params.index} not found. The page may have changed - try refreshing browser state or scrolling to find the element again.'
+				elif 'timeout' in str(e).lower():
+					error_msg = f'Timeout while clicking element {params.index}. The element may be slow to respond - try waiting a moment before retrying.'
+				else:
+					error_msg = f'Failed to click element {params.index}: {str(e)}'
+
+				logger.warning(f'Element interaction failed: {error_msg}')
+				return ActionResult(
+					error=error_msg,
+					long_term_memory=f'Click on element {params.index} failed: {str(e)}'
+				)
 
 		@self.registry.action(
 			'Input text into an input interactive element. Only input text into indices that are inside your current browser_state. Never input text into indices that are not inside your current browser_state.',
@@ -336,10 +347,21 @@ class Tools(Generic[Context]):
 			except BrowserError as e:
 				return handle_browser_error(e)
 			except Exception as e:
-				# Log the full error for debugging
-				logger.error(f'Failed to dispatch TypeTextEvent: {type(e).__name__}: {e}')
-				error_msg = f'Failed to input text into element {params.index}: {e}'
-				return ActionResult(error=error_msg)
+				# Provide more detailed error information to help LLM recover
+				if 'not found' in str(e).lower():
+					error_msg = f'Input element {params.index} not found. The page may have changed - try refreshing browser state or scrolling to find the input field.'
+				elif 'disabled' in str(e).lower() or 'readonly' in str(e).lower():
+					error_msg = f'Input element {params.index} is disabled or readonly. Try clicking on the element first or find an alternative input field.'
+				elif 'timeout' in str(e).lower():
+					error_msg = f'Timeout while inputting text into element {params.index}. Try waiting a moment before retrying.'
+				else:
+					error_msg = f'Failed to input text into element {params.index}: {e}'
+
+				logger.warning(f'Text input failed: {error_msg}')
+				return ActionResult(
+					error=error_msg,
+					long_term_memory=f'Text input to element {params.index} failed: {str(e)}'
+				)
 
 		@self.registry.action('Upload file to interactive element with file path', param_model=UploadFileAction)
 		async def upload_file_to_element(
@@ -664,9 +686,20 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					include_extracted_content_only_once=include_extracted_content_only_once,
 					long_term_memory=memory,
 				)
+			except asyncio.TimeoutError:
+				error_msg = f'Timeout occurred while extracting data for query: "{query}". The page content may be too large or complex. Try using a more specific query or scrolling to find the relevant section.'
+				logger.warning(error_msg)
+				return ActionResult(
+					error=error_msg,
+					long_term_memory=f'Data extraction timed out for query: {query}'
+				)
 			except Exception as e:
-				logger.debug(f'Error extracting content: {e}')
-				raise RuntimeError(str(e))
+				error_msg = f'Failed to extract data for query "{query}": {str(e)}'
+				logger.warning(f'Data extraction error: {error_msg}')
+				return ActionResult(
+					error=error_msg,
+					long_term_memory=f'Data extraction failed: {str(e)}'
+				)
 
 		@self.registry.action(
 			"""Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 10.0 for ten pages, etc.). 
@@ -715,9 +748,19 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				logger.info(msg)
 				return ActionResult(extracted_content=msg, long_term_memory=long_term_memory)
 			except Exception as e:
-				logger.error(f'Failed to dispatch ScrollEvent: {type(e).__name__}: {e}')
-				error_msg = 'Failed to execute scroll action.'
-				return ActionResult(error=error_msg)
+				# Provide more helpful error information
+				if 'not found' in str(e).lower() and params.frame_element_index is not None:
+					error_msg = f'Cannot scroll - element {params.frame_element_index} not found. Try scrolling the page instead (without frame_element_index).'
+				elif 'timeout' in str(e).lower():
+					error_msg = 'Scroll operation timed out. The page may be slow to respond - try waiting a moment before retrying.'
+				else:
+					error_msg = f'Failed to scroll: {str(e)}'
+
+				logger.warning(f'Scroll failed: {error_msg}')
+				return ActionResult(
+					error=error_msg,
+					long_term_memory=f'Scroll operation failed: {str(e)}'
+				)
 
 		@self.registry.action(
 			'Send strings of special keys to use e.g. Escape, Backspace, Insert, PageDown, Delete, Enter, or Shortcuts such as `Control+o`, `Control+Shift+T`',
@@ -795,42 +838,57 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		)
 		async def select_dropdown_option(params: SelectDropdownOptionAction, browser_session: BrowserSession):
 			"""Select dropdown option by the text of the option you want to select"""
-			# Look up the node from the selector map
-			node = await browser_session.get_element_by_index(params.index)
-			if node is None:
-				raise ValueError(f'Element index {params.index} not found in browser state')
+			try:
+				# Look up the node from the selector map
+				node = await browser_session.get_element_by_index(params.index)
+				if node is None:
+					raise ValueError(f'Element index {params.index} not found in browser state')
 
-			# Dispatch SelectDropdownOptionEvent to the event handler
-			from browser_use.browser.events import SelectDropdownOptionEvent
+				# Dispatch SelectDropdownOptionEvent to the event handler
+				from browser_use.browser.events import SelectDropdownOptionEvent
 
-			event = browser_session.event_bus.dispatch(SelectDropdownOptionEvent(node=node, text=params.text))
-			selection_data = await event.event_result()
+				event = browser_session.event_bus.dispatch(SelectDropdownOptionEvent(node=node, text=params.text))
+				selection_data = await event.event_result()
 
-			if not selection_data:
-				raise ValueError('Failed to select dropdown option - no data returned')
+				if not selection_data:
+					raise ValueError('Failed to select dropdown option - no data returned')
 
-			# Check if the selection was successful
-			if selection_data.get('success') == 'true':
-				# Extract the message from the returned data
-				msg = selection_data.get('message', f'Selected option: {params.text}')
-				return ActionResult(
-					extracted_content=msg,
-					include_in_memory=True,
-					long_term_memory=f"Selected dropdown option '{params.text}' at index {params.index}",
-				)
-			else:
-				# Handle structured error response
-				# TODO: raise BrowserError instead of returning ActionResult
-				if 'short_term_memory' in selection_data and 'long_term_memory' in selection_data:
+				# Check if the selection was successful
+				if selection_data.get('success') == 'true':
+					# Extract the message from the returned data
+					msg = selection_data.get('message', f'Selected option: {params.text}')
 					return ActionResult(
-						extracted_content=selection_data['short_term_memory'],
-						long_term_memory=selection_data['long_term_memory'],
-						include_extracted_content_only_once=True,
+						extracted_content=msg,
+						include_in_memory=True,
+						long_term_memory=f"Selected dropdown option '{params.text}' at index {params.index}",
 					)
 				else:
-					# Fallback to regular error
-					error_msg = selection_data.get('error', f'Failed to select option: {params.text}')
-					return ActionResult(error=error_msg)
+					# Handle structured error response
+					# TODO: raise BrowserError instead of returning ActionResult
+					if 'short_term_memory' in selection_data and 'long_term_memory' in selection_data:
+						return ActionResult(
+							extracted_content=selection_data['short_term_memory'],
+							long_term_memory=selection_data['long_term_memory'],
+							include_extracted_content_only_once=True,
+						)
+					else:
+						# Fallback to regular error
+						error_msg = selection_data.get('error', f'Failed to select option: {params.text}')
+						return ActionResult(error=error_msg)
+			except Exception as e:
+				# Provide more helpful error information for dropdown failures
+				if 'not found' in str(e).lower():
+					error_msg = f'Dropdown element {params.index} not found. Verify the element still exists and is a valid dropdown.'
+				elif 'option' in str(e).lower() and 'not found' in str(e).lower():
+					error_msg = f'Option "{params.text}" not found in dropdown {params.index}. Try using get_dropdown_options first to see available options.'
+				else:
+					error_msg = f'Failed to select dropdown option "{params.text}" from element {params.index}: {str(e)}'
+
+				logger.warning(f'Dropdown selection failed: {error_msg}')
+				return ActionResult(
+					error=error_msg,
+					long_term_memory=f'Dropdown selection failed: {str(e)}'
+				)
 
 		# File System Actions
 		@self.registry.action(
