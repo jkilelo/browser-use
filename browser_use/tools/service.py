@@ -37,7 +37,6 @@ from browser_use.tools.views import (
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
-	ExecuteCDPAction,
 	GetDropdownOptionsAction,
 	GoToUrlAction,
 	InputTextAction,
@@ -966,64 +965,25 @@ In the browser state, you see `x=150 y=75` - these are center coordinates of ele
 (function(){{ const x = 150, y = 75; const el = document.elementFromPoint(x, y); if(el) {{ el.dispatchEvent(new MouseEvent('click', {{bubbles: true, cancelable: true}})); return 'clicked at coordinates'; }} return 'no element at coordinates'; }})()
 
 """,
-			param_model=ExecuteCDPAction,
 		)
-		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):
+		async def execute_js(code: str, browser_session: BrowserSession):
 			# Pre-process JavaScript to fix common issues and add error handling
-			code = params.js_code
-
-			# Wrap user code in try-catch for better error handling
-			wrapped_code = f"""
-			(function() {{
-				try {{
-					{code}
-				}} catch (error) {{
-					return JSON.stringify({{
-						error: error.message,
-						stack: error.stack,
-						fallback: []
-					}});
-				}}
-			}})()
-			"""
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
+			result_text = ''
 			try:
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': wrapped_code, 'returnByValue': True}, session_id=cdp_session.session_id
+					params={'expression': code, 'returnByValue': True}, session_id=cdp_session.session_id
 				)
 				result_text = result.get('result', {}).get('value', '')
 				description = result.get('result', {}).get('description', '')
-
-				# Check for JavaScript execution errors
-				if result.get('exceptionDetails'):
-					exception_details = result.get('exceptionDetails', {})
-					error_text = exception_details.get('text', 'Unknown JavaScript error')
-					line_number = exception_details.get('lineNumber', 'unknown')
-
-					# Try to provide more helpful error context
-					if 'querySelectorAll' in code and ('Uncaught' in error_text or error_text == ''):
-						return ActionResult(
-							error=f'JavaScript error at line {line_number}: Likely CSS selector issue. Try simpler selectors or use extract_structured_data instead. Original error: {error_text}'
-						)
-
-					return ActionResult(error=f'JavaScript error at line {line_number}: {error_text}')
-
-				# Check if result contains error information from our try-catch
-				try:
-					parsed_result = (
-						json.loads(result_text) if isinstance(result_text, str) and result_text.startswith('{') else None
-					)
-					if parsed_result and 'error' in parsed_result:
-						return ActionResult(error=f'JavaScript execution error: {parsed_result["error"]}')
-				except (json.JSONDecodeError, TypeError, KeyError):
-					pass
 
 				# Return the result (could be empty string, which is valid)
 				return ActionResult(extracted_content=f'Code: {code}\n\nResult: {result_text}')
 
 			except Exception as e:
-				return ActionResult(error=f'Failed to execute JavaScript {code}: {e}')
+				result = f'Failed to execute JavaScript {code}: {e} '
+				return ActionResult(error=result)
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
