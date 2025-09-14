@@ -59,7 +59,7 @@ class ElementSelectedEvent(BaseEvent[T_EventResultType]):
 		if data is None:
 			return None
 		return EnhancedDOMTreeNode(
-			element_index=data.element_index,
+			# element_index=data.element_index,  # Removed: using backend_node_id directly
 			node_id=data.node_id,
 			backend_node_id=data.backend_node_id,
 			session_id=data.session_id,

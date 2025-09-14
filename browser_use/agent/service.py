@@ -1880,22 +1880,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# selector_hash_map = {hash(e): e for e in browser_state_summary.dom_state.selector_map.values()}
 
-		highlight_index, current_element = next(
+		backend_node_id, current_element = next(
 			(
-				(highlight_index, element)
-				for highlight_index, element in browser_state_summary.dom_state.selector_map.items()
+				(backend_node_id, element)
+				for backend_node_id, element in browser_state_summary.dom_state.selector_map.items()
 				if element.element_hash == historical_element.element_hash
 			),
 			(None, None),
 		)
 
-		if not current_element or highlight_index is None:
+		if not current_element or backend_node_id is None:
 			return None
 
 		old_index = action.get_index()
-		if old_index != highlight_index:
-			action.set_index(highlight_index)
-			self.logger.info(f'Element moved in DOM, updated index from {old_index} to {highlight_index}')
+		if old_index != backend_node_id:
+			action.set_index(backend_node_id)
+			self.logger.info(f'Element moved in DOM, updated index from {old_index} to {backend_node_id}')
 
 		return action
 

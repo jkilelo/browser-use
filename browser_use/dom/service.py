@@ -557,7 +557,7 @@ class DomService:
 				snapshot_node=snapshot_data,
 				is_visible=None,
 				absolute_position=absolute_position,
-				element_index=None,
+				# element_index=None,  # Removed: using backend_node_id directly in selector_map
 			)
 
 			enhanced_dom_tree_node_lookup[node['nodeId']] = dom_tree_node

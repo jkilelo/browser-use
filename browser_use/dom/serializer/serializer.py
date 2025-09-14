@@ -239,9 +239,9 @@ class DOMTreeSerializer:
 
 			# Only add to selector map if element is both interactive AND visible
 			if is_interactive_assign and is_visible:
-				node.interactive_index = self._interactive_counter
-				node.original_node.element_index = self._interactive_counter
-				self._selector_map[self._interactive_counter] = node.original_node
+				# Use backend_node_id for both interactive_index display AND selector_map key
+				node.interactive_index = node.original_node.backend_node_id
+				self._selector_map[node.original_node.backend_node_id] = node.original_node
 				self._interactive_counter += 1
 
 				# Check if node is new

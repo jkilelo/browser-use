@@ -47,7 +47,7 @@ def create_mock_state_message(temp_dir: str):
 	)
 
 	# Create selector map
-	selector_map: DOMSelectorMap = {1: mock_button}
+	selector_map: DOMSelectorMap = {42: mock_button}  # Use backend_node_id as key
 
 	# Create mock tab info with proper target_id
 	mock_tab = TabInfo(
@@ -61,7 +61,7 @@ def create_mock_state_message(temp_dir: str):
 			original_node=mock_button,
 			children=[],
 			should_display=True,
-			interactive_index=1,
+			interactive_index=42,  # Use backend_node_id
 		),
 		selector_map=selector_map,
 	)

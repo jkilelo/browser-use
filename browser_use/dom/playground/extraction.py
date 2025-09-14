@@ -4,7 +4,6 @@ import os
 import time
 
 import anyio
-import pyperclip
 import tiktoken
 
 from browser_use.agent.prompts import AgentMessagePrompt
@@ -253,24 +252,7 @@ async def test_focus_vs_all_elements():
 					continue
 
 				try:
-					if answer.lower().startswith('c,'):
-						# Copy element JSON format: c,index
-						parts = answer.split(',', 1)
-						if len(parts) == 2:
-							try:
-								target_index = int(parts[1].strip())
-								if target_index in selector_map:
-									element_node = selector_map[target_index]
-									element_json = json.dumps(element_node.__json__(), indent=2, default=str)
-									pyperclip.copy(element_json)
-									print(f'Copied element {target_index} JSON to clipboard: {element_node.tag_name}')
-								else:
-									print(f'Invalid index: {target_index}')
-							except ValueError:
-								print(f'Invalid index format: {parts[1]}')
-						else:
-							print("Invalid input format. Use 'c,index'.")
-					elif ',' in answer:
+					if ',' in answer:
 						# Input text format: index,text
 						parts = answer.split(',', 1)
 						if len(parts) == 2:

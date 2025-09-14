@@ -671,7 +671,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			"""Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 10.0 for ten pages, etc.). 
 			Default behavior is to scroll the entire page. This is enough for most cases.
-			Optional if there are multiple scroll containers, use frame_element_index parameter with an element inside the container you want to scroll in. For that you must use indices that exist in your browser_state (works well for dropdowns and custom UI components). 
+			Optional if there are multiple scroll containers, use frame_element_index parameter with a backend_node_id inside the container you want to scroll in. For that you must use backend_node_ids that exist in your browser_state (works well for dropdowns and custom UI components). 
 			Instead of scrolling step after step, use a high number of pages at once like 10 to get to the bottom of the page.
 			If you know where you want to scroll to, use scroll_to_text instead of this tool.
 			""",
@@ -686,7 +686,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					node = await browser_session.get_element_by_index(params.frame_element_index)
 					if node is None:
 						# Element does not exist
-						msg = f'Element index {params.frame_element_index} not found in browser state'
+						msg = f'Element with backend_node_id {params.frame_element_index} not found in browser state'
 						return ActionResult(error=msg)
 
 				# Dispatch scroll event with node - the complex logic is handled in the event handler

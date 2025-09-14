@@ -293,7 +293,7 @@ class EnhancedDOMTreeNode:
 	# endregion - Snapshot Node data
 
 	# Interactive element index
-	element_index: int | None = None
+	# element_index: int | None = None  # Removed: now using backend_node_id directly in selector_map
 
 	uuid: str = field(default_factory=uuid7str)
 
@@ -659,7 +659,7 @@ class EnhancedDOMTreeNode:
 		return hash(self)
 
 	def __str__(self) -> str:
-		return f'[<{self.tag_name}>#{self.frame_id[-4:] if self.frame_id else "?"}:{self.element_index}]'
+		return f'[<{self.tag_name}>#{self.frame_id[-4:] if self.frame_id else "?"}:{self.backend_node_id}]'
 
 	def __hash__(self) -> int:
 		"""
