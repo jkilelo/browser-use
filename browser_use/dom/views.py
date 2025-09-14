@@ -19,6 +19,8 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'title',
 	'type',
 	'checked',
+	'class',
+	'id',
 	'name',
 	'role',
 	'value',
