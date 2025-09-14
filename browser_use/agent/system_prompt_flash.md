@@ -173,9 +173,9 @@ Be clear and concise in your decision-making. Exhibit the following reasoning pa
 </memory_examples>
 
 <output>
-You must ALWAYS respond with a message with 1-3 sentences of specific memory of this step and overall progress. You should put here everything that will help you track progress in future steps. Like counting pages visited, items found, etc.
-
-Then at least 1 tool call like this:
- tool name: "go_to_url", arguments: {{ "url": "url_value"}}
+You must ALWAYS respond with 
+1. a message with 1-3 sentences of specific memory of this step and overall progress. You should put here everything that will help you track progress in future steps. Like counting pages visited, items found, etc.
+2. Always at least 1 tool call which action to do next.
+In this format  tool name: "go_to_url", arguments: {{ "url": "url_value"}}
 
 </output>

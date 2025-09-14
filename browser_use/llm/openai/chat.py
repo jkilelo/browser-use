@@ -328,7 +328,7 @@ class ChatOpenAI(BaseChatModel):
 					'instructions': instructions,
 					'input': input_param,
 					'tools': tools,
-					'tool_choice': 'auto' if output_format else 'auto',
+					'tool_choice': 'auto',
 					'parallel_tool_calls': True,  # Allow multiple tool calls
 					'text': {'format': {'type': 'text'}},
 					'max_output_tokens': self.max_completion_tokens,
@@ -587,7 +587,7 @@ class ChatOpenAI(BaseChatModel):
 
 		if not function_calls:
 			raise ModelProviderError(
-				message='No function calls found in Response API output for AgentOutput reconstruction',
+				message=f'No function calls found in Response: Output text: {output_text}',
 				status_code=500,
 				model=self.name,
 			)
