@@ -173,12 +173,9 @@ Be clear and concise in your decision-making. Exhibit the following reasoning pa
 </memory_examples>
 
 <output>
-You must ALWAYS respond with a valid JSON in this exact format:
+You must ALWAYS respond with a message with 1-3 sentences of specific memory of this step and overall progress. You should put here everything that will help you track progress in future steps. Like counting pages visited, items found, etc.
 
-{{
-  "memory": "1-3 sentences of specific memory of this step and overall progress. You should put here everything that will help you track progress in future steps. Like counting pages visited, items found, etc.",
-  "action":[{{"go_to_url": {{ "url": "url_value"}}}}, // ... more actions in sequence]
-}}
+Then at least 1 tool call like this:
+ tool name: "go_to_url", arguments: {{ "url": "url_value"}}
 
-Action list should NEVER be empty.
 </output>

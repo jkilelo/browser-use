@@ -328,8 +328,9 @@ class ChatOpenAI(BaseChatModel):
 					'instructions': instructions,
 					'input': input_param,
 					'tools': tools,
-					'tool_choice': 'required' if output_format else 'auto',
+					'tool_choice': 'auto' if output_format else 'auto',
 					'parallel_tool_calls': True,  # Allow multiple tool calls
+					'text': {'format': {'type': 'text'}},
 					'max_output_tokens': self.max_completion_tokens,
 				}
 
@@ -566,9 +567,11 @@ class ChatOpenAI(BaseChatModel):
 
 		return tools
 
-	def _reconstruct_agent_output_from_function_calls(self, response: Any, output_format: type[BaseModel]) -> Any:
+	def _reconstruct_agent_output_from_function_calls(self, response: Response, output_format: type[BaseModel]) -> Any:
 		"""Reconstruct AgentOutput from multiple function calls in response.output"""
 		import json
+
+		output_text = ''
 
 		# Collect all function calls (skip reasoning blocks)
 		function_calls = []
@@ -576,6 +579,11 @@ class ChatOpenAI(BaseChatModel):
 			item_type = getattr(item, 'type', 'unknown')
 			if item_type == 'function_call' and hasattr(item, 'name') and hasattr(item, 'arguments'):
 				function_calls.append(item)
+			elif item_type == 'message':
+				try:
+					output_text += item.content[0].text
+				except Exception:
+					pass
 
 		if not function_calls:
 			raise ModelProviderError(
@@ -600,7 +608,7 @@ class ChatOpenAI(BaseChatModel):
 		# Construct AgentOutput with empty memory as requested
 		agent_output_data = {
 			'evaluation_previous_goal': '',  # Can be empty for Response API
-			'memory': '',  # Set to empty string as requested
+			'memory': output_text,  # Set to empty string as requested
 			'next_goal': '',  # Can be empty for Response API
 			'action': actions,
 		}
