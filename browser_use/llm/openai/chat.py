@@ -232,7 +232,7 @@ class ChatOpenAI(BaseChatModel):
 					usage=usage,
 				)
 
-			elif self.response_api:
+			elif self.response_api and 'gpt-5-mini' in str(self.model).lower():
 				# Extract system message as instructions and user messages as input
 				system_messages = [msg for msg in messages if msg.role == 'system']
 				user_messages = [msg for msg in messages if msg.role != 'system']
