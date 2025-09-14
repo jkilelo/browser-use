@@ -898,12 +898,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		@self.registry.action(
 			"""This JavaScript code gets executed with Runtime.evaluate
 EXAMPLES:
-Clicking on coordinates, using when other tools fail, filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, zooming ....
+Using when other tools fail, filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, Clicking on coordinates, zooming ....
 You can also use it to explore the website.
 - Write code to solve problems you could not solve with other tools.
 - Don't write comments in here, no human reads that.
 - Write only valid code. 
 - juse this to e.g. extract + filter links, convert the page to json into the format you need etc...
+- wrap your code in a function(){{ ... }})() 
+- wrap your code in a try catch block
 
 ## Basic DOM interaction (single line preferred):
 Return: 
@@ -969,7 +971,7 @@ In the browser state, you see `x=150 y=75` - these are center coordinates of ele
 				return ActionResult(extracted_content=f'Code: {code}\n\nResult: {result_text}')
 
 			except Exception as e:
-				return ActionResult(error=f'Failed to execute JavaScript: {e}')
+				return ActionResult(error=f'Failed to execute JavaScript {code}: {e}')
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
