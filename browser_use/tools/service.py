@@ -668,6 +668,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				logger.debug(f'Error extracting content: {e}')
 				raise RuntimeError(str(e))
 
+		@self.registry.action("""
+Memory tool to plan, evaluate and remember information from the current step.
+Call this in the beginning to make a plan. 
+If you need to remember links, infos, details, or high level plans call this tool with that information. This will be saved to your context.
+""")
+		async def memory(text: str):
+			return ActionResult(extracted_content=text)
+
 		@self.registry.action(
 			"""Scroll the page by specified number of pages (set down=True to scroll down, down=False to scroll up, num_pages=number of pages to scroll like 0.5 for half page, 10.0 for ten pages, etc.). 
 			Default behavior is to scroll the entire page. This is enough for most cases.

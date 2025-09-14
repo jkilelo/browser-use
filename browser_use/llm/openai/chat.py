@@ -331,7 +331,7 @@ class ChatOpenAI(BaseChatModel):
 					'instructions': instructions,
 					'input': input_param,
 					'tools': tools,
-					'tool_choice': 'auto',
+					'tool_choice': 'required',  # 'auto',
 					'parallel_tool_calls': True,  # Allow multiple tool calls
 					'text': {'format': {'type': 'text'}},
 					'max_output_tokens': self.max_completion_tokens,
