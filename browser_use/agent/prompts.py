@@ -121,10 +121,8 @@ class AgentMessagePrompt:
 			'shadow_open': 0,
 			'shadow_closed': 0,
 			'scroll_containers': 0,
-			'forms': 0,
 			'images': 0,
 			'interactive_elements': 0,
-			'articles': 0,
 			'total_elements': 0,
 		}
 
@@ -158,12 +156,24 @@ class AgentMessagePrompt:
 				if node.interactive_index is not None:
 					stats['interactive_elements'] += 1
 
+				# Check if this element hosts shadow DOM
+				if node.is_shadow_host:
+					# Check if any shadow children are closed
+					has_closed_shadow = any(
+						child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
+						and child.original_node.shadow_root_type
+						and child.original_node.shadow_root_type.lower() == 'closed'
+						for child in node.children
+					)
+					if has_closed_shadow:
+						stats['shadow_closed'] += 1
+					else:
+						stats['shadow_open'] += 1
+
 			elif original.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
-				# Shadow DOM detection
-				if original.shadow_root_type and original.shadow_root_type.lower() == 'closed':
-					stats['shadow_closed'] += 1
-				else:
-					stats['shadow_open'] += 1
+				# Shadow DOM fragment - these are the actual shadow roots
+				# But don't double-count since we count them at the host level above
+				pass
 
 			# Traverse children
 			for child in node.children:

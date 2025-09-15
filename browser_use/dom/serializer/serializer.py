@@ -460,7 +460,16 @@ class DOMTreeSerializer:
 				attributes_html_str = DOMTreeSerializer._build_attributes_string(node.original_node, include_attributes, '')
 
 				# Build the line with shadow host indicator
-				shadow_prefix = '|SHADOW|' if node.is_shadow_host else ''
+				shadow_prefix = ''
+				if node.is_shadow_host:
+					# Check if any shadow children are closed
+					has_closed_shadow = any(
+						child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
+						and child.original_node.shadow_root_type
+						and child.original_node.shadow_root_type.lower() == 'closed'
+						for child in node.children
+					)
+					shadow_prefix = '|SHADOW(closed)|' if has_closed_shadow else '|SHADOW(open)|'
 
 				if should_show_scroll and node.interactive_index is None:
 					# Scrollable container but not clickable
