@@ -912,6 +912,9 @@ Return:
 JSON.stringify(Array.from(document.querySelectorAll('a')).map(el => el.textContent.trim()))
 - execute_js can only return strings/numbers/booleans that are readable
 - Objects return "Executed successfully (returned object)" - useless!
+- If you get `{}` or `[]` results, your selectors are WRONG. Use debugging script (#7) first.
+- NEVER repeat the same failing selector more than 2 times. Switch strategies immediately.
+- After 2 failed attempts, use different approach: semantic HTML, content-based, or coordinate-based.
 
 ## React/Modern Framework Components:
 Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
@@ -932,26 +935,22 @@ Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
 5. **Shadow DOM **:
 (function(){{ function findInShadow(selector) {{ let el = document.querySelector(selector); if(el) return el; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT); let node; while(node = walker.nextNode()) {{ if(node.shadowRoot) {{ const found = node.shadowRoot.querySelector(selector); if(found) return found; }} }} return null; }} return findInShadow('input[name="city"]') ? 'found in shadow' : 'not found'; }})()
 
-5. **Try catch block**:
-try {
-  const headlines = [];
-  const selectors = ['a.sidebar__link', 'a[class*="sidebar"]', '.headline', 'h1, h2, h3'];
-  
-  for (let selector of selectors) {
-    const elements = document.querySelectorAll(selector);
-    if (elements.length > 0) {
-      headlines.push(...Array.from(elements).map(el => el.textContent.trim()));
-      break;
-    }
-  }
-  
-  return JSON.stringify(headlines.slice(0, 5));
-} catch (e) {
-  return JSON.stringify({error: e.message, fallback: []});
+5. **Robust Selector Strategy**:
+When selectors fail (return `{}` or `[]`), use this hierarchy:
+1. Try specific class: `.exact-class-name`
+2. Try partial class: `[class*="partial"]` 
+3. Try semantic HTML: `article`, `section`, `main`, `h1-h6`
+4. Try structure: `div > div`, `ul > li`
+5. Debug what exists: `document.querySelectorAll('[class*="keyword"]').length`
+
+For extracting data, always try multiple selectors until one works:
+```javascript
+const selectors = ['.specific', '[class*="generic"]', 'article'];
+for (let sel of selectors) {
+  const els = document.querySelectorAll(sel);
+  if (els.length > 0) { /* use this selector */ break; }
 }
-
-
-(function(){{ const components = Array.from(document.querySelectorAll('*')).filter(el => el.tagName.includes('-') || el.shadowRoot !== undefined); return components.map(c => ({{tag: c.tagName.toLowerCase(), hasOpen: !!c.shadowRoot, hasClosed: c.shadowRoot === null && c.toString().includes('[object HTML')}})); }})()
+```
 
 ## When stuck explore new options:
 Inspect React components: `document.querySelector('selector').getAttribute('class')`
