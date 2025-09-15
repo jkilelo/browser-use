@@ -71,7 +71,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 				msg = f'Downloaded file to {download_path}'
 				self.logger.info(f'💾 {msg}')
 			else:
-				msg = f'Clicked button with index {index_for_logging}: {element_node.get_all_children_text(max_depth=2)}'
+				msg = f'Clicked button {element_node.node_name}: {element_node.get_all_children_text(max_depth=2)}'
 				self.logger.debug(f'🖱️ {msg}')
 			self.logger.debug(f'Element xpath: {element_node.xpath}')
 
@@ -135,7 +135,7 @@ class DefaultActionWatchdog(BaseWatchdog):
 					input_metadata = await self._input_text_element_node_impl(
 						element_node, event.text, clear_existing=event.clear_existing or (not event.text)
 					)
-					self.logger.info(f'⌨️ Typed "{event.text}" into element with index {index_for_logging}')
+					self.logger.info(f'⌨️ Typed "{event.text}" into element {element_node.node_name}')
 					self.logger.debug(f'Element xpath: {element_node.xpath}')
 					return input_metadata  # Return coordinates if available
 				except Exception as e:
