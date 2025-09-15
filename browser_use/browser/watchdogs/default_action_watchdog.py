@@ -277,6 +277,12 @@ class DefaultActionWatchdog(BaseWatchdog):
 	async def _hover_element(self, element_node, cdp_session):
 		"""Move mouse to element center (hover preparation)."""
 		try:
+			# First scroll element into view (go-rod approach)
+			await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
+				params={'backendNodeId': element_node.backend_node_id},
+				session_id=cdp_session.session_id,
+			)
+
 			# Get element center coordinates using getBoundingClientRect
 			result = await cdp_session.cdp_client.send.DOM.resolveNode(
 				params={'backendNodeId': element_node.backend_node_id},
@@ -864,166 +870,184 @@ class DefaultActionWatchdog(BaseWatchdog):
 		self, element_node: EnhancedDOMTreeNode, text: str, clear_existing: bool = True
 	) -> dict | None:
 		"""
-		Input text into an element using pure CDP with improved focus fallbacks.
+		Input text into an element using the go-rod approach: focus, wait enabled/writable, insert text, trigger events.
 		"""
 
 		try:
 			# Get CDP client
-			cdp_client = self.browser_session.cdp_client
-
-			# Get the correct session ID for the element's iframe
-			# session_id = await self._get_session_id_for_element(element_node)
-
-			# cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=element_node.target_id, focus=True)
 			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
 
-			# Get element info
-			backend_node_id = element_node.backend_node_id
+			# Step 1: Focus the element using JS this.focus() with UserGesture
+			await self._focus_element_gorod(element_node, cdp_session)
 
-			# Track coordinates for metadata
-			input_coordinates = None
+			# Step 2: Wait for enabled state (not disabled)
+			await self._wait_element_enabled(element_node, cdp_session)
 
-			# Scroll element into view
-			try:
-				await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
-					params={'backendNodeId': backend_node_id}, session_id=cdp_session.session_id
-				)
-				await asyncio.sleep(0.01)
-			except Exception as e:
-				self.logger.warning(
-					f'⚠️ Failed to focus the page {cdp_session} and scroll element {element_node} into view before typing in text: {type(e).__name__}: {e}'
-				)
+			# Step 3: Wait for writable state (not readonly)
+			await self._wait_element_writable(element_node, cdp_session)
 
-			# Get object ID for the element
-			result = await cdp_client.send.DOM.resolveNode(
-				params={'backendNodeId': backend_node_id},
+			# Step 4: Clear existing text if requested (simple approach)
+			if clear_existing:
+				await self._clear_text_simple(element_node, cdp_session)
+
+			# Step 5: Insert text via CDP Input.insertText
+			await cdp_session.cdp_client.send.Input.insertText(
+				params={'text': text},
 				session_id=cdp_session.session_id,
 			)
-			assert 'object' in result and 'objectId' in result['object'], (
-				'Failed to find DOM element based on backendNodeId, maybe page content changed?'
-			)
-			object_id = result['object']['objectId']
 
-			# Use element_node absolute_position coordinates (correct coordinates including iframe offsets)
-			if element_node.absolute_position:
-				center_x = element_node.absolute_position.x + element_node.absolute_position.width / 2
-				center_y = element_node.absolute_position.y + element_node.absolute_position.height / 2
-				input_coordinates = {'input_x': center_x, 'input_y': center_y}
-				self.logger.debug(f'Using absolute_position coordinates: x={center_x:.1f}, y={center_y:.1f}')
-			else:
-				input_coordinates = None
-				self.logger.warning('⚠️ No absolute_position available for element')
+			# Step 6: Trigger JavaScript input/change events
+			await self._trigger_input_events(element_node, cdp_session)
 
-			# Ensure we have a valid object_id before proceeding
-			if not object_id:
-				raise ValueError('Could not get object_id for element')
-
-			# Step 1: Focus the element using simple strategy
-			focused_successfully = await self._focus_element_simple(
-				backend_node_id=backend_node_id, object_id=object_id, cdp_session=cdp_session, input_coordinates=input_coordinates
-			)
-
-			# Step 2: Clear existing text if requested
-			if clear_existing and focused_successfully:
-				cleared_successfully = await self._clear_text_field(object_id=object_id, cdp_session=cdp_session)
-				if not cleared_successfully:
-					self.logger.warning('⚠️ Text field clearing failed, typing may append to existing text')
-
-			# Step 3: Type the text character by character using proper human-like key events
-			# This emulates exactly how a human would type, which modern websites expect
-			self.logger.debug(f'🎯 Typing text character by character: "{text}"')
-
-			for i, char in enumerate(text):
-				# Handle newline characters as Enter key
-				if char == '\n':
-					# Send proper Enter key sequence
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyDown',
-							'key': 'Enter',
-							'code': 'Enter',
-							'windowsVirtualKeyCode': 13,
-						},
-						session_id=cdp_session.session_id,
-					)
-
-					# Small delay to emulate human typing speed
-					await asyncio.sleep(0.001)
-
-					# Send char event with carriage return
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'char',
-							'text': '\r',
-							'key': 'Enter',
-						},
-						session_id=cdp_session.session_id,
-					)
-
-					# Send keyUp event
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyUp',
-							'key': 'Enter',
-							'code': 'Enter',
-							'windowsVirtualKeyCode': 13,
-						},
-						session_id=cdp_session.session_id,
-					)
-				else:
-					# Handle regular characters
-					# Get proper modifiers, VK code, and base key for the character
-					modifiers, vk_code, base_key = self._get_char_modifiers_and_vk(char)
-					key_code = self._get_key_code_for_char(base_key)
-
-					# self.logger.debug(f'🎯 Typing character {i + 1}/{len(text)}: "{char}" (base_key: {base_key}, code: {key_code}, modifiers: {modifiers}, vk: {vk_code})')
-
-					# Step 1: Send keyDown event (NO text parameter)
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyDown',
-							'key': base_key,
-							'code': key_code,
-							'modifiers': modifiers,
-							'windowsVirtualKeyCode': vk_code,
-						},
-						session_id=cdp_session.session_id,
-					)
-
-					# Small delay to emulate human typing speed
-					await asyncio.sleep(0.001)
-
-					# Step 2: Send char event (WITH text parameter) - this is crucial for text input
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'char',
-							'text': char,
-							'key': char,
-						},
-						session_id=cdp_session.session_id,
-					)
-
-					# Step 3: Send keyUp event (NO text parameter)
-					await cdp_session.cdp_client.send.Input.dispatchKeyEvent(
-						params={
-							'type': 'keyUp',
-							'key': base_key,
-							'code': key_code,
-							'modifiers': modifiers,
-							'windowsVirtualKeyCode': vk_code,
-						},
-						session_id=cdp_session.session_id,
-					)
-
-				# Small delay between characters to look human (realistic typing speed)
-				await asyncio.sleep(0.001)
-
-			# Return coordinates metadata if available
-			return input_coordinates
+			self.logger.debug(f'⌨️ Inserted text via CDP: "{text}"')
+			return None
 
 		except Exception as e:
 			self.logger.error(f'Failed to input text via CDP: {type(e).__name__}: {e}')
 			raise BrowserError(f'Failed to input text into element: {repr(element_node)}')
+
+	async def _focus_element_gorod(self, element_node, cdp_session):
+		"""Focus element using JS this.focus() with UserGesture (go-rod approach)."""
+		try:
+			# First scroll element into view (go-rod approach)
+			await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
+				params={'backendNodeId': element_node.backend_node_id},
+				session_id=cdp_session.session_id,
+			)
+
+			# Get object ID for the element
+			result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': element_node.backend_node_id},
+				session_id=cdp_session.session_id,
+			)
+
+			if 'object' not in result or 'objectId' not in result['object']:
+				raise Exception('Failed to resolve element node to object')
+
+			object_id = result['object']['objectId']
+
+			# Focus using JavaScript this.focus() with UserGesture enabled
+			await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': 'function() { this.focus(); }',
+					'objectId': object_id,
+					'userGesture': True,  # This is the key difference - UserGesture enabled
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			self.logger.debug('🎯 Focused element using JS focus() with UserGesture')
+
+		except Exception as e:
+			self.logger.debug(f'Failed to focus element: {e}')
+			raise
+
+	async def _wait_element_writable(self, element_node, cdp_session):
+		"""Wait for element to be writable (not readonly)."""
+		try:
+			result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': element_node.backend_node_id},
+				session_id=cdp_session.session_id,
+			)
+
+			if 'object' not in result or 'objectId' not in result['object']:
+				raise Exception('Failed to resolve element node to object')
+
+			object_id = result['object']['objectId']
+
+			# Check if element is writable (not readonly)
+			writable_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': 'function() { return !this.readonly; }',
+					'objectId': object_id,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			is_writable = writable_result.get('result', {}).get('value', True)
+
+			if not is_writable:
+				raise BrowserError('Element is readonly and cannot accept input')
+
+			self.logger.debug('✅ Element is writable and ready for input')
+
+		except BrowserError:
+			raise
+		except Exception as e:
+			self.logger.debug(f'Failed to check element writable state: {e}')
+			# Don't fail the input if we can't check writable state
+			pass
+
+	async def _clear_text_simple(self, element_node, cdp_session):
+		"""Clear text using simple approach (select all + delete)."""
+		try:
+			result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': element_node.backend_node_id},
+				session_id=cdp_session.session_id,
+			)
+
+			if 'object' not in result or 'objectId' not in result['object']:
+				raise Exception('Failed to resolve element node to object')
+
+			object_id = result['object']['objectId']
+
+			# Simple approach: set value to empty string and trigger events
+			await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': """
+						function() {
+							this.value = "";
+							this.dispatchEvent(new Event("input", { bubbles: true }));
+							this.dispatchEvent(new Event("change", { bubbles: true }));
+						}
+					""",
+					'objectId': object_id,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			self.logger.debug('🧹 Cleared text field')
+
+		except Exception as e:
+			self.logger.debug(f'Failed to clear text field: {e}')
+			# Don't fail the input if we can't clear
+			pass
+
+	async def _trigger_input_events(self, element_node, cdp_session):
+		"""Trigger JavaScript input/change events after text insertion."""
+		try:
+			result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': element_node.backend_node_id},
+				session_id=cdp_session.session_id,
+			)
+
+			if 'object' not in result or 'objectId' not in result['object']:
+				raise Exception('Failed to resolve element node to object')
+
+			object_id = result['object']['objectId']
+
+			# Trigger input and change events with proper bubbling (go-rod approach)
+			await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': """
+						function() {
+							this.dispatchEvent(new Event("input", { bubbles: true }));
+							this.dispatchEvent(new Event("change", { bubbles: true }));
+						}
+					""",
+					'objectId': object_id,
+					'userGesture': True,  # UserGesture for event triggering
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			self.logger.debug('📡 Triggered input/change events')
+
+		except Exception as e:
+			self.logger.debug(f'Failed to trigger input events: {e}')
+			# Don't fail the input if we can't trigger events
+			pass
 
 	async def _scroll_with_cdp_gesture(self, pixels: int) -> bool:
 		"""
