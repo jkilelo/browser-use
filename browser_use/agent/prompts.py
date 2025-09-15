@@ -191,14 +191,10 @@ class AgentMessagePrompt:
 		stats_text = '<page_stats>'
 		if page_stats['total_elements'] < 10:
 			stats_text += 'Page appears empty (SPA not loaded?) - '
-		stats_text += (
-			f'{page_stats["links"]} links, {page_stats["forms"]} forms, {page_stats["interactive_elements"]} interactive, '
-		)
+		stats_text += f'{page_stats["links"]} links, {page_stats["interactive_elements"]} interactive, '
 		stats_text += f'{page_stats["iframes"]} iframes, {page_stats["scroll_containers"]} scroll containers'
 		if page_stats['shadow_open'] > 0 or page_stats['shadow_closed'] > 0:
 			stats_text += f', {page_stats["shadow_open"]} shadow(open), {page_stats["shadow_closed"]} shadow(closed)'
-		if page_stats['articles'] > 0:
-			stats_text += f', {page_stats["articles"]} articles'
 		if page_stats['images'] > 0:
 			stats_text += f', {page_stats["images"]} images'
 		stats_text += f', {page_stats["total_elements"]} total elements'
