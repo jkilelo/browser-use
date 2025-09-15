@@ -553,11 +553,12 @@ class ChatOpenAI(BaseChatModel):
 									clean_properties[prop_name] = prop_def
 									required_fields.append(prop_name)
 								else:
-									# Optional field with default - include but remove default for strict mode
+									# Optional field with default - include but remove default and make required for strict mode
 									clean_prop = dict(prop_def)
 									if 'default' in clean_prop:
 										del clean_prop['default']
 									clean_properties[prop_name] = clean_prop
+									required_fields.append(prop_name)
 
 							tool: FunctionToolParam = {
 								'type': 'function',
