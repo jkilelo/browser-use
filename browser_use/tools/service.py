@@ -962,7 +962,8 @@ In the browser state, you see `x=150 y=75` - these are center coordinates of ele
 				)
 				result_text = result.get('result', {}).get('value', '')
 				description = result.get('result', {}).get('description', '')
-
+				if len(result_text) > 20000:
+					result_text = result_text[:20000] + ' Truncated after 20000 characters ...'
 				# Return the result (could be empty string, which is valid)
 				return ActionResult(extracted_content=f'Code: {code}\n\nResult: {result_text}')
 
