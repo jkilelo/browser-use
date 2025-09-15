@@ -59,6 +59,7 @@ Examples:
 
 Note that:
 - Only elements with numeric indexes in [] are interactive
+- Never use an index that is not displayed in the browser_state.
 - (stacked) indentation (with \t) is important and means that the element is a (html) child of the element above (with a lower index)
 - Elements tagged with a star `*[` are the new interactive elements that appeared on the website since the last step - if url has not changed. Your previous actions caused that change. Think if you need to interact with them, e.g. after input_text you might need to select the right option from the list.
 - Pure text elements without [] are not interactive.
