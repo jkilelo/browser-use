@@ -539,7 +539,7 @@ class ChatOpenAI(BaseChatModel):
 							required_fields = action_schema.get('required', [])
 
 							# For Response API strict mode, we need to handle optional fields properly
-							# Remove properties that have defaults and aren't required
+							# Include all properties but handle defaults appropriately
 							clean_properties = {}
 							for prop_name, prop_def in properties.items():
 								if prop_name in required_fields:
@@ -552,7 +552,12 @@ class ChatOpenAI(BaseChatModel):
 									# Optional field without default - make it required for strict mode
 									clean_properties[prop_name] = prop_def
 									required_fields.append(prop_name)
-								# Skip fields with defaults that aren't required (like files_to_display)
+								else:
+									# Optional field with default - include but remove default for strict mode
+									clean_prop = dict(prop_def)
+									if 'default' in clean_prop:
+										del clean_prop['default']
+									clean_properties[prop_name] = clean_prop
 
 							tool: FunctionToolParam = {
 								'type': 'function',
