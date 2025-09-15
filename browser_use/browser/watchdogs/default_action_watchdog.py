@@ -219,11 +219,11 @@ class DefaultActionWatchdog(BaseWatchdog):
 
 	async def _click_element_node_impl(self, element_node, while_holding_ctrl: bool = False) -> dict | None:
 		"""
-		Click an element using pure CDP with multiple fallback methods for getting element geometry.
+		Click an element using the go-rod approach: hover, wait for enabled, then click.
 
 		Args:
 			element_node: The DOM element to click
-			new_tab: If True, open any resulting navigation in a new tab
+			while_holding_ctrl: If True, hold Ctrl/Cmd modifier during click
 		"""
 
 		try:
@@ -249,292 +249,16 @@ class DefaultActionWatchdog(BaseWatchdog):
 			# Get CDP client
 			cdp_session = await self.browser_session.cdp_client_for_node(element_node)
 
-			# Get the correct session ID for the element's frame
-			session_id = cdp_session.session_id
+			# Step 1: Hover preparation - move mouse to element
+			await self._hover_element(element_node, cdp_session)
 
-			# Get element bounds
-			backend_node_id = element_node.backend_node_id
+			# Step 2: Wait for element to be enabled (not disabled)
+			await self._wait_element_enabled(element_node, cdp_session)
 
-			# Get viewport dimensions for visibility checks
-			layout_metrics = await cdp_session.cdp_client.send.Page.getLayoutMetrics(session_id=session_id)
-			viewport_width = layout_metrics['layoutViewport']['clientWidth']
-			viewport_height = layout_metrics['layoutViewport']['clientHeight']
+			# Step 3: Actual click using CDP mouse events
+			click_coordinates = await self._click_at_element_center(element_node, cdp_session, while_holding_ctrl)
 
-			# Try multiple methods to get element geometry
-			quads = []
-
-			# Method 1: Try DOM.getContentQuads first (best for inline elements and complex layouts)
-			try:
-				content_quads_result = await cdp_session.cdp_client.send.DOM.getContentQuads(
-					params={'backendNodeId': backend_node_id}, session_id=session_id
-				)
-				if 'quads' in content_quads_result and content_quads_result['quads']:
-					quads = content_quads_result['quads']
-					self.logger.debug(f'Got {len(quads)} quads from DOM.getContentQuads')
-			except Exception as e:
-				self.logger.debug(f'DOM.getContentQuads failed: {e}')
-
-			# Method 2: Fall back to DOM.getBoxModel
-			if not quads:
-				try:
-					box_model = await cdp_session.cdp_client.send.DOM.getBoxModel(
-						params={'backendNodeId': backend_node_id}, session_id=session_id
-					)
-					if 'model' in box_model and 'content' in box_model['model']:
-						content_quad = box_model['model']['content']
-						if len(content_quad) >= 8:
-							# Convert box model format to quad format
-							quads = [
-								[
-									content_quad[0],
-									content_quad[1],  # x1, y1
-									content_quad[2],
-									content_quad[3],  # x2, y2
-									content_quad[4],
-									content_quad[5],  # x3, y3
-									content_quad[6],
-									content_quad[7],  # x4, y4
-								]
-							]
-							self.logger.debug('Got quad from DOM.getBoxModel')
-				except Exception as e:
-					self.logger.debug(f'DOM.getBoxModel failed: {e}')
-
-			# Method 3: Fall back to JavaScript getBoundingClientRect
-			if not quads:
-				try:
-					result = await cdp_session.cdp_client.send.DOM.resolveNode(
-						params={'backendNodeId': backend_node_id},
-						session_id=session_id,
-					)
-					if 'object' in result and 'objectId' in result['object']:
-						object_id = result['object']['objectId']
-
-						# Get bounding rect via JavaScript
-						bounds_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
-							params={
-								'functionDeclaration': """
-									function() {
-										const rect = this.getBoundingClientRect();
-										return {
-											x: rect.left,
-											y: rect.top,
-											width: rect.width,
-											height: rect.height
-										};
-									}
-								""",
-								'objectId': object_id,
-								'returnByValue': True,
-							},
-							session_id=session_id,
-						)
-
-						if 'result' in bounds_result and 'value' in bounds_result['result']:
-							rect = bounds_result['result']['value']
-							# Convert rect to quad format
-							x, y, w, h = rect['x'], rect['y'], rect['width'], rect['height']
-							quads = [
-								[
-									x,
-									y,  # top-left
-									x + w,
-									y,  # top-right
-									x + w,
-									y + h,  # bottom-right
-									x,
-									y + h,  # bottom-left
-								]
-							]
-							self.logger.debug('Got quad from getBoundingClientRect')
-				except Exception as e:
-					self.logger.debug(f'JavaScript getBoundingClientRect failed: {e}')
-
-			# If we still don't have quads, fall back to JS click
-			if not quads:
-				self.logger.warning('⚠️ Could not get element geometry from any method, falling back to JavaScript click')
-				try:
-					result = await cdp_session.cdp_client.send.DOM.resolveNode(
-						params={'backendNodeId': backend_node_id},
-						session_id=session_id,
-					)
-					assert 'object' in result and 'objectId' in result['object'], (
-						'Failed to find DOM element based on backendNodeId, maybe page content changed?'
-					)
-					object_id = result['object']['objectId']
-
-					await cdp_session.cdp_client.send.Runtime.callFunctionOn(
-						params={
-							'functionDeclaration': 'function() { this.click(); }',
-							'objectId': object_id,
-						},
-						session_id=session_id,
-					)
-					await asyncio.sleep(0.05)
-					# Navigation is handled by BrowserSession via events
-					return None
-				except Exception as js_e:
-					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
-					raise Exception(f'Failed to click element: {js_e}')
-
-			# Find the largest visible quad within the viewport
-			best_quad = None
-			best_area = 0
-
-			for quad in quads:
-				if len(quad) < 8:
-					continue
-
-				# Calculate quad bounds
-				xs = [quad[i] for i in range(0, 8, 2)]
-				ys = [quad[i] for i in range(1, 8, 2)]
-				min_x, max_x = min(xs), max(xs)
-				min_y, max_y = min(ys), max(ys)
-
-				# Check if quad intersects with viewport
-				if max_x < 0 or max_y < 0 or min_x > viewport_width or min_y > viewport_height:
-					continue  # Quad is completely outside viewport
-
-				# Calculate visible area (intersection with viewport)
-				visible_min_x = max(0, min_x)
-				visible_max_x = min(viewport_width, max_x)
-				visible_min_y = max(0, min_y)
-				visible_max_y = min(viewport_height, max_y)
-
-				visible_width = visible_max_x - visible_min_x
-				visible_height = visible_max_y - visible_min_y
-				visible_area = visible_width * visible_height
-
-				if visible_area > best_area:
-					best_area = visible_area
-					best_quad = quad
-
-			if not best_quad:
-				# No visible quad found, use the first quad anyway
-				best_quad = quads[0]
-				self.logger.warning('No visible quad found, using first quad')
-
-			# Calculate center point of the best quad
-			center_x = sum(best_quad[i] for i in range(0, 8, 2)) / 4
-			center_y = sum(best_quad[i] for i in range(1, 8, 2)) / 4
-
-			# Ensure click point is within viewport bounds
-			center_x = max(0, min(viewport_width - 1, center_x))
-			center_y = max(0, min(viewport_height - 1, center_y))
-
-			# Scroll element into view
-			try:
-				await cdp_session.cdp_client.send.DOM.scrollIntoViewIfNeeded(
-					params={'backendNodeId': backend_node_id}, session_id=session_id
-				)
-				await asyncio.sleep(0.05)  # Wait for scroll to complete
-			except Exception as e:
-				self.logger.debug(f'Failed to scroll element into view: {e}')
-
-			# Perform the click using CDP
-			# TODO: do occlusion detection first, if element is not on the top, fire JS-based
-			# click event instead using xpath of x,y coordinate clicking, because we wont be able to click *through* occluding elements using x,y clicks
-			try:
-				self.logger.debug(f'👆 Dragging mouse over element before clicking x: {center_x}px y: {center_y}px ...')
-				# Move mouse to element
-				await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
-					params={
-						'type': 'mouseMoved',
-						'x': center_x,
-						'y': center_y,
-					},
-					session_id=session_id,
-				)
-				await asyncio.sleep(0.05)
-
-				# Calculate modifier bitmask for CDP
-				# CDP Modifier bits: Alt=1, Control=2, Meta/Command=4, Shift=8
-				modifiers = 0
-				if while_holding_ctrl:
-					# Use platform-appropriate modifier for "open in new tab"
-					if platform.system() == 'Darwin':
-						modifiers = 4  # Meta/Cmd key
-						self.logger.debug('⌘ Using Cmd modifier for new tab click...')
-					else:
-						modifiers = 2  # Control key
-						self.logger.debug('⌃ Using Ctrl modifier for new tab click...')
-
-				# Mouse down
-				self.logger.debug(f'👆🏾 Clicking x: {center_x}px y: {center_y}px with modifiers: {modifiers} ...')
-				try:
-					await asyncio.wait_for(
-						cdp_session.cdp_client.send.Input.dispatchMouseEvent(
-							params={
-								'type': 'mousePressed',
-								'x': center_x,
-								'y': center_y,
-								'button': 'left',
-								'clickCount': 1,
-								'modifiers': modifiers,
-							},
-							session_id=session_id,
-						),
-						timeout=1.0,  # 1 second timeout for mousePressed
-					)
-					await asyncio.sleep(0.08)
-				except TimeoutError:
-					self.logger.debug('⏱️ Mouse down timed out (likely due to dialog), continuing...')
-					# Don't sleep if we timed out
-
-				# Mouse up
-				try:
-					await asyncio.wait_for(
-						cdp_session.cdp_client.send.Input.dispatchMouseEvent(
-							params={
-								'type': 'mouseReleased',
-								'x': center_x,
-								'y': center_y,
-								'button': 'left',
-								'clickCount': 1,
-								'modifiers': modifiers,
-							},
-							session_id=session_id,
-						),
-						timeout=3.0,  # 1 second timeout for mouseReleased
-					)
-				except TimeoutError:
-					self.logger.debug('⏱️ Mouse up timed out (possibly due to lag or dialog popup), continuing...')
-
-				self.logger.debug('🖱️ Clicked successfully using x,y coordinates')
-				# Return coordinates as dict for metadata
-				return {'click_x': center_x, 'click_y': center_y}
-
-			except Exception as e:
-				self.logger.warning(f'CDP click failed: {type(e).__name__}: {e}')
-				# Fall back to JavaScript click via CDP
-				try:
-					result = await cdp_session.cdp_client.send.DOM.resolveNode(
-						params={'backendNodeId': backend_node_id},
-						session_id=session_id,
-					)
-					assert 'object' in result and 'objectId' in result['object'], (
-						'Failed to find DOM element based on backendNodeId, maybe page content changed?'
-					)
-					object_id = result['object']['objectId']
-
-					await cdp_session.cdp_client.send.Runtime.callFunctionOn(
-						params={
-							'functionDeclaration': 'function() { this.click(); }',
-							'objectId': object_id,
-						},
-						session_id=session_id,
-					)
-					await asyncio.sleep(0.1)
-					# Navigation is handled by BrowserSession via events
-					return None
-				except Exception as js_e:
-					self.logger.error(f'CDP JavaScript click also failed: {js_e}')
-					raise Exception(f'Failed to click element: {e}')
-			finally:
-				# always re-focus back to original top-level page session context in case click opened a new tab/popup/window/dialog/etc.
-				cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
-				await cdp_session.cdp_client.send.Target.activateTarget(params={'targetId': cdp_session.target_id})
-				await cdp_session.cdp_client.send.Runtime.runIfWaitingForDebugger(session_id=cdp_session.session_id)
+			return click_coordinates
 
 		except URLNotAllowedError as e:
 			raise e
@@ -548,8 +272,179 @@ class DefaultActionWatchdog(BaseWatchdog):
 			element_info += '>'
 			raise BrowserError(
 				message=f'Failed to click element: {e}',
-				long_term_memory=f'Failed to click element {element_info}. The element may not be interactable or visible.',
 			)
+
+	async def _hover_element(self, element_node, cdp_session):
+		"""Move mouse to element center (hover preparation)."""
+		try:
+			# Get element center coordinates using getBoundingClientRect
+			result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': element_node.backend_node_id},
+				session_id=cdp_session.session_id,
+			)
+
+			if 'object' not in result or 'objectId' not in result['object']:
+				raise Exception('Failed to resolve element node to object')
+
+			object_id = result['object']['objectId']
+
+			# Get bounding rect via JavaScript
+			bounds_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': """
+						function() {
+							const rect = this.getBoundingClientRect();
+							return {
+								x: rect.left + rect.width / 2,
+								y: rect.top + rect.height / 2
+							};
+						}
+					""",
+					'objectId': object_id,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			if 'result' not in bounds_result or 'value' not in bounds_result['result']:
+				raise Exception('Failed to get element center coordinates')
+
+			coords = bounds_result['result']['value']
+			center_x = coords['x']
+			center_y = coords['y']
+
+			# Move mouse to element center
+			await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+				params={
+					'type': 'mouseMoved',
+					'x': center_x,
+					'y': center_y,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			self.logger.debug(f'👆 Moved mouse to element center: ({center_x:.1f}, {center_y:.1f})')
+
+		except Exception as e:
+			self.logger.debug(f'Failed to hover element: {e}')
+			raise
+
+	async def _wait_element_enabled(self, element_node, cdp_session):
+		"""Wait for element to be enabled (not disabled)."""
+		try:
+			result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': element_node.backend_node_id},
+				session_id=cdp_session.session_id,
+			)
+
+			if 'object' not in result or 'objectId' not in result['object']:
+				raise Exception('Failed to resolve element node to object')
+
+			object_id = result['object']['objectId']
+
+			# Check if element is enabled (not disabled)
+			enabled_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': 'function() { return !this.disabled; }',
+					'objectId': object_id,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			is_enabled = enabled_result.get('result', {}).get('value', True)
+
+			if not is_enabled:
+				raise BrowserError('Element is disabled and cannot be clicked')
+
+			self.logger.debug('✅ Element is enabled and ready for click')
+
+		except BrowserError:
+			raise
+		except Exception as e:
+			self.logger.debug(f'Failed to check element enabled state: {e}')
+			# Don't fail the click if we can't check enabled state
+			pass
+
+	async def _click_at_element_center(self, element_node, cdp_session, while_holding_ctrl: bool = False):
+		"""Perform the actual click at element center."""
+		try:
+			# Get element center coordinates
+			result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': element_node.backend_node_id},
+				session_id=cdp_session.session_id,
+			)
+
+			if 'object' not in result or 'objectId' not in result['object']:
+				raise Exception('Failed to resolve element node to object')
+
+			object_id = result['object']['objectId']
+
+			# Get bounding rect via JavaScript
+			bounds_result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': """
+						function() {
+							const rect = this.getBoundingClientRect();
+							return {
+								x: rect.left + rect.width / 2,
+								y: rect.top + rect.height / 2
+							};
+						}
+					""",
+					'objectId': object_id,
+					'returnByValue': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			if 'result' not in bounds_result or 'value' not in bounds_result['result']:
+				raise Exception('Failed to get element center coordinates')
+
+			coords = bounds_result['result']['value']
+			center_x = coords['x']
+			center_y = coords['y']
+
+			# Calculate modifier bitmask for CDP
+			modifiers = 0
+			if while_holding_ctrl:
+				# Use platform-appropriate modifier for "open in new tab"
+				if platform.system() == 'Darwin':
+					modifiers = 4  # Meta/Cmd key
+				else:
+					modifiers = 2  # Control key
+
+			# Perform click (mouse down + mouse up)
+			await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+				params={
+					'type': 'mousePressed',
+					'x': center_x,
+					'y': center_y,
+					'button': 'left',
+					'clickCount': 1,
+					'modifiers': modifiers,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			await cdp_session.cdp_client.send.Input.dispatchMouseEvent(
+				params={
+					'type': 'mouseReleased',
+					'x': center_x,
+					'y': center_y,
+					'button': 'left',
+					'clickCount': 1,
+					'modifiers': modifiers,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+			self.logger.debug(f'🖱️ Clicked at element center: ({center_x:.1f}, {center_y:.1f})')
+			return {'click_x': center_x, 'click_y': center_y}
+
+		except Exception as e:
+			self.logger.debug(f'Failed to click at element center: {e}')
+			raise
 
 	async def _type_to_page(self, text: str):
 		"""
