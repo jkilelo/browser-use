@@ -35,8 +35,8 @@ class ChatOpenAI(BaseChatModel):
 
 	# Model params
 	temperature: float | None = 0.0
-	frequency_penalty: float | None = 0.1  # this avoids infinite generation of \t for models like 4.1-mini
-	presence_penalty: float | None = 0.1
+	frequency_penalty: float | None = 0.3  # this avoids infinite generation of \t for models like 4.1-mini
+	presence_penalty: float | None = 0.0
 	reasoning_effort: ReasoningEffort = 'low'
 	seed: int | None = None
 	service_tier: Literal['auto', 'default', 'flex', 'priority', 'scale'] | None = None
