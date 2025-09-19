@@ -812,6 +812,48 @@ SYNTAX RULES - FAILURE TO FOLLOW CAUSES "Uncaught at line 0" ERRORS:
 - NEVER use inline comments (//) - they cause parsing errors in single-line execution
 - ALWAYS validate elements exist before accessing them
 
+INDEXED ELEMENT ACCESS:
+You have access to getElement(index) and getElements([indices]) functions that map browser_state 
+indices to actual DOM elements using reliable selectors.
+
+// ✅ CORRECT: Access elements by their browser_state index
+const signInButton = getElement(7);  // Gets [7] from browser_state
+if (signInButton) {
+  return signInButton.textContent.trim();
+}
+
+// ✅ CORRECT: Get multiple elements efficiently
+const buttons = getElements([7, 13, 18]);
+return buttons.map(btn => ({
+  text: btn.textContent.trim(),
+  tag: btn.tagName.toLowerCase()
+}));
+
+// ✅ CORRECT: Get full element info including coordinates, attributes, visibility, etc.
+const elementInfo = getElementInfo(7);
+return elementInfo; // Returns complete node.__json__(): coordinates, attributes, visibility, scrollable, etc.
+
+// ✅ CORRECT: Safe extraction with validation
+const element = getElement(6);
+return element ? {
+  text: element.textContent.trim(),
+  tag: element.tagName.toLowerCase(),
+  href: element.href || element.closest('a')?.href
+} : 'Element not found';
+
+// ✅ CORRECT: Extract non-interactive elements with semantic selectors
+const articles = document.querySelectorAll('article, .article, [data-testid*="post"]');
+return Array.from(articles).slice(0, 3).map(el => el.textContent.trim());
+
+// ✅ CORRECT: Click on element by index (alternative to click_element_by_index tool)
+const element = getElement(7);
+if (element) {
+  element.click();
+  return 'Clicked element';
+} else {
+  return 'Element not found';
+}
+
 EXAMPLES:
 Use this tool when other tools do not work on the first try as expected or when a more general tool is needed, e.g. for filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, press and hold, hovering, clicking on coordinates, zooming, use this if the user provides custom selectors which you can otherwise not interact with ....
 You can also use it to explore the website.
@@ -820,21 +862,23 @@ You can also use it to explore the website.
 - Write only valid js code.
 - use this to e.g. extract + filter links, convert the page to json into the format you need etc...
 
-
 - limit the output otherwise your context will explode
 - think if you deal with special elements like iframes / shadow roots etc
 - Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
 - e.g. with  synthetic events, keyboard simulation, shadow DOM, etc.
 
 PROPER SYNTAX EXAMPLES:
-CORRECT: (function(){ try { const el = document.querySelector('#id'); return el ? el.value : 'not found'; } catch(e) { return 'Error: ' + e.message; } })()
+CORRECT: (function(){ try { const el = getElement(7); return el ? el.value : 'not found'; } catch(e) { return 'Error: ' + e.message; } })()
 CORRECT: (async function(){ try { await new Promise(r => setTimeout(r, 100)); return 'done'; } catch(e) { return 'Error: ' + e.message; } })()
+
+// ✅ CORRECT: Use semantic selectors with class names or data attributes
+const buttons = document.querySelectorAll('.btn, .button, [role="button"]');
+return Array.from(buttons).map(btn => btn.textContent.trim());
 
 WRONG: const el = document.querySelector('#id'); el ? el.value : '';
 WRONG: document.querySelector('#id').value
 WRONG: Multiline code without IIFE wrapping
 WRONG: (function(){ // This comment causes parsing errors
-
 
 SHADOW DOM ACCESS EXAMPLE:
 (function(){
@@ -865,6 +909,101 @@ SHADOW DOM ACCESS EXAMPLE:
 			cdp_session = await browser_session.get_or_create_cdp_session()
 
 			try:
+				# Get the selector map from browser session
+				selector_map_data = {}
+				element_info_data = {}
+				try:
+					selector_map = await browser_session.get_selector_map()
+					for index, node in selector_map.items():
+						# Generate simple CSS selector for getElement()
+						css_selector = node.tag_name
+						if 'id' in node.attributes:
+							css_selector += f'#{node.attributes["id"]}'
+						elif 'class' in node.attributes:
+							css_selector += f'.{node.attributes["class"].split()[0]}'
+
+						selector_map_data[str(index)] = css_selector
+						# Store full node info for getElementInfo()
+						element_info_data[str(index)] = node
+				except Exception as e:
+					logger.debug(f'Could not get selector map: {e}')
+					selector_map_data = {}
+					element_info_data = {}
+
+				# Store element info for getElementInfo() - use the node's __json__ method
+				element_info_json = {}
+				for index, node in element_info_data.items():
+					try:
+						# Use the node's built-in serialization method
+						element_info_json[index] = node.__json__()
+					except Exception as e:
+						logger.debug(f'Could not serialize node info for index {index}: {e}')
+						element_info_json[index] = {'error': f'Could not serialize: {e}'}
+
+				# Inject helper functions and maps into the execution context
+				helper_code = f"""
+				// Inject simple selector map and full element info
+				window.__ELEMENT_MAP__ = {json.dumps(selector_map_data)};
+				window.__ELEMENT_INFO__ = {json.dumps(element_info_json)};
+				
+				// Helper function to get element by index
+				function getElement(index) {{
+					try {{
+						const selectorMap = window.__ELEMENT_MAP__ || {{}};
+						const elementData = selectorMap[String(index)];
+						
+						if (!elementData) {{
+							return null;
+						}}
+						
+						const element = document.querySelector(elementData);
+						if (!element) {{
+							console.warn('Element not found for selector: ' + elementData);
+							return null;
+						}}
+						
+						return element;
+					}} catch(e) {{
+						console.error('Error getting element ' + index + ':', e.message);
+						return null;
+					}}
+				}}
+				
+				// Helper function to get multiple elements
+				function getElements(indices) {{
+					if (!Array.isArray(indices)) {{
+						console.error('getElements expects an array of indices');
+						return [];
+					}}
+					return indices.map(i => getElement(i)).filter(Boolean);
+				}}
+				
+				// Helper function to get full element info including coordinates, attributes, etc.
+				function getElementInfo(index) {{
+					try {{
+						const elementInfo = window.__ELEMENT_INFO__ || {{}};
+						const info = elementInfo[String(index)];
+						
+						if (!info) {{
+							return {{ error: 'No data found for index ' + index }};
+						}}
+						
+						return {{ index: index, ...info }};
+					}} catch(e) {{
+						return {{ error: 'Error getting element info: ' + e.message }};
+					}}
+				}}
+				
+				
+				"""
+
+				# Execute helper code first
+				await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': helper_code, 'returnByValue': False},
+					session_id=cdp_session.session_id,
+				)
+
+				# Now execute the user's code
 				# Always use awaitPromise=True - it's ignored for non-promises
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
 					params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
@@ -917,7 +1056,7 @@ SHADOW DOM ACCESS EXAMPLE:
 
 			except Exception as e:
 				# CDP communication or other system errors
-				error_msg = f'Code: {code}\n\nError: {error_msg} Failed to execute JavaScript: {type(e).__name__}: {e}'
+				error_msg = f'Code: {code}\n\nError: Failed to execute JavaScript: {type(e).__name__}: {e}'
 				logger.info(error_msg)
 				return ActionResult(error=error_msg)
 
