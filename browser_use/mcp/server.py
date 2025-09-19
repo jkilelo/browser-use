@@ -836,8 +836,6 @@ class BrowserUseServer:
 			elif isinstance(value, (dict, list)):
 				# Complex objects - should be serialized by returnByValue
 				try:
-					import json
-
 					result_text = json.dumps(value, indent=2)
 				except (TypeError, ValueError):
 					result_text = str(value)
