@@ -277,6 +277,20 @@ class BrowserUseServer:
 					},
 				),
 				types.Tool(
+					name='browser_execute_js',
+					description='Execute JavaScript code on the current page and return the result',
+					inputSchema={
+						'type': 'object',
+						'properties': {
+							'code': {
+								'type': 'string',
+								'description': 'JavaScript code to execute. Can return strings, numbers, booleans, or JSON serializable objects. Use JSON.stringify() for complex objects.',
+							}
+						},
+						'required': ['code'],
+					},
+				),
+				types.Tool(
 					name='browser_scroll',
 					description='Scroll the page',
 					inputSchema={
@@ -463,6 +477,9 @@ class BrowserUseServer:
 
 			elif tool_name == 'browser_get_state':
 				return await self._get_browser_state(arguments.get('include_screenshot', False))
+
+			elif tool_name == 'browser_execute_js':
+				return await self._execute_js(arguments['code'])
 
 			elif tool_name == 'browser_scroll':
 				return await self._scroll(arguments.get('direction', 'down'))
@@ -775,6 +792,62 @@ class BrowserUseServer:
 			result['screenshot'] = state.screenshot
 
 		return json.dumps(result, indent=2)
+
+	async def _execute_js(self, code: str) -> str:
+		"""Execute JavaScript code on the current page."""
+		if not self.browser_session:
+			return 'Error: No browser session active'
+
+		# Update session activity
+		self._update_session_activity(self.browser_session.id)
+
+		try:
+			# Get CDP session for JavaScript execution
+			cdp_session = await self.browser_session.get_or_create_cdp_session()
+
+			# Execute JavaScript with proper error handling and promise support
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
+				session_id=cdp_session.session_id,
+			)
+
+			# Check for JavaScript execution errors
+			if result.get('exceptionDetails'):
+				exception = result['exceptionDetails']
+				error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
+				if 'lineNumber' in exception:
+					error_msg += f' at line {exception["lineNumber"]}'
+				return f'Error executing JavaScript:\n{error_msg}\n\nCode:\n{code}'
+
+			# Get the result data
+			result_data = result.get('result', {})
+
+			# Check for wasThrown flag (backup error detection)
+			if result_data.get('wasThrown'):
+				return f'Error: JavaScript execution failed (wasThrown=true)\n\nCode:\n{code}'
+
+			# Get the actual value
+			value = result_data.get('value')
+
+			# Handle different value types
+			if value is None:
+				# Could be legitimate null/undefined result
+				result_text = str(value) if 'value' in result_data else 'undefined'
+			elif isinstance(value, (dict, list)):
+				# Complex objects - should be serialized by returnByValue
+				try:
+					import json
+
+					result_text = json.dumps(value, indent=2)
+				except (TypeError, ValueError):
+					result_text = str(value)
+			else:
+				result_text = str(value)
+
+			return f'JavaScript execution result:\n{result_text}'
+
+		except Exception as e:
+			return f'Error executing JavaScript: {str(e)}\n\nCode:\n{code}'
 
 	async def _scroll(self, direction: str = 'down') -> str:
 		"""Scroll the page."""
