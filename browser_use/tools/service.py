@@ -873,22 +873,40 @@ SHADOW DOM ACCESS EXAMPLE:
 
 				selector_map = await browser_session.get_selector_map()
 				css_selectors = {}
+
 				for backend_node_id, enhanced_node in selector_map.items():
-					css_selector = generate_css_selector_for_element(enhanced_node)
-					if css_selector:
-						css_selectors[backend_node_id] = css_selector
+					try:
+						css_selector = generate_css_selector_for_element(enhanced_node)
+						if css_selector and css_selector.strip():
+							# Validate CSS selector doesn't contain problematic characters
+							if not any(char in css_selector for char in ['"', "'", '\n', '\r', '\t']):
+								css_selectors[backend_node_id] = css_selector
+					except Exception as e:
+						# Skip problematic nodes rather than failing entirely
+						logger.debug(f'Failed to generate CSS selector for node {backend_node_id}: {e}')
+						continue
 
 				# Inject CSS selector map as a simple variable
-				selector_map_js = f"""
-				// CSS selector map for backend node IDs
-				window.map = {json.dumps(css_selectors)};
-				"""
+				try:
+					css_selectors_json = json.dumps(css_selectors)
+					selector_map_js = f"""// CSS selector map for backend node IDs
+window.map = {css_selectors_json};"""
+
+					# Log selector count for debugging
+					logger.debug(f'Generated {len(css_selectors)} CSS selectors for backend nodes')
+				except (TypeError, ValueError) as e:
+					logger.warning(f'Failed to serialize CSS selectors: {e}')
+					selector_map_js = 'window.map = {};'
 
 				# First inject the selector map
-				await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': selector_map_js, 'returnByValue': False, 'awaitPromise': False},
-					session_id=cdp_session.session_id,
-				)
+				try:
+					await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': selector_map_js, 'returnByValue': False, 'awaitPromise': False},
+						session_id=cdp_session.session_id,
+					)
+				except Exception as e:
+					logger.warning(f'Failed to inject selector map: {e}')
+					# Continue anyway - user code might not need the selector map
 
 				# Then execute the user code
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
@@ -945,7 +963,6 @@ SHADOW DOM ACCESS EXAMPLE:
 				error_msg = f'Code: {code}\n\nError: Failed to execute JavaScript: {type(e).__name__}: {e}'
 				logger.info(error_msg)
 				return ActionResult(error=error_msg)
-
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(

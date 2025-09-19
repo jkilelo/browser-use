@@ -27,17 +27,23 @@ def generate_css_selector_for_element(enhanced_node) -> str | None:
 	"""Generate a CSS selector using node properties from version 0.5.0 approach."""
 	import re
 
-	if not enhanced_node.tag_name:
+	if not enhanced_node or not hasattr(enhanced_node, 'tag_name') or not enhanced_node.tag_name:
 		return None
 
 	# Get base selector from tag name (simplified since we don't have xpath in EnhancedDOMTreeNode)
-	css_selector = enhanced_node.tag_name.lower()
+	tag_name = enhanced_node.tag_name.lower().strip()
+	if not tag_name or not re.match(r'^[a-zA-Z][a-zA-Z0-9]*$', tag_name):
+		return None
+
+	css_selector = tag_name
 
 	# Add ID if available (most specific)
 	if enhanced_node.attributes and 'id' in enhanced_node.attributes:
 		element_id = enhanced_node.attributes['id']
-		if element_id:
-			return f'#{element_id}'
+		if element_id and element_id.strip():
+			# Validate ID contains only valid characters
+			if re.match(r'^[a-zA-Z][a-zA-Z0-9_-]*$', element_id.strip()):
+				return f'#{element_id.strip()}'
 
 	# Handle class attributes (from version 0.5.0 approach)
 	if enhanced_node.attributes and 'class' in enhanced_node.attributes and enhanced_node.attributes['class']:
@@ -126,4 +132,9 @@ def generate_css_selector_for_element(enhanced_node) -> str | None:
 			else:
 				css_selector += f'[{safe_attribute}="{value}"]'
 
-	return css_selector
+	# Final validation: ensure the selector is safe and doesn't contain problematic characters
+	if css_selector and not any(char in css_selector for char in ['"', "'", '\n', '\r', '\t']):
+		return css_selector
+
+	# If we get here, the selector was problematic, return just the tag name as fallback
+	return tag_name
