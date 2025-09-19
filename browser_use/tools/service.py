@@ -816,30 +816,45 @@ INDEXED ELEMENT ACCESS:
 You have access to getElement(index) and getElements([indices]) functions that map browser_state 
 indices to actual DOM elements using reliable selectors.
 
+EXTRACTION STRATEGY - USE IN THIS ORDER:
+1. Try getElement(index) for interactive elements visible in browser_state
+2. If getElement returns null, use semantic selectors for non-interactive content  
+3. If JavaScript extraction fails 2+ times, read browser_state text directly
+4. NEVER repeat the same failing selector more than twice
+
 // ✅ CORRECT: Access elements by their browser_state index
 const signInButton = getElement(7);  // Gets [7] from browser_state
 if (signInButton) {
   return signInButton.textContent.trim();
 }
 
-// ✅ CORRECT: Get multiple elements efficiently
-const buttons = getElements([7, 13, 18]);
-return buttons.map(btn => ({
-  text: btn.textContent.trim(),
-  tag: btn.tagName.toLowerCase()
+// ✅ CORRECT: Get multiple elements efficiently with validation
+const indices = [6, 7, 11, 13];
+const elements = getElements(indices);
+return elements.map((el, i) => ({
+  index: indices[i],
+  text: el.textContent.trim(),
+  tag: el.tagName.toLowerCase()
 }));
+
+// ✅ CORRECT: Check element exists before extraction
+const available = getAvailableIndices();
+const validElements = getElements(available.slice(0, 5));
+return validElements.map(el => el.textContent.trim());
 
 // ✅ CORRECT: Get full element info including coordinates, attributes, visibility, etc.
 const elementInfo = getElementInfo(7);
 return elementInfo; // Returns complete node.__json__(): coordinates, attributes, visibility, scrollable, etc.
 
-// ✅ CORRECT: Safe extraction with validation
+// ✅ CORRECT: Fallback to semantic selectors if getElement fails
 const element = getElement(6);
-return element ? {
-  text: element.textContent.trim(),
-  tag: element.tagName.toLowerCase(),
-  href: element.href || element.closest('a')?.href
-} : 'Element not found';
+if (element) {
+  return element.textContent.trim();
+} else {
+  // Fallback for non-interactive content
+  const articles = document.querySelectorAll('article h1, .headline, [data-testid*="title"]');
+  return Array.from(articles).slice(0, 3).map(el => el.textContent.trim());
+}
 
 // ✅ CORRECT: Extract non-interactive elements with semantic selectors
 const articles = document.querySelectorAll('article, .article, [data-testid*="post"]');
@@ -871,13 +886,32 @@ PROPER SYNTAX EXAMPLES:
 CORRECT: (function(){ try { const el = getElement(7); return el ? el.value : 'not found'; } catch(e) { return 'Error: ' + e.message; } })()
 CORRECT: (async function(){ try { await new Promise(r => setTimeout(r, 100)); return 'done'; } catch(e) { return 'Error: ' + e.message; } })()
 
-// ✅ CORRECT: Use semantic selectors with class names or data attributes
-const buttons = document.querySelectorAll('.btn, .button, [role="button"]');
-return Array.from(buttons).map(btn => btn.textContent.trim());
+CRITICAL STOP CONDITIONS - WHEN TO ABANDON JAVASCRIPT:
+- If getElement(index) returns null 2+ times → Read browser_state text directly
+- If extraction returns empty arrays 3+ times → Switch to manual reading
+- If you're repeating similar selectors → Stop and use different approach
+- If over 5 failed attempts → The data is visible in browser_state, read it manually
+
+// ✅ CORRECT: Stop trying JavaScript if it fails repeatedly
+let attempts = 0;
+const maxAttempts = 2;
+while (attempts < maxAttempts) {
+  const element = getElement(7);
+  if (element && element.textContent.trim()) {
+    return element.textContent.trim();
+  }
+  attempts++;
+}
+// After failures, advise: "Read browser_state directly - text is visible there"
+return 'JavaScript failed - read browser_state text manually';
+
+// ✅ CORRECT: Use semantic selectors for non-interactive content
+const articles = document.querySelectorAll('article h1, .headline, [data-testid*="title"]');
+return Array.from(articles).slice(0, 3).map(el => el.textContent.trim());
 
 WRONG: const el = document.querySelector('#id'); el ? el.value : '';
-WRONG: document.querySelector('#id').value
-WRONG: Multiline code without IIFE wrapping
+WRONG: document.querySelector('#id').value  
+WRONG: Repeating the same failing selector 10+ times
 WRONG: (function(){ // This comment causes parsing errors
 
 SHADOW DOM ACCESS EXAMPLE:
@@ -895,6 +929,18 @@ SHADOW DOM ACCESS EXAMPLE:
         return 'Error: ' + e.message;
     }
 })()
+
+WHEN JAVASCRIPT FAILS - READ BROWSER_STATE DIRECTLY:
+If your JavaScript extraction returns empty/null repeatedly, the data is visible in browser_state.
+Stop trying JavaScript and advise: "Data visible in browser_state - read it manually"
+
+Example browser_state content you can read directly:
+[61]<a />
+  Climate change demands more blood (April 18th 2025, 10:31:46 pm)
+[65]<a />  
+  Are cyclones worsening with climate change? (April 12th 2025, 9:31:11 pm)
+
+When you see this, immediately tell the agent to read these titles and dates directly.
 
 ## Return values:
 - Async functions (with await, promises, timeouts) are automatically handled
@@ -915,12 +961,26 @@ SHADOW DOM ACCESS EXAMPLE:
 				try:
 					selector_map = await browser_session.get_selector_map()
 					for index, node in selector_map.items():
-						# Generate simple CSS selector for getElement()
+						# Generate specific CSS selector for getElement()
 						css_selector = node.tag_name
-						if 'id' in node.attributes:
+
+						# Build specific selector to target exact element
+						if 'id' in node.attributes and node.attributes['id']:
 							css_selector += f'#{node.attributes["id"]}'
-						elif 'class' in node.attributes:
-							css_selector += f'.{node.attributes["class"].split()[0]}'
+						else:
+							# Use multiple attributes to make selector more specific
+							if 'class' in node.attributes and node.attributes['class']:
+								css_selector += f'.{node.attributes["class"].split()[0]}'
+
+							# Add additional specificity with common attributes
+							for attr in ['role', 'type', 'href', 'aria-label']:
+								if attr in node.attributes and node.attributes[attr]:
+									css_selector += f'[{attr}="{node.attributes[attr]}"]'
+									break
+
+							# As last resort, use xpath-style nth-child selector
+							if node.element_index is not None:
+								css_selector += f':nth-of-type({node.element_index + 1})'
 
 						selector_map_data[str(index)] = css_selector
 						# Store full node info for getElementInfo()
@@ -994,7 +1054,11 @@ SHADOW DOM ACCESS EXAMPLE:
 					}}
 				}}
 				
-				
+				// Helper function to get all available element indices
+				function getAvailableIndices() {{
+					const selectorMap = window.__ELEMENT_MAP__ || {{}};
+					return Object.keys(selectorMap).map(k => parseInt(k)).sort((a, b) => a - b);
+				}}
 				"""
 
 				# Execute helper code first
