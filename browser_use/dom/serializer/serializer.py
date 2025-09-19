@@ -45,7 +45,6 @@ class DOMTreeSerializer:
 		paint_order_filtering: bool = True,
 	):
 		self.root_node = root_node
-		self._interactive_counter = 1
 		self._selector_map: DOMSelectorMap = {}
 		self._previous_cached_selector_map = previous_cached_state.selector_map if previous_cached_state else None
 		# Add timing tracking
@@ -80,7 +79,6 @@ class DOMTreeSerializer:
 		start_total = time.time()
 
 		# Reset state
-		self._interactive_counter = 1
 		self._selector_map = {}
 		self._semantic_groups = []
 		self._clickable_cache = {}  # Clear cache for new serialization
@@ -542,7 +540,7 @@ class DOMTreeSerializer:
 			self._collect_interactive_elements(child, elements)
 
 	def _assign_interactive_indices_and_mark_new_nodes(self, node: SimplifiedNode | None) -> None:
-		"""Assign interactive indices to clickable elements that are also visible."""
+		"""Assign backend node IDs as indices to clickable elements that are also visible."""
 		if not node:
 			return
 
@@ -554,10 +552,11 @@ class DOMTreeSerializer:
 
 			# Only add to selector map if element is both interactive AND visible
 			if is_interactive_assign and is_visible:
-				node.interactive_index = self._interactive_counter
-				node.original_node.element_index = self._interactive_counter
-				self._selector_map[self._interactive_counter] = node.original_node
-				self._interactive_counter += 1
+				# Use backend node ID as the index instead of incremental counter
+				backend_node_id = node.original_node.backend_node_id
+				node.interactive_index = backend_node_id
+				node.original_node.element_index = backend_node_id
+				self._selector_map[backend_node_id] = node.original_node
 
 				# Mark compound components as new for visibility
 				if node.is_compound_component:

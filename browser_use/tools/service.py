@@ -804,6 +804,14 @@ class Tools(Generic[Context]):
 		@self.registry.action(
 			"""This JavaScript code gets executed with Runtime.evaluate and 'returnByValue': True, 'awaitPromise': True
 
+BACKEND NODE ID ELEMENT ACCESS:
+Use the pre-injected 'map' variable to access elements by their backend node IDs:
+- map[45] contains the CSS selector for backend node ID 45
+- map[98] contains the CSS selector for backend node ID 98
+- Access elements: document.querySelector(map[45])
+- Interact with elements: document.querySelector(map[45]).click()
+- Get/set values: document.querySelector(map[98]).value = 'text'
+
 SYNTAX RULES - FAILURE TO FOLLOW CAUSES "Uncaught at line 0" ERRORS:
 - ALWAYS wrap your code in IIFE: (function(){ ... })() or (async function(){ ... })() for async code
 - ALWAYS add try-catch blocks to prevent execution errors
@@ -812,29 +820,24 @@ SYNTAX RULES - FAILURE TO FOLLOW CAUSES "Uncaught at line 0" ERRORS:
 - NEVER use inline comments (//) - they cause parsing errors in single-line execution
 - ALWAYS validate elements exist before accessing them
 
-EXAMPLES:
-Use this tool when other tools do not work on the first try as expected or when a more general tool is needed, e.g. for filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, press and hold, hovering, clicking on coordinates, zooming, use this if the user provides custom selectors which you can otherwise not interact with ....
-You can also use it to explore the website.
-- Write code to solve problems you could not solve with other tools.
-- Don't write inline comments (//) - they cause execution errors.
-- Write only valid js code.
-- use this to e.g. extract + filter links, convert the page to json into the format you need etc...
-
-
-- limit the output otherwise your context will explode
-- think if you deal with special elements like iframes / shadow roots etc
+Use this tool when other tools do not work or when a more general tool is needed, e.g. for filling a form all at once, hovering, dragging, extracting content, press and hold, clicking on coordinates, zooming, etc.
+- Write code to solve problems you could not solve with other tools
+- Don't write inline comments (//) - they cause execution errors
+- Write only valid js code
+- Use this to extract + filter links, convert the page to json into the format you need etc.
+- Limit the output otherwise your context will explode
+- Think if you deal with special elements like iframes / shadow roots etc
 - Adopt your strategy for React Native Web, React, Angular, Vue, MUI pages etc.
-- e.g. with  synthetic events, keyboard simulation, shadow DOM, etc.
 
 PROPER SYNTAX EXAMPLES:
-CORRECT: (function(){ try { const el = document.querySelector('#id'); return el ? el.value : 'not found'; } catch(e) { return 'Error: ' + e.message; } })()
+CORRECT: (function(){ try { const el = document.querySelector(map[45]); return el ? el.value : 'not found'; } catch(e) { return 'Error: ' + e.message; } })()
+CORRECT: (function(){ try { document.querySelector(map[98]).click(); return 'clicked'; } catch(e) { return 'Error: ' + e.message; } })()
 CORRECT: (async function(){ try { await new Promise(r => setTimeout(r, 100)); return 'done'; } catch(e) { return 'Error: ' + e.message; } })()
 
-WRONG: const el = document.querySelector('#id'); el ? el.value : '';
-WRONG: document.querySelector('#id').value
+WRONG: const el = document.querySelector(map[45]); el ? el.value : '';
+WRONG: document.querySelector(map[45]).value
 WRONG: Multiline code without IIFE wrapping
 WRONG: (function(){ // This comment causes parsing errors
-
 
 SHADOW DOM ACCESS EXAMPLE:
 (function(){
@@ -865,7 +868,29 @@ SHADOW DOM ACCESS EXAMPLE:
 			cdp_session = await browser_session.get_or_create_cdp_session()
 
 			try:
-				# Always use awaitPromise=True - it's ignored for non-promises
+				# Generate CSS selectors for each backend node ID using utility functions
+				from browser_use.dom.utils import generate_css_selector_for_element
+
+				selector_map = await browser_session.get_selector_map()
+				css_selectors = {}
+				for backend_node_id, enhanced_node in selector_map.items():
+					css_selector = generate_css_selector_for_element(enhanced_node)
+					if css_selector:
+						css_selectors[backend_node_id] = css_selector
+
+				# Inject CSS selector map as a simple variable
+				selector_map_js = f"""
+				// CSS selector map for backend node IDs
+				window.map = {json.dumps(css_selectors)};
+				"""
+
+				# First inject the selector map
+				await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': selector_map_js, 'returnByValue': False, 'awaitPromise': False},
+					session_id=cdp_session.session_id,
+				)
+
+				# Then execute the user code
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
 					params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
 					session_id=cdp_session.session_id,
@@ -917,9 +942,10 @@ SHADOW DOM ACCESS EXAMPLE:
 
 			except Exception as e:
 				# CDP communication or other system errors
-				error_msg = f'Code: {code}\n\nError: {error_msg} Failed to execute JavaScript: {type(e).__name__}: {e}'
+				error_msg = f'Code: {code}\n\nError: Failed to execute JavaScript: {type(e).__name__}: {e}'
 				logger.info(error_msg)
 				return ActionResult(error=error_msg)
+
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
