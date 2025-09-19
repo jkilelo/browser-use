@@ -853,7 +853,7 @@ SHADOW DOM ACCESS EXAMPLE:
 })()
 
 TEXT EXTRACTION:
-(function(){ try { return document.querySelector('#id').innerHTML; } catch(e) { return 'Error: ' + e.message; } })()
+(function(){ try { return document.querySelector('#id').innerHTML.substring(100, 900); } catch(e) { return 'Error: ' + e.message; } })()
 
 LINKEDIN LINKS:
 (function(){ try { return JSON.stringify(Array.from(document.querySelectorAll('a[href*="linkedin.com"]')).map(l => l.href)); } catch(e) { return 'Error: ' + e.message; } })()
