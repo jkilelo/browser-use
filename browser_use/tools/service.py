@@ -852,6 +852,12 @@ SHADOW DOM ACCESS EXAMPLE:
     }
 })()
 
+TEXT EXTRACTION:
+(function(){ try { return document.querySelector('#id').innerHTML; } catch(e) { return 'Error: ' + e.message; } })()
+
+LINKEDIN LINKS:
+(function(){ try { return JSON.stringify(Array.from(document.querySelectorAll('a[href*="linkedin.com"]')).map(l => l.href)); } catch(e) { return 'Error: ' + e.message; } })()
+
 ## Return values:
 - Async functions (with await, promises, timeouts) are automatically handled
 - Returns strings, numbers, booleans, and serialized objects/arrays
