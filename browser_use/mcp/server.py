@@ -88,7 +88,7 @@ _configure_mcp_server_logging()
 logging.disable(logging.CRITICAL)
 
 # Import browser_use modules
-from browser_use import ActionModel, Agent
+from browser_use import Agent
 from browser_use.browser import BrowserProfile, BrowserSession
 from browser_use.config import get_default_llm, get_default_profile, load_browser_use_config
 from browser_use.filesystem.file_system import FileSystem
@@ -274,22 +274,6 @@ class BrowserUseServer:
 								'default': False,
 							}
 						},
-					},
-				),
-				types.Tool(
-					name='browser_extract_content',
-					description='Extract structured content from the current page based on a query',
-					inputSchema={
-						'type': 'object',
-						'properties': {
-							'query': {'type': 'string', 'description': 'What information to extract from the page'},
-							'extract_links': {
-								'type': 'boolean',
-								'description': 'Whether to include links in the extraction',
-								'default': False,
-							},
-						},
-						'required': ['query'],
 					},
 				),
 				types.Tool(
@@ -479,9 +463,6 @@ class BrowserUseServer:
 
 			elif tool_name == 'browser_get_state':
 				return await self._get_browser_state(arguments.get('include_screenshot', False))
-
-			elif tool_name == 'browser_extract_content':
-				return await self._extract_content(arguments['query'], arguments.get('extract_links', False))
 
 			elif tool_name == 'browser_scroll':
 				return await self._scroll(arguments.get('direction', 'down'))
@@ -794,43 +775,6 @@ class BrowserUseServer:
 			result['screenshot'] = state.screenshot
 
 		return json.dumps(result, indent=2)
-
-	async def _extract_content(self, query: str, extract_links: bool = False) -> str:
-		"""Extract content from current page."""
-		if not self.llm:
-			return 'Error: LLM not initialized (set OPENAI_API_KEY)'
-
-		if not self.file_system:
-			return 'Error: FileSystem not initialized'
-
-		if not self.browser_session:
-			return 'Error: No browser session active'
-
-		if not self.tools:
-			return 'Error: Tools not initialized'
-
-		state = await self.browser_session.get_browser_state_summary()
-
-		# Use the extract_structured_data action
-		# Create a dynamic action model that matches the tools's expectations
-		from pydantic import create_model
-
-		# Create action model dynamically
-		ExtractAction = create_model(
-			'ExtractAction',
-			__base__=ActionModel,
-			extract_structured_data=(dict[str, Any], {'query': query, 'extract_links': extract_links}),
-		)
-
-		action = ExtractAction()
-		action_result = await self.tools.act(
-			action=action,
-			browser_session=self.browser_session,
-			page_extraction_llm=self.llm,
-			file_system=self.file_system,
-		)
-
-		return action_result.extracted_content or 'No content extracted'
 
 	async def _scroll(self, direction: str = 'down') -> str:
 		"""Scroll the page."""
