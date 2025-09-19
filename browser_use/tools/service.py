@@ -809,13 +809,14 @@ SYNTAX RULES - FAILURE TO FOLLOW CAUSES "Uncaught at line 0" ERRORS:
 - ALWAYS add try-catch blocks to prevent execution errors
 - ALWAYS use proper semicolons and valid JavaScript syntax
 - NEVER write multiline code without proper IIFE wrapping
+- NEVER use inline comments (//) - they cause parsing errors in single-line execution
 - ALWAYS validate elements exist before accessing them
 
 EXAMPLES:
 Use this tool when other tools do not work on the first try as expected or when a more general tool is needed, e.g. for filling a form all at once, hovering, dragging, extracting only links, extracting content from the page, press and hold, hovering, clicking on coordinates, zooming, use this if the user provides custom selectors which you can otherwise not interact with ....
 You can also use it to explore the website.
 - Write code to solve problems you could not solve with other tools.
-- Don't write comments in here, no human reads that.
+- Don't write inline comments (//) - they cause execution errors.
 - Write only valid js code.
 - use this to e.g. extract + filter links, convert the page to json into the format you need etc...
 
@@ -832,6 +833,8 @@ CORRECT: (async function(){ try { await new Promise(r => setTimeout(r, 100)); re
 WRONG: const el = document.querySelector('#id'); el ? el.value : '';
 WRONG: document.querySelector('#id').value
 WRONG: Multiline code without IIFE wrapping
+WRONG: (function(){ // This comment causes parsing errors
+
 
 SHADOW DOM ACCESS EXAMPLE:
 (function(){
