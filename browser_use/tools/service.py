@@ -858,6 +858,10 @@ TEXT EXTRACTION:
 LINKEDIN LINKS:
 (function(){ try { return JSON.stringify(Array.from(document.querySelectorAll('a[href*="linkedin.com"]')).map(l => l.href)); } catch(e) { return 'Error: ' + e.message; } })()
 
+REGEX USAGE:
+(function(){ try { const text = document.body.textContent; return /Jan|Feb|Mar/.test(text) ? 'found month' : 'no month'; } catch(e) { return 'Error: ' + e.message; } })()
+(function(){ try { const links = Array.from(document.querySelectorAll('a')); return links.filter(a => /\d{4}/.test(a.textContent)).length; } catch(e) { return 'Error: ' + e.message; } })()
+
 ## Return values:
 - Async functions (with await, promises, timeouts) are automatically handled
 - Returns strings, numbers, booleans, and serialized objects/arrays
