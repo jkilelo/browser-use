@@ -727,7 +727,7 @@ class DOMTreeSerializer:
 
 	@staticmethod
 	def serialize_tree(node: SimplifiedNode | None, include_attributes: list[str], depth: int = 0) -> str:
-		"""Serialize the optimized tree to string format."""
+		"""Serialize the enhanced tree to string format showing ALL visible elements."""
 		if not node:
 			return ''
 
@@ -753,22 +753,24 @@ class DOMTreeSerializer:
 						formatted_text.append(child_text)
 				return '\n'.join(formatted_text)
 
-			# Add element with interactive_index if clickable, scrollable, or iframe
-			is_any_scrollable = node.original_node.is_actually_scrollable or node.original_node.is_scrollable
-			should_show_scroll = node.original_node.should_show_scroll_info
-			if (
-				node.interactive_index is not None
-				or is_any_scrollable
-				or node.original_node.tag_name.upper() == 'IFRAME'
-				or node.original_node.tag_name.upper() == 'FRAME'
-			):
+			# Show ALL visible elements now, not just interactive/scrollable ones
+			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
+			if is_visible:
 				next_depth += 1
 
 				# Build attributes string with compound component info
 				text_content = ''
-				attributes_html_str = DOMTreeSerializer._build_attributes_string(
-					node.original_node, include_attributes, text_content
-				)
+
+				# For interactive elements, use the enhanced attributes
+				if node.interactive_index is not None:
+					attributes_html_str = DOMTreeSerializer._build_attributes_string(
+						node.original_node, include_attributes, text_content
+					)
+				else:
+					# For non-interactive elements, show basic attributes
+					attributes_html_str = DOMTreeSerializer._build_basic_attributes_string(
+						node.original_node, include_attributes
+					)
 
 				# Add compound component information to attributes if present
 				if node.original_node._compound_children:
@@ -817,6 +819,10 @@ class DOMTreeSerializer:
 					)
 					shadow_prefix = '|SHADOW(closed)|' if has_closed_shadow else '|SHADOW(open)|'
 
+				# Check for special element types
+				is_any_scrollable = node.original_node.is_actually_scrollable or node.original_node.is_scrollable
+				should_show_scroll = node.original_node.should_show_scroll_info
+
 				if should_show_scroll and node.interactive_index is None:
 					# Scrollable container but not clickable
 					line = f'{depth_str}{shadow_prefix}|SCROLL|<{node.original_node.tag_name}'
@@ -832,6 +838,7 @@ class DOMTreeSerializer:
 					# Frame element (not interactive)
 					line = f'{depth_str}{shadow_prefix}|FRAME|<{node.original_node.tag_name}'
 				else:
+					# Regular non-interactive visible element
 					line = f'{depth_str}{shadow_prefix}<{node.original_node.tag_name}'
 
 				if attributes_html_str:
@@ -886,6 +893,105 @@ class DOMTreeSerializer:
 					formatted_text.append(child_text)
 
 		return '\n'.join(formatted_text)
+
+	@staticmethod
+	def _should_skip_element(node: SimplifiedNode) -> bool:
+		"""Determine if an element should be skipped in the output."""
+		# Skip if excluded by parent bounding box filtering
+		if hasattr(node, 'excluded_by_parent') and node.excluded_by_parent:
+			return True
+
+		# Skip if ignored by paint order (but NOT for text nodes - we want to keep paint-order ignored text)
+		if (
+			hasattr(node, 'ignored_by_paint_order')
+			and node.ignored_by_paint_order
+			and node.original_node.node_type != NodeType.TEXT_NODE
+		):
+			return True
+
+		# Skip if marked as should not display
+		if hasattr(node, 'should_display') and not node.should_display:
+			return True
+
+		# For element nodes, check visibility and disabled state
+		if node.original_node.node_type == NodeType.ELEMENT_NODE:
+			# Skip disabled elements (script, style, head, etc.)
+			if node.original_node.node_name.lower() in DISABLED_ELEMENTS:
+				return True
+
+			# Skip invisible elements
+			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
+			if not is_visible:
+				return True
+
+		# For text nodes, we don't filter by paint order (keep paint-order ignored text)
+		# We only skip text nodes if they're excluded by parent or invisible
+		elif node.original_node.node_type == NodeType.TEXT_NODE:
+			# Skip invisible text nodes - check is_visible directly
+			if not node.original_node.is_visible:
+				return True
+
+		return False
+
+	@staticmethod
+	def _build_simple_attributes_string(
+		node: EnhancedDOMTreeNode, include_attributes: list[str], interactive_index: int | None = None
+	) -> str:
+		"""Build a simple attributes string for HTML-like output."""
+		filtered_attrs = {}
+
+		# Always add backend node ID as 'bid' attribute for all elements
+		# filtered_attrs[f'bid{node.backend_node_id}'] = ''
+
+		# Add highlight-index attribute for clickable elements
+		if interactive_index is not None:
+			filtered_attrs[f'highlight-index{interactive_index}'] = ''
+
+		# Only add regular attributes for clickable elements (when interactive_index is not None)
+		if interactive_index is not None and node.attributes:
+			for key, value in node.attributes.items():
+				if key in include_attributes and str(value).strip():
+					filtered_attrs[key] = str(value).strip()
+
+		if not filtered_attrs:
+			return ''
+
+		# Format as key="value" pairs (or just key for empty values like highlight-index and bid)
+		attr_parts = []
+		for key, value in filtered_attrs.items():
+			if value:  # Non-empty value
+				# Escape quotes in attribute values
+				escaped_value = value.replace('"', '&quot;')
+				attr_parts.append(f'{key}="{escaped_value}"')
+			else:  # Empty value (like highlight-index and bid attributes)
+				attr_parts.append(key)
+
+		return ' '.join(attr_parts)
+
+	@staticmethod
+	def _build_basic_attributes_string(node: EnhancedDOMTreeNode, include_attributes: list[str]) -> str:
+		"""Build a basic attributes string for non-interactive elements (showing key attributes only)."""
+		filtered_attrs = {}
+
+		# Only show the most important attributes for non-interactive elements
+		important_attrs = {'id', 'class', 'role', 'aria-label', 'title', 'name', 'type'}
+
+		if node.attributes:
+			for key, value in node.attributes.items():
+				if key in important_attrs and key in include_attributes and str(value).strip():
+					filtered_attrs[key] = str(value).strip()
+
+		if not filtered_attrs:
+			return ''
+
+		# Format as key="value" pairs
+		attr_parts = []
+		for key, value in filtered_attrs.items():
+			# Escape quotes in attribute values
+			escaped_value = value.replace('"', '&quot;')
+			attr_parts.append(f'{key}="{escaped_value}"')
+
+		return ' '.join(attr_parts)
 
 	@staticmethod
 	def _build_attributes_string(node: EnhancedDOMTreeNode, include_attributes: list[str], text: str) -> str:
