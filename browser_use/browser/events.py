@@ -529,7 +529,9 @@ class FileDownloadedEvent(BaseEvent):
 	from_cache: bool = False
 	auto_download: bool = False  # Whether this was an automatic download (e.g., PDF auto-download)
 
-	event_timeout: float | None = _get_timeout('TIMEOUT_FileDownloadedEvent', 30.0)  # seconds
+	event_timeout: float | None = _get_timeout(
+		'TIMEOUT_FileDownloadedEvent', 30.0
+	)  # seconds (can also be configured via BrowserProfile.download_timeout)
 
 
 class AboutBlankDVDScreensaverShownEvent(BaseEvent):

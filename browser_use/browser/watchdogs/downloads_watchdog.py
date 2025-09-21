@@ -447,7 +447,7 @@ class DownloadsWatchdog(BaseWatchdog):
 					initial_files.add(f.name)
 
 		# Poll for new files
-		max_wait = 20  # seconds
+		max_wait = self.browser_session.browser_profile.download_timeout  # seconds
 		start_time = asyncio.get_event_loop().time()
 
 		while asyncio.get_event_loop().time() - start_time < max_wait:
@@ -782,7 +782,9 @@ class DownloadsWatchdog(BaseWatchdog):
 					},
 					session_id=temp_session.session_id,
 				),
-				timeout=5.0,  # 5 second timeout to prevent hanging
+				timeout=min(
+					5.0, self.browser_session.browser_profile.download_timeout
+				),  # timeout to prevent hanging, capped at 5s for URL retrieval
 			)
 			pdf_info = result.get('result', {}).get('value', {})
 
@@ -853,7 +855,7 @@ class DownloadsWatchdog(BaseWatchdog):
 						},
 						session_id=temp_session.session_id,
 					),
-					timeout=10.0,  # 10 second timeout for download operation
+					timeout=self.browser_session.browser_profile.download_timeout,  # configurable timeout for download operation
 				)
 				download_result = result.get('result', {}).get('value', {})
 
