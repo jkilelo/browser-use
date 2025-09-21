@@ -803,7 +803,7 @@ class SerializedDOMState:
 
 	selector_map: DOMSelectorMap
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='llm_representation')
+	@observe(ignore_input=True, ignore_output=True, name='llm_representation')
 	def llm_representation(
 		self,
 		include_attributes: list[str] | None = None,

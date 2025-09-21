@@ -1598,6 +1598,7 @@ class BrowserSession(BaseModel):
 			return target.get('url', '')
 		return 'about:blank'
 
+	@observe(ignore_input=True, ignore_output=True, name='get_current_page_title')
 	async def get_current_page_title(self) -> str:
 		"""Get the title of the current page using CDP."""
 		target_info = await self.get_current_target_info()
