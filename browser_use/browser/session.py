@@ -1042,7 +1042,7 @@ class BrowserSession(BaseModel):
 	# endregion - ========== CDP-based ... ==========
 
 	# region - ========== Helper Methods ==========
-	@observe_debug(ignore_input=True, ignore_output=True, name='get_browser_state_summary')
+	@observe(ignore_input=True, ignore_output=True, name='get_browser_state_summary')
 	async def get_browser_state_summary(
 		self,
 		cache_clickable_elements_hashes: bool = True,
