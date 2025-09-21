@@ -669,6 +669,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		finally:
 			await self._finalize(browser_state_summary)
 
+	@observe(ignore_input=True, ignore_output=True, name='prepare_context')
 	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
 		"""Prepare the context for the step: browser state, action models, page actions"""
 		# step_start_time is now set in step() method
