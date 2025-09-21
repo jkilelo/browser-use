@@ -86,6 +86,7 @@ class DOMWatchdog(BaseWatchdog):
 		return json.dumps([])  # Return empty JSON array on error
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_state_request_event')
+	@time_execution_async('browser_state_request_event')
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> 'BrowserStateSummary':
 		"""Handle browser state request by coordinating DOM building and screenshot capture.
 
@@ -404,8 +405,8 @@ class DOMWatchdog(BaseWatchdog):
 			)
 			raise
 
-	@time_execution_async('capture_clean_screenshot')
 	@observe_debug(ignore_input=True, ignore_output=True, name='capture_clean_screenshot')
+	@time_execution_async('capture_clean_screenshot')
 	async def _capture_clean_screenshot(self) -> str:
 		"""Capture a clean screenshot without JavaScript highlights."""
 		try:
@@ -440,6 +441,8 @@ class DOMWatchdog(BaseWatchdog):
 			self.logger.warning(f'📸 Clean screenshot failed: {type(e).__name__}: {e}')
 			raise
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='wait_for_stable_network')
+	@time_execution_async('wait_for_stable_network')
 	async def _wait_for_stable_network(self):
 		"""Wait for page stability - simplified for CDP-only branch."""
 		start_time = time.time()
@@ -459,6 +462,8 @@ class DOMWatchdog(BaseWatchdog):
 		elapsed = time.time() - start_time
 		self.logger.debug(f'✅ Page stability wait completed in {elapsed:.2f}s')
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_page_info')
+	@time_execution_async('get_page_info')
 	async def _get_page_info(self) -> 'PageInfo':
 		"""Get comprehensive page information using a single CDP call.
 

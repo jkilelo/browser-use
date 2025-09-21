@@ -64,6 +64,7 @@ class DomService:
 	async def __aexit__(self, exc_type, exc_value, traceback):
 		pass  # no need to cleanup anything, browser_session auto handles cleaning up session cache
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_targets_for_page')
 	async def _get_targets_for_page(self, target_id: TargetID | None = None) -> CurrentPageTargets:
 		"""Get the target info for a specific page.
 
@@ -251,6 +252,7 @@ class DomService:
 		# If we reach here, element is visible in main viewport and all containing iframes
 		return True
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_ax_tree_for_all_frames')
 	async def _get_ax_tree_for_all_frames(self, target_id: TargetID) -> GetFullAXTreeReturns:
 		"""Recursively collect all frames and merge their accessibility trees into a single array."""
 
@@ -288,6 +290,7 @@ class DomService:
 
 		return {'nodes': merged_nodes}
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_all_trees')
 	async def _get_all_trees(self, target_id: TargetID) -> TargetAllTrees:
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
 
