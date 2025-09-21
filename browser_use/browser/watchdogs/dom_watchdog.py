@@ -405,7 +405,7 @@ class DOMWatchdog(BaseWatchdog):
 			)
 			raise
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='capture_clean_screenshot')
+	@observe(ignore_input=True, ignore_output=True, name='capture_clean_screenshot')
 	@time_execution_async('capture_clean_screenshot')
 	async def _capture_clean_screenshot(self) -> str:
 		"""Capture a clean screenshot without JavaScript highlights."""
