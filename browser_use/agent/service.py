@@ -669,6 +669,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		finally:
 			await self._finalize(browser_state_summary)
 
+	@observe(ignore_input=True, ignore_output=True, name='agent_prepare_context')
 	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
 		"""Prepare the context for the step: browser state, action models, page actions"""
 		# step_start_time is now set in step() method
@@ -718,7 +719,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._force_done_after_failure()
 		return browser_state_summary
 
-	@observe_debug(ignore_input=True, name='get_next_action')
+	@observe(ignore_input=True, name='agent_get_next_action')
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Execute LLM interaction with retry logic and handle callbacks"""
 		input_messages = self._message_manager.get_messages()
@@ -754,6 +755,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# check again if Ctrl+C was pressed before we commit the output to history
 		await self._raise_if_stopped_or_paused()
 
+	@observe(ignore_input=True, ignore_output=True, name='agent_execute_actions')
 	async def _execute_actions(self) -> None:
 		"""Execute the actions from model output"""
 		if self.state.last_model_output is None:
