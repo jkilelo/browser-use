@@ -959,6 +959,7 @@ class BrowserSession(BaseModel):
 		"""Clear all cookies."""
 		await self.cdp_client.send.Network.clearBrowserCookies()
 
+	@observe(ignore_input=True, ignore_output=True, name='get_or_create_cdp_session')
 	async def get_or_create_cdp_session(
 		self, target_id: TargetID | None = None, focus: bool = True, new_socket: bool | None = None
 	) -> CDPSession:
@@ -1598,7 +1599,7 @@ class BrowserSession(BaseModel):
 			return target.get('url', '')
 		return 'about:blank'
 
-	@observe(ignore_input=True, ignore_output=True, name='get_current_page_title')
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_current_page_title')
 	async def get_current_page_title(self) -> str:
 		"""Get the title of the current page using CDP."""
 		target_info = await self.get_current_target_info()

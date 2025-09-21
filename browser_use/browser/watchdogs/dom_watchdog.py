@@ -460,7 +460,7 @@ class DOMWatchdog(BaseWatchdog):
 		self.logger.debug(f'✅ Page stability wait completed in {elapsed:.2f}s')
 
 
-	@observe(ignore_input=True, ignore_output=True, name='get_page_info')
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_page_info')
 	async def _get_page_info(self) -> 'PageInfo':
 		"""Get comprehensive page information using a single CDP call.
 

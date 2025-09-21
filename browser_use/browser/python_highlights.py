@@ -13,7 +13,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 
 from browser_use.dom.views import DOMSelectorMap, EnhancedDOMTreeNode
-from browser_use.observability import observe_debug
+from browser_use.observability import observe_debug, observe
 from browser_use.utils import time_execution_async
 
 logger = logging.getLogger(__name__)
@@ -404,7 +404,7 @@ def process_element_highlight(
 		logger.debug(f'Failed to draw highlight for element {element_id}: {e}')
 
 
-@observe_debug(ignore_input=True, ignore_output=True, name='create_highlighted_screenshot')
+@observe(ignore_input=True, ignore_output=True, name='create_highlighted_screenshot')
 @time_execution_async('create_highlighted_screenshot')
 async def create_highlighted_screenshot(
 	screenshot_b64: str,
@@ -499,6 +499,7 @@ async def get_viewport_info_from_cdp(cdp_session) -> tuple[float, int, int]:
 
 
 @time_execution_async('create_highlighted_screenshot_async')
+@observe(ignore_input=True, ignore_output=True, name='create_highlighted_screenshot_async')
 async def create_highlighted_screenshot_async(
 	screenshot_b64: str, selector_map: DOMSelectorMap, cdp_session=None, filter_highlight_ids: bool = True
 ) -> str:
