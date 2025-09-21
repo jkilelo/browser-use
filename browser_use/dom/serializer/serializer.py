@@ -14,7 +14,7 @@ from browser_use.dom.views import (
 	SerializedDOMState,
 	SimplifiedNode,
 )
-from browser_use.observability import observe_debug
+from browser_use.observability import observe
 
 DISABLED_ELEMENTS = {'style', 'script', 'head', 'meta', 'link', 'title'}
 
@@ -75,7 +75,7 @@ class DOMTreeSerializer:
 		except (ValueError, TypeError):
 			return None
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='serialize_accessible_elements')
+	@observe(ignore_input=True, ignore_output=True, name='serialize_accessible_elements')
 	def serialize_accessible_elements(self) -> tuple[SerializedDOMState, dict[str, float]]:
 		import time
 

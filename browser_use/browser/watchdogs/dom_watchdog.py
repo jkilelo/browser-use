@@ -16,7 +16,7 @@ from browser_use.dom.views import (
 	EnhancedDOMTreeNode,
 	SerializedDOMState,
 )
-from browser_use.observability import observe_debug
+from browser_use.observability import observe, observe_debug
 from browser_use.utils import time_execution_async
 
 if TYPE_CHECKING:
@@ -85,7 +85,7 @@ class DOMWatchdog(BaseWatchdog):
 
 		return json.dumps([])  # Return empty JSON array on error
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='browser_state_request_event')
+	@observe(ignore_input=True, ignore_output=True, name='browser_state_request_event')
 	@time_execution_async('browser_state_request_event')
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> 'BrowserStateSummary':
 		"""Handle browser state request by coordinating DOM building and screenshot capture.
@@ -350,7 +350,7 @@ class DOMWatchdog(BaseWatchdog):
 			)
 
 	@time_execution_async('build_dom_tree_without_highlights')
-	@observe_debug(ignore_input=True, ignore_output=True, name='build_dom_tree_without_highlights')
+	@observe(ignore_input=True, ignore_output=True, name='build_dom_tree_without_highlights')
 	async def _build_dom_tree_without_highlights(self, previous_state: SerializedDOMState | None = None) -> SerializedDOMState:
 		"""Build DOM tree without injecting JavaScript highlights (for parallel execution)."""
 		try:
