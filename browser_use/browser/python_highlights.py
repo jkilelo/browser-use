@@ -404,8 +404,8 @@ def process_element_highlight(
 		logger.debug(f'Failed to draw highlight for element {element_id}: {e}')
 
 
-@observe(ignore_input=True, ignore_output=True, name='create_highlighted_screenshot')
 @time_execution_async('create_highlighted_screenshot')
+@observe(ignore_input=True, ignore_output=True, name='create_highlighted_screenshot')
 async def create_highlighted_screenshot(
 	screenshot_b64: str,
 	selector_map: DOMSelectorMap,
