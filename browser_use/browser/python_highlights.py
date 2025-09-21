@@ -428,6 +428,7 @@ async def create_highlighted_screenshot(
 	"""
 	try:
 		# Decode screenshot
+		@observe(ignore_input=True, ignore_output=True, name='decode_screenshot')
 		screenshot_data = base64.b64decode(screenshot_b64)
 		image = Image.open(io.BytesIO(screenshot_data)).convert('RGBA')
 
@@ -440,10 +441,12 @@ async def create_highlighted_screenshot(
 
 		# Process elements sequentially to avoid ImageDraw thread safety issues
 		# PIL ImageDraw is not thread-safe, so we process elements one by one
+		@observe(ignore_input=True, ignore_output=True, name='process_element_highlight')
 		for element_id, element in selector_map.items():
 			process_element_highlight(element_id, element, draw, device_pixel_ratio, font, filter_highlight_ids, image.size)
 
 		# Convert back to base64
+		@observe(ignore_input=True, ignore_output=True, name='convert_to_base64')
 		output_buffer = io.BytesIO()
 		try:
 			image.save(output_buffer, format='PNG')
@@ -532,7 +535,7 @@ async def create_highlighted_screenshot_async(
 
 	filename = os.getenv('BROWSER_USE_SCREENSHOT_FILE')
 	if filename:
-
+		@observe(ignore_input=True, ignore_output=True, name='write_screenshot')
 		def _write_screenshot():
 			try:
 				with open(filename, 'wb') as f:
