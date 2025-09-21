@@ -423,7 +423,6 @@ class DOMTreeSerializer:
 
 		return self._clickable_cache[node.node_id]
 
-	@observe(ignore_input=True, ignore_output=True, name='create_simplified_tree')
 	def _create_simplified_tree(self, node: EnhancedDOMTreeNode, depth: int = 0) -> SimplifiedNode | None:
 		"""Step 1: Create a simplified tree with enhanced element detection."""
 
@@ -505,7 +504,6 @@ class DOMTreeSerializer:
 
 		return None
 
-	@observe(ignore_input=True, ignore_output=True, name='optimize_tree')
 	def _optimize_tree(self, node: SimplifiedNode | None) -> SimplifiedNode | None:
 		"""Step 2: Optimize tree structure."""
 		if not node:
@@ -576,7 +574,6 @@ class DOMTreeSerializer:
 		for child in node.children:
 			self._assign_interactive_indices_and_mark_new_nodes(child)
 
-	@observe(ignore_input=True, ignore_output=True, name='apply_bounding_box_filtering')
 	def _apply_bounding_box_filtering(self, node: SimplifiedNode | None) -> SimplifiedNode | None:
 		"""Filter children contained within propagating parent bounds."""
 		if not node:

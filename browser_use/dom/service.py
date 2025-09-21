@@ -290,7 +290,6 @@ class DomService:
 
 		return {'nodes': merged_nodes}
 
-	@observe(ignore_input=True, ignore_output=True, name='get_all_trees')
 	async def _get_all_trees(self, target_id: TargetID) -> TargetAllTrees:
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
 
@@ -716,7 +715,6 @@ class DomService:
 
 		return enhanced_dom_tree_node
 
-	@observe(ignore_input=True, ignore_output=True, name='get_serialized_dom_tree')
 	async def get_serialized_dom_tree(
 		self, previous_cached_state: SerializedDOMState | None = None
 	) -> tuple[SerializedDOMState, EnhancedDOMTreeNode, dict[str, float]]:

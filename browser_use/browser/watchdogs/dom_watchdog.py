@@ -350,7 +350,6 @@ class DOMWatchdog(BaseWatchdog):
 			)
 
 	@time_execution_async('build_dom_tree_without_highlights')
-	@observe(ignore_input=True, ignore_output=True, name='build_dom_tree_without_highlights')
 	async def _build_dom_tree_without_highlights(self, previous_state: SerializedDOMState | None = None) -> SerializedDOMState:
 		"""Build DOM tree without injecting JavaScript highlights (for parallel execution)."""
 		try:
@@ -405,7 +404,6 @@ class DOMWatchdog(BaseWatchdog):
 			)
 			raise
 
-	@observe(ignore_input=True, ignore_output=True, name='capture_clean_screenshot')
 	@time_execution_async('capture_clean_screenshot')
 	async def _capture_clean_screenshot(self) -> str:
 		"""Capture a clean screenshot without JavaScript highlights."""
