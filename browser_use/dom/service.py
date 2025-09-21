@@ -290,7 +290,7 @@ class DomService:
 
 		return {'nodes': merged_nodes}
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='get_all_trees')
+	@observe(ignore_input=True, ignore_output=True, name='get_all_trees')
 	async def _get_all_trees(self, target_id: TargetID) -> TargetAllTrees:
 		cdp_session = await self.browser_session.get_or_create_cdp_session(target_id=target_id, focus=False)
 
