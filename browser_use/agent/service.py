@@ -475,6 +475,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 		return self.browser_session.browser_profile
 
+	@observe(ignore_input=True, ignore_output=True, name='agent_check_downloads')
 	async def _check_and_update_downloads(self, context: str = '') -> None:
 		"""Check for new downloads and update available file paths."""
 		if not self.has_downloads_path:
@@ -1212,6 +1213,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		if len(self.history.history) == 0:
 			self.logger.info(f'🧠 Starting a browser-use version {self.version} with model={self.llm.model}')
 
+	@observe(ignore_input=True, ignore_output=True, name='agent_log_step_context')
 	def _log_step_context(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Log step context information"""
 		url = browser_state_summary.url if browser_state_summary else ''
