@@ -23,7 +23,7 @@ from browser_use.dom.views import (
 	SerializedDOMState,
 	TargetAllTrees,
 )
-from browser_use.observability import observe_debug
+from browser_use.observability import observe_debug, observe
 
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession

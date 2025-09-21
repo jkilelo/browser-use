@@ -12,7 +12,7 @@ from cdp_use.cdp.target.types import SessionID, TargetID, TargetInfo
 from uuid_extensions import uuid7str
 
 from browser_use.dom.utils import cap_text_length
-from browser_use.observability import observe_debug
+from browser_use.observability import observe_debug, observe
 
 # Serializer types
 DEFAULT_INCLUDE_ATTRIBUTES = [
