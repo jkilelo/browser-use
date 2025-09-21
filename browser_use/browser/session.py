@@ -41,7 +41,7 @@ from browser_use.browser.events import (
 from browser_use.browser.profile import BrowserProfile, ProxySettings
 from browser_use.browser.views import BrowserStateSummary, TabInfo
 from browser_use.dom.views import EnhancedDOMTreeNode, TargetInfo
-from browser_use.observability import observe_debug
+from browser_use.observability import observe_debug, observe
 from browser_use.utils import _log_pretty_url, is_new_tab_page
 
 if TYPE_CHECKING:

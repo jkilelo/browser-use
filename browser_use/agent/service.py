@@ -26,6 +26,7 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import BaseMessage, ContentPartImageParam, ContentPartTextParam, UserMessage
 from browser_use.llm.openai.chat import ChatOpenAI
 from browser_use.tokens.service import TokenCost
+from browser_use.observability import observe_debug, observe
 
 load_dotenv()
 
@@ -475,7 +476,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 		return self.browser_session.browser_profile
 
-	#@observe(ignore_input=True, ignore_output=True, name='check_and_update_downloads')
+	@observe(ignore_input=True, ignore_output=True, name='check_and_update_downloads')
 	async def _check_and_update_downloads(self, context: str = '') -> None:
 		"""Check for new downloads and update available file paths."""
 		if not self.has_downloads_path:
