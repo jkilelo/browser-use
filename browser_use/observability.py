@@ -173,7 +173,7 @@ def observe_debug(
 		**kwargs,
 	}
 
-	if _LMNR_AVAILABLE and _lmnr_observe and _is_debug_mode():
+	if _LMNR_AVAILABLE and _lmnr_observe and True: #or _is_debug_mode():
 		# Use the real lmnr observe decorator only in debug mode
 		return cast(Callable[[F], F], _lmnr_observe(**kwargs))
 	else:
