@@ -23,7 +23,7 @@ from browser_use.dom.views import (
 	SerializedDOMState,
 	TargetAllTrees,
 )
-from browser_use.observability import observe_debug
+from browser_use.observability import observe_debug, observe
 
 if TYPE_CHECKING:
 	from browser_use.browser.session import BrowserSession
@@ -340,6 +340,7 @@ class DomService:
 			self.logger.debug(f'Failed to get iframe scroll positions: {e}')
 
 		# Define CDP request factories to avoid duplication
+		@observe(ignore_input=True, ignore_output=True, name='cdp_create_snapshot_request')
 		def create_snapshot_request():
 			return cdp_session.cdp_client.send.DOMSnapshot.captureSnapshot(
 				params={
@@ -352,6 +353,7 @@ class DomService:
 				session_id=cdp_session.session_id,
 			)
 
+		@observe(ignore_input=True, ignore_output=True, name='cdp_create_dom_tree_request')
 		def create_dom_tree_request():
 			return cdp_session.cdp_client.send.DOM.getDocument(
 				params={'depth': -1, 'pierce': True}, session_id=cdp_session.session_id
@@ -447,7 +449,7 @@ class DomService:
 			cdp_timing=cdp_timing,
 		)
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='get_dom_tree')
+	@observe(ignore_input=True, ignore_output=True, name='cdp_get_dom_tree')
 	async def get_dom_tree(
 		self,
 		target_id: TargetID,
@@ -713,7 +715,7 @@ class DomService:
 
 		return enhanced_dom_tree_node
 
-	@observe_debug(ignore_input=True, ignore_output=True, name='get_serialized_dom_tree')
+	@observe(ignore_input=True, ignore_output=True, name='cdp_get_serialized_dom_tree')
 	async def get_serialized_dom_tree(
 		self, previous_cached_state: SerializedDOMState | None = None
 	) -> tuple[SerializedDOMState, EnhancedDOMTreeNode, dict[str, float]]:
