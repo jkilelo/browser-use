@@ -109,6 +109,20 @@ class DOMWatchdog(BaseWatchdog):
 		else:
 			self.logger.debug(f'Current page URL: {page_url}, no cdp_session attached')
 
+		# IDEAS to improve speed 
+		# is this likely a static page? prolly hard to do
+		# can we do better caching here? for example url/fragemnt_has/viewport/scroll/page_content (why would that happen tho?)
+		# cache_clickable_elements_hashes 
+		# BIG: IF only readonly and does not need element highlighting
+		#   
+		# cache_clickable_elements_hashes=True:
+		# DOM Snapshot -> Element Processing -> Element Highlighting -> Screenshot with overlays
+		# cache_clickable_elements_hashes=False:
+		# We can run DOM/screenshot in parallel		
+
+		# TODO: could we stream some of this to the agent?
+		# likely this would need for us to have the models hostedf
+
 		# check if we should skip DOM tree build for pointless pages
 		not_a_meaningful_website = page_url.lower().split(':', 1)[0] not in ('http', 'https')
 
@@ -226,8 +240,9 @@ class DOMWatchdog(BaseWatchdog):
 					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Clean screenshot failed: {e}')
 					screenshot_b64 = None
 
+			# Agent is only reading, no highlighting needed	
 			# Apply Python-based highlighting if both DOM and screenshot are available
-			if screenshot_b64 and content and content.selector_map and self.browser_session.browser_profile.highlight_elements:
+			if event.cache_clickable_elements_hashes and screenshot_b64 and content and content.selector_map and self.browser_session.browser_profile.highlight_elements:
 				try:
 					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 🎨 Applying Python-based highlighting...')
 					from browser_use.browser.python_highlights import create_highlighted_screenshot_async
