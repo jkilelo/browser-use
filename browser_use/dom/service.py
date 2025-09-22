@@ -440,7 +440,8 @@ class DomService:
 					self.logger.debug(
 						f'🔍 DEBUG: Iframe #{doc_idx} {doc.get("frameId", "no-frame-id")} {doc.get("url", "no-url")} has {len(doc.get("nodes", []))} nodes'
 					)
-
+		
+		self.logger.error(f'🔍 cdtp timing: {cdp_timing}')
 		return TargetAllTrees(
 			snapshot=snapshot,
 			dom_tree=dom_tree,
