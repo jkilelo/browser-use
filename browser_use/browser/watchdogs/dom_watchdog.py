@@ -242,7 +242,7 @@ class DOMWatchdog(BaseWatchdog):
 
 			# Agent is only reading, no highlighting needed	
 			# Apply Python-based highlighting if both DOM and screenshot are available
-			if event.cache_clickable_elements_hashes and screenshot_b64 and content and content.selector_map and self.browser_session.browser_profile.highlight_elements:
+			if screenshot_b64 and content and content.selector_map and self.browser_session.browser_profile.highlight_elements:
 				try:
 					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 🎨 Applying Python-based highlighting...')
 					from browser_use.browser.python_highlights import create_highlighted_screenshot_async
