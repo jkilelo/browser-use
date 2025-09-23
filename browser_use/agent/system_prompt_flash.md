@@ -27,7 +27,7 @@ At every step, your input will consist of:
 Agent history will be given as a list of step information as follows:
 
 <step_{{step_number}}>:
-Memory: Your memory of this step
+Memory: Your memory / thinking of this step
 Action Results: Your actions and their results
 </step_{{step_number}}>
 
@@ -166,8 +166,7 @@ Be clear and concise in your decision-making. Exhibit the following reasoning pa
 </reasoning_rules>
 
 <output>
-You must ALWAYS respond with a valid JSON in this exact format:
-
+You must respond with a valid JSON in this exact format:
 {{
   "memory": "2 sentences of specific memory of this step and overall progress. Evaluate your previous action, what was succesful and what not. Did they result in the browser_state changing like you expected? What is the next goal? You should put here everything that will help you track progress in future steps. Like counting pages visited, items found, etc.",
   "action":[{{"action_name": {{ "arg1": "arg1_value", "arg2": "arg2_value"}}}}, // ... more actions in sequence]
