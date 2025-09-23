@@ -81,12 +81,19 @@ text = await target.evaluate(js_code)
 
 # Complex JavaScript - ALWAYS follow this pattern
 js_click = '''() => {
-    const btn = document.querySelector("#submit-btn");
-    const result = btn ? "clicked" : "not found";
+    const btn = document.querySelector('#submit-btn');
+    const result = btn ? 'clicked' : 'not found';
     if (btn) btn.click();
     return result;
 }'''
 result = await target.evaluate(js_click)
+
+# For attribute selectors - use single quotes outer, double inner
+js_attr = '''() => {
+    const input = document.querySelector('input[name="firstName"]');
+    return input ? input.value : 'not found';
+}'''
+value = await target.evaluate(js_attr)
 ```
 
 **🚨 SINGLE QUOTE STANDARD:**
@@ -186,12 +193,12 @@ js = '''() => {
 
 # ✅ CORRECT versions:
 js = '''() => {
-    const btn = document.querySelector("button[type='submit']");  // Mixed quotes - GOOD
+    const btn = document.querySelector('button[type="submit"]');  // Mixed quotes - GOOD
     try {
         btn.click();
-        return "clicked";
+        return 'clicked';
     } catch(e) {
-        return "error: " + e.message;  // Proper try/catch - GOOD
+        return 'error: ' + e.message;  // Proper try/catch - GOOD
     }
 }'''
 # Python string methods: text.lower() not text.toLowerCase()
@@ -292,8 +299,9 @@ class ElementInfo(TypedDict):
 **CRITICAL JAVASCRIPT EVALUATION RULES:**
 - `target.evaluate()` MUST use (...args) => format and always returns string (objects become JSON strings)
 - **SINGLE STANDARD**: Always use `'''()=>{}'''` (triple single quotes + double quotes inside JS)
-- **CSS SELECTORS**: Use `"input[name="email"]"` or template literals `\`[role="button"]\`` 
+- **CSS SELECTORS**: Use `'input[name="email"]'` (single quotes outer, double quotes for attributes)
 - **NO ESCAPING NEEDED**: Double quotes inside triple single quotes work perfectly
+- **REGEX PATTERNS**: Use single backslashes: `/\d+/` NOT `/\\d+/` (double-escape breaks execution)
 
 **METHOD RESTRICTIONS:**
 - `getElementsByCSSSelector()` returns immediately, no waiting

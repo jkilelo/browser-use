@@ -39,7 +39,6 @@ from browser_use.tools.views import (
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
-	ExecuteCDPAction,
 	GetDropdownOptionsAction,
 	GoToUrlAction,
 	InputTextAction,
@@ -103,6 +102,7 @@ class Tools(Generic[Context]):
 		'write_file',
 		'replace_file_str',
 		'read_file',
+		'evaluate_js',
 	]
 
 	def __init__(
@@ -917,113 +917,6 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				include_extracted_content_only_once=True,
 			)
 
-		# General CDP execution tool
-		@self.registry.action(
-			"""Execute JavaScript - SINGLE LINE ONLY. Auto-fixes syntax errors.
-
-Use rich attributes from browser_state for precise selectors:
-
-ONE LINE EXAMPLES:
-- By name: document.querySelector("input[name="firstName"]").value
-- By ID: document.querySelector("#submit-btn").click()  
-- By class: document.querySelectorAll(".product-card").length
-- Extract: JSON.stringify(Array.from(document.querySelectorAll("input[required="true"]")).map(el => el.name))
-- Navigate: window.location.href = "https://example.com/page"
-- Scroll: window.scrollBy(0, 500)
-
-ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never repeat failing code.""",
-			param_model=ExecuteCDPAction,
-		)
-		async def execute_js(params: ExecuteCDPAction, browser_session: BrowserSession):
-			# Pre-process JavaScript to fix common issues
-			original_code = params.javascript_code
-			enhanced_code = self._fix_common_js_issues(original_code)
-
-			# Log the transformation for debugging
-			if enhanced_code != original_code:
-				logger.debug(f'🔧 JS Auto-fix applied:\nOriginal: {original_code[:100]}...\nFixed: {enhanced_code[:100]}...')
-
-			cdp_session = await browser_session.get_or_create_cdp_session()
-			try:
-				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': enhanced_code}, session_id=cdp_session.session_id
-				)
-
-				if result.get('exceptionDetails'):
-					exception = result['exceptionDetails']
-
-					# Check for CSP or security policy errors
-					error_text = exception.get('text', '')
-					error_description = exception.get('exception', {}).get('description', '')
-					combined_error = f'{error_text} {error_description}'.lower()
-
-					if any(
-						csp_term in combined_error
-						for csp_term in ['content security policy', 'refused to execute', 'unsafe-eval']
-					):
-						return ActionResult(
-							error=f'Content Security Policy (CSP) blocked JavaScript execution. Website prevents running custom JavaScript.\n\nFailed code: {params.javascript_code[:150]}...'
-						)
-
-					# Extract comprehensive error information
-					error_parts = []
-
-					# Basic error info
-					error_type = exception.get('exception', {}).get('className', 'Error')
-					error_description = exception.get('text', exception.get('exception', {}).get('description', 'Unknown error'))
-					error_parts.append(f'{error_type}: {error_description}')
-
-					# Location information
-					line_num = exception.get('lineNumber', 0)
-					column_num = exception.get('columnNumber', 0)
-					if line_num > 0:
-						error_parts.append(f'at line {line_num + 1}, column {column_num + 1}')
-
-					# Stack trace if available
-					stack_trace = exception.get('exception', {}).get('description')
-					if stack_trace and stack_trace != error_description:
-						lines = stack_trace.split('\n')
-						if len(lines) > 1:
-							stack_info = lines[1].strip()
-							if stack_info and 'at ' in stack_info:
-								error_parts.append(f'Stack: {stack_info}')
-
-					# Add debugging tips
-					debugging_tips = self._get_javascript_debugging_tips(error_type, error_description, params.javascript_code)
-					if debugging_tips:
-						error_parts.append(f'Tip: {debugging_tips}')
-
-					# Compile error message
-					detailed_error = ' | '.join(error_parts)
-					code_preview = params.javascript_code[:1000] + ('...' if len(params.javascript_code) > 1000 else '')
-					full_error_msg = f'{detailed_error}\n\nFailed code: {code_preview}'
-
-					logger.error(f'❌ JavaScript execution failed: {detailed_error}')
-					return ActionResult(error=f'JavaScript execution failed: {full_error_msg}')
-
-				# Handle successful execution
-				result_obj = result.get('result', {})
-				value = result_obj.get('value')
-
-				if value is None:
-					result_type = result_obj.get('type', 'undefined')
-					if result_type == 'undefined':
-						response_msg = 'Executed successfully (returned undefined)'
-					elif result_type == 'object' and result_obj.get('subtype') == 'null':
-						response_msg = 'Executed successfully (returned null)'
-					else:
-						response_msg = f'Executed successfully (returned {result_type})'
-				else:
-					response_msg = str(value)
-
-				logger.info('✅ CDP execution completed successfully')
-				return ActionResult(
-					extracted_content=f'Executed JavaScript: {params.javascript_code} Result: {response_msg}',
-				)
-			except Exception as e:
-				logger.error(f'❌ CDP execution failed with exception: {e}')
-				return ActionResult(error=f'CDP execution failed: {str(e)}')
-
 		# Browser-Use Actor Code Execution Tool
 		# Load README content dynamically
 		readme_path = Path(__file__).parent.parent / 'actor' / 'README_LLM.md'
@@ -1043,7 +936,7 @@ ANTI-LOOP RULE: If same code fails twice, MUST try different approach. Never rep
 <RULES>
 - Functions should start with `async def executor(): ...` (no parameters)  
 - 🎯 JAVASCRIPT STANDARD: ALL target.evaluate() calls must use triple single quotes (''') with double quotes inside JavaScript
-- 🚨 REGEX CRITICAL: Use single backslashes in regex: /\d+/ NOT /\\d+/ (double-escape breaks execution)
+- 🚨 REGEX CRITICAL: Use single backslashes in regex: /\\d+/ NOT /\\\\d+/ (double-escape breaks execution)
 - 🚨 NEVER mix Python/JavaScript methods: use .lower() in Python, .toLowerCase() in JavaScript
 - Do not implement waiting for CSS functions - our native implementation doesn't wait
 - Use backendNodeId for element interaction when possible
@@ -1132,55 +1025,6 @@ Context: client (cdp client), target (current open target), Browser/Target/Eleme
 			return 'Invalid CSS selector. Check syntax and escape special characters.'
 
 		return ''
-
-	def _fix_common_js_issues(self, code: str) -> str:
-		"""Fix JavaScript issues - but only for execute_js, not browser actor code"""
-		import re
-
-		# Don't modify JavaScript inside target.evaluate() calls - that's handled separately
-		if 'target.evaluate(' in code:
-			return code  # Let the browser actor handler deal with this
-
-		# Existing logic for direct JavaScript execution via execute_js action
-		# Remove optional chaining which isn't supported in older CDP
-		code = re.sub(r'\?\.\s*', '.', code)
-
-		# Fix missing quotes around selectors (use double quotes to match our standard)
-		code = re.sub(r'querySelectorAll\(([a-zA-Z]\w*)\)', r'querySelectorAll("\1")', code)
-		code = re.sub(r'querySelector\(([a-zA-Z]\w*)\)', r'querySelector("\1")', code)
-
-		# 🚨 CRITICAL: Fix regex double-escaping (most common error in evaluations)
-		# Fix double-escaped regex patterns that break JavaScript execution
-		code = re.sub(r'/\\\\([nrtbfv])/g', r'/\\\1/g', code)  # Fix \\n -> \n in regex
-		code = re.sub(r'/\\\\([sdwSDW])/g', r'/\\\1/g', code)  # Fix \\d -> \d in regex
-		code = re.sub(r'/\\\\b/g', r'/\\b/g', code)  # Fix \\b -> \b word boundaries
-
-		# Handle multiline code - convert to single expression or add return
-		lines = [line.strip() for line in code.strip().split('\n') if line.strip()]
-
-		if len(lines) > 1:
-			# Check if last line is already a return or single expression
-			last_line = lines[-1]
-
-			# If last line ends with semicolon, it's a statement not expression
-			if last_line.endswith(';'):
-				# Convert last statement to return
-				if last_line.startswith('JSON.stringify'):
-					lines[-1] = f'return {last_line[:-1]}'  # Remove ; and add return
-				elif not last_line.startswith('return'):
-					lines[-1] = f'return {last_line[:-1]}'  # Remove ; and add return
-
-			# Join with semicolons for multiple statements
-			if any(line.startswith('return') for line in lines):
-				code = '; '.join(lines[:-1]) + '; ' + lines[-1]
-			else:
-				# If no return, make it a single expression
-				if lines[-1].startswith('JSON.stringify'):
-					code = '; '.join(lines)
-				else:
-					code = '; '.join(lines[:-1]) + '; return ' + lines[-1]
-
-		return code
 
 	# Custom done action for structured output
 	async def extract_clean_markdown(
