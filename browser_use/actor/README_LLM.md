@@ -127,14 +127,12 @@ Use execute_js to interact with the page when:
 - you need special logic like scroll, zoom, extract data, click coordinates, drag and drop, wait, send keys, dispatch events sequences...
 
 Think which website type you see and use the right approach. React/Vue/Angular ..., closed shadow DOM, iframes etc.
-Start with selectors if you have them available. Else use coordinates as fallback.
 Return always some information - but keep it limited to max 20000 characters.
 
 **Core patterns:**
 - Extract: `JSON.stringify(Array.from(document.querySelectorAll("a")).map(el => el.textContent))`
 - Click: `document.querySelector("#button-id").click()`
 - Input: `input.value = "text"; input.dispatchEvent(new Event("input", {bubbles: true}))`
-- Coordinates: `document.elementFromPoint(150, 75).click()` (use x/y from browser_state)
 - Send keys 
 
 **Modern frameworks:**

@@ -74,8 +74,8 @@ DEFAULT_INCLUDE_ATTRIBUTES = [
 	'draggable',
 	'tabindex',
 	# Coordinate attributes (computed from layout)
-	'x',
-	'y',
+	# 'x',
+	# 'y',
 	# 'width',
 	# 'height',
 	# Accessibility properties from ax_node
