@@ -1905,7 +1905,7 @@ class BrowserSession(BaseModel):
 		"""Get cookies using CDP Network.getCookies."""
 		cdp_session = await self.get_or_create_cdp_session(target_id=None, new_socket=False)
 		result = await asyncio.wait_for(
-			cdp_session.cdp_client.send.Storage.getCookies(session_id=cdp_session.session_id), timeout=8.0
+			cdp_session.cdp_client.send.Storage.getCookies(session_id=cdp_session.session_id), timeout=30.0
 		)
 		return result.get('cookies', [])
 
