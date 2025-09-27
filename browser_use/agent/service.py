@@ -667,11 +667,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Phase 3: Get actions and full response in parallel
 			actions, full_response_task = await self._get_next_action_parallel(browser_state_summary)
 			
-			# Execute actions immediately
-			result = await self._execute_actions(actions)
+			# TRUE PARALLELIZATION: Start action execution and response completion simultaneously
+			action_task = asyncio.create_task(self._execute_actions(actions))
 			
-			# Wait for complete response and set it
-			model_output = await full_response_task
+			# Wait for both to complete in parallel - maximal efficiency!
+			self.logger.debug(f'⚡ Step {self.state.n_steps}: Running action execution and response completion in parallel...')
+			result, model_output = await asyncio.gather(action_task, full_response_task)
+			
+			# Set results
+			self.state.last_result = result
 			self.state.last_model_output = model_output
 
 			# Phase 4: Post-processing (moved after prepare context for maximal parallelization)
