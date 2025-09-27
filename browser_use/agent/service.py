@@ -732,9 +732,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		action_execution_task = None
 		
 		try:
-			async for completion in asyncio.wait_for(
-				self._get_model_output_with_retry_streaming(input_messages), 
-				timeout=self.settings.llm_timeout
+			async for completion in self._get_model_output_with_retry_streaming_with_timeout(
+				input_messages, timeout=self.settings.llm_timeout
 			):
 				# First yield: actions - start execution immediately
 				if completion.action and not action_execution_task:
@@ -1011,6 +1010,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				model_output.action = [action_instance]
 
 			yield model_output
+
+	async def _get_model_output_with_retry_streaming_with_timeout(self, input_messages: list[BaseMessage], timeout: int):
+		"""Wrapper for streaming with timeout handling"""
+		import time
+		start_time = time.time()
+		
+		async for completion in self._get_model_output_with_retry_streaming(input_messages):
+			if time.time() - start_time > timeout:
+				raise TimeoutError(f'LLM call timed out after {timeout} seconds. Keep your thinking and output short.')
+			yield completion
 
 	async def _handle_post_llm_processing(
 		self,
