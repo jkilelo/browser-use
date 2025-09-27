@@ -741,7 +741,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Wait for actions to be available and start execution immediately
 				actions_completion = await actions_task
 				if actions_completion and actions_completion.completion.action:
-					self.state.last_model_output = actions_completion
+					self.state.last_model_output = actions_completion.completion
 					await self._raise_if_stopped_or_paused()
 					
 					# Start action execution in parallel
@@ -749,7 +749,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				
 				# Wait for complete response and handle callbacks
 				complete_response_completion = await complete_response_task
-				self.state.last_model_output = complete_response_completion
+				self.state.last_model_output = complete_response_completion.completion
 				await self._raise_if_stopped_or_paused()
 				
 				# Handle callbacks while actions execute in parallel
