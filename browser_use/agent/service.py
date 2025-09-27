@@ -751,14 +751,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						log_response(parsed, self.tools.registry.registry, self.logger)
 					self._log_next_action_summary(parsed)
 					
-					log.error(f'🔄 Step {self.state.n_steps}: Got LLM ACTION response with {len(parsed.action) if parsed.action else 0} actions')
+					logger.error(f'🔄 Step {self.state.n_steps}: Got LLM ACTION response with {len(parsed.action) if parsed.action else 0} actions')
 					# Start execution immediately
 					self.state.last_model_output = parsed
 					await self._raise_if_stopped_or_paused()
 					action_execution_task = asyncio.create_task(self._execute_actions())
 					
 				else:
-					log.error(f'🔄 Step {self.state.n_steps}: Got MODEL OUTPUT response with {len(parsed.action) if parsed.action else 0} actions')
+					logger.error(f'🔄 Step {self.state.n_steps}: Got MODEL OUTPUT response with {len(parsed.action) if parsed.action else 0} actions')
 					self.state.last_model_output = parsed
 					await self._raise_if_stopped_or_paused()
 					
