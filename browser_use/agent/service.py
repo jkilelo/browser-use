@@ -754,15 +754,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					logger.error(f'🔄 Step {self.state.n_steps}: Got LLM ACTION response with {len(parsed.action) if parsed.action else 0} actions')
 					# Start execution immediately
 					self.state.last_model_output = parsed
-					await self._raise_if_stopped_or_paused()
+					#await self._raise_if_stopped_or_paused()
 					action_execution_task = asyncio.create_task(self._execute_actions())
+					
 					
 				else:
 					logger.error(f'🔄 Step {self.state.n_steps}: Got MODEL OUTPUT response with {len(parsed.action) if parsed.action else 0} actions')
 					self.state.last_model_output = parsed
-					await self._raise_if_stopped_or_paused()
+					#await self._raise_if_stopped_or_paused()
 					
-					await self._handle_post_llm_processing(browser_state_summary, input_messages)
+					# Run post-processing concurrently with action execution
+					asyncio.create_task(self._handle_post_llm_processing(browser_state_summary, input_messages))
 				
 				# Keep track of final output
 				final_model_output = parsed
