@@ -1221,7 +1221,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		try:
 			#response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput) # TODO 
-			response = await self.llm.ainvoke3(input_messages, output_format=self.AgentOutput)
+			response = await self.llm.astream(input_messages, output_format=self.AgentOutput)
 			# TODO here assume ainvoke yields two results 
 			# one is the action 
 			# the other one is the rest of the response 
