@@ -1,5 +1,7 @@
 import asyncio
 import json
+import ijson
+import io
 import logging
 import time
 from dataclasses import dataclass
@@ -166,6 +168,203 @@ class ChatGoogle(BaseChatModel):
 
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T]) -> ChatInvokeCompletion[T]: ...
+
+
+	async def ainvoke3(self, messages: list[BaseMessage], output_format: type[T] | None = None) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
+		"""
+		Invoke the model using streaming API and produce a response equivalent to the non-streaming one.
+
+		Args:
+			messages: List of chat messages
+			output_format: Optional Pydantic model class for structured output
+
+		Returns:
+			Either a string response or an instance of output_format wrapped in ChatInvokeCompletion
+		"""
+		contents, system_instruction = GoogleMessageSerializer.serialize_messages(
+			messages, include_system_in_user=self.include_system_in_user
+		)
+
+		# Build config dictionary starting with user-provided config
+		config: types.GenerateContentConfigDict = {}
+		if self.config:
+			config = self.config.copy()
+
+		# Apply model-specific configuration
+		if self.temperature is not None:
+			config['temperature'] = self.temperature
+
+		# Add system instruction if present
+		if system_instruction:
+			config['system_instruction'] = system_instruction
+
+		if self.top_p is not None:
+			config['top_p'] = self.top_p
+
+		if self.seed is not None:
+			config['seed'] = self.seed
+
+		# Set default for flash models
+		if self.thinking_budget is None and ('gemini-2.5-flash' in self.model or 'gemini-flash' in self.model):
+			self.thinking_budget = 0
+
+		if self.thinking_budget is not None:
+			thinking_config_dict: types.ThinkingConfigDict = {'thinking_budget': self.thinking_budget}
+			config['thinking_config'] = thinking_config_dict
+
+		if self.max_output_tokens is not None:
+			config['max_output_tokens'] = self.max_output_tokens
+
+		# Handle structured output
+		if output_format is not None:
+			config['response_mime_type'] = 'application/json'
+			# Convert Pydantic model to Gemini-compatible schema
+			optimized_schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+			gemini_schema = self._fix_gemini_schema(optimized_schema)
+			config['response_schema'] = gemini_schema
+
+		# Create streaming request
+		stream = await self.get_client().aio.models.generate_content_stream(
+			model=self.model,
+			contents=contents,
+			config=config,
+		)
+
+		# Accumulate response text and track the last chunk for metadata
+		full_response_text = ""
+		last_chunk = None
+
+		async for chunk in stream:
+			if chunk.text:
+				full_response_text += chunk.text
+			last_chunk = chunk
+
+		print(f"Last chunk: {last_chunk}")
+
+		# Extract usage information from the last chunk
+		usage = None
+		if last_chunk and last_chunk.usage_metadata is not None:
+			image_tokens = 0
+			if last_chunk.usage_metadata.prompt_tokens_details is not None:
+				image_tokens = sum(
+					detail.token_count or 0
+					for detail in last_chunk.usage_metadata.prompt_tokens_details
+					if detail.modality == MediaModality.IMAGE
+				)
+
+			usage = ChatInvokeUsage(
+				prompt_tokens=last_chunk.usage_metadata.prompt_token_count or 0,
+				completion_tokens=(last_chunk.usage_metadata.candidates_token_count or 0)
+				+ (last_chunk.usage_metadata.thoughts_token_count or 0),
+				total_tokens=last_chunk.usage_metadata.total_token_count or 0,
+				prompt_cached_tokens=last_chunk.usage_metadata.cached_content_token_count,
+				prompt_cache_creation_tokens=None,
+				prompt_image_tokens=image_tokens,
+			)
+
+		# Handle response parsing
+		if output_format is None:
+			# Return string response
+			return ChatInvokeCompletion(
+				completion=full_response_text,
+				usage=usage,
+			)
+		else:
+			# Handle structured output
+			if last_chunk and last_chunk.parsed is not None:
+				# Use parsed response if available
+				if isinstance(last_chunk.parsed, output_format):
+					completion = last_chunk.parsed
+				else:
+					completion = output_format.model_validate(last_chunk.parsed)
+			else:
+				# Parse JSON from text response
+				if full_response_text:
+					try:
+						# Handle JSON wrapped in markdown code blocks
+						text = full_response_text.strip()
+						if text.startswith('```json') and text.endswith('```'):
+							text = text[7:-3].strip()
+						elif text.startswith('```') and text.endswith('```'):
+							text = text[3:-3].strip()
+
+						# Parse the JSON text and validate with the Pydantic model
+						parsed_data = json.loads(text)
+						completion = output_format.model_validate(parsed_data)
+					except (json.JSONDecodeError, ValueError) as e:
+						raise ModelProviderError(
+							message=f'Failed to parse or validate streaming response: {str(e)}',
+							status_code=500,
+							model=self.model,
+						) from e
+				else:
+					raise ModelProviderError(
+						message='No response text received from streaming',
+						status_code=500,
+						model=self.model,
+					)
+
+			return ChatInvokeCompletion(
+				completion=completion,
+				usage=usage,
+			)
+
+
+	async def astream(
+		self, 
+		messages: list[BaseMessage], 
+		output_format: type[T]
+		
+	):
+		contents, system_instruction = GoogleMessageSerializer.serialize_messages(
+			messages, include_system_in_user=self.include_system_in_user
+		)
+		config: types.GenerateContentConfigDict = {}
+		if self.config:
+			config = self.config.copy()
+
+		if self.temperature is not None:
+			config['temperature'] = self.temperature
+
+		if self.top_p is not None:
+			config['top_p'] = self.top_p
+
+		if self.seed is not None:
+			config['seed'] = self.seed
+
+		if self.thinking_budget is not None:
+			thinking_config_dict: types.ThinkingConfigDict = {'thinking_budget': self.thinking_budget}
+			config['thinking_config'] = thinking_config_dict
+
+		if self.max_output_tokens is not None:
+			config['max_output_tokens'] = self.max_output_tokens
+
+		config['response_mime_type'] = 'application/json'
+		config['response_schema'] = output_format
+
+		response = ""
+		stripped_response = ""
+
+		stream = await self.get_client().aio.models.generate_content_stream(
+			model=self.model,
+			contents=contents,
+			config=config,
+		)
+
+		last_chunk = ""
+		actions = None
+
+		async for chunk in stream:
+			response += chunk.text
+			stripped_response += chunk.text.strip().replace("\n", "").replace(" ", "")
+
+			if not actions and "],\"thinking\":" in stripped_response:
+				end_index = stripped_response.index("\"thinking\":")
+				actions = stripped_response[:end_index]
+				actions = actions.replace("{\"action\":", "")
+				print(f"Found actions:{actions}")
+
+		return response
 
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: type[T] | None = None

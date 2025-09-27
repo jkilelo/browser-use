@@ -661,6 +661,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			browser_state_summary = await self._prepare_context(step_info)
 
 			# Phase 2: Get model output and execute actions
+			# We need to wait here to get the memory from the model 
 			await self._get_next_action(browser_state_summary)
 			await self._execute_actions()
 
@@ -1175,8 +1176,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
 
 		try:
-			response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
-			parsed = response.completion
+			#response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput) # TODO 
+			response = await self.llm.ainvoke3(input_messages, self.AgentOutput)
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
