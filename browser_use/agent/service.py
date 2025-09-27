@@ -730,6 +730,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		action_execution_task = None
+		first_yield_done = False
+		final_model_output = None
 		
 		try:
 			urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
@@ -760,7 +762,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					self.state.last_model_output = parsed
 					await self._raise_if_stopped_or_paused()
 					
-					# Handle callbacks while actions execute in parallel
 					await self._handle_post_llm_processing(browser_state_summary, input_messages)
 				
 				# Keep track of final output
