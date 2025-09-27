@@ -738,10 +738,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					self.state.last_model_output = completion
 					await self._raise_if_stopped_or_paused()
 					
-					# Start action execution in parallel
 					action_execution_task = asyncio.create_task(self._execute_actions())
 					
-				# Final yield: complete response - handle callbacks
 				else:
 					self.state.last_model_output = completion
 					await self._raise_if_stopped_or_paused()
