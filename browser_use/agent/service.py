@@ -745,22 +745,24 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				if len(parsed.action) > self.settings.max_actions_per_step:
 					parsed.action = parsed.action[: self.settings.max_actions_per_step]
 
-				if parsed.action and not first_yield_done:
-					first_yield_done = True
-					if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
-						log_response(parsed, self.tools.registry.registry, self.logger)
-					self._log_next_action_summary(parsed)
+				# Always update the model output
+				self.state.last_model_output = parsed
+				
+				# Start action execution immediately when we have actions
+				if parsed.action and not action_execution_task:
+					if not first_yield_done:
+						first_yield_done = True
+						if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
+							log_response(parsed, self.tools.registry.registry, self.logger)
+						self._log_next_action_summary(parsed)
 					
 					logger.error(f'🔄 Step {self.state.n_steps}: Got LLM ACTION response with {len(parsed.action) if parsed.action else 0} actions')
 					# Start execution immediately
-					self.state.last_model_output = parsed
 					#await self._raise_if_stopped_or_paused()
 					action_execution_task = asyncio.create_task(self._execute_actions())
 					
-					
 				else:
 					logger.error(f'🔄 Step {self.state.n_steps}: Got MODEL OUTPUT response with {len(parsed.action) if parsed.action else 0} actions')
-					self.state.last_model_output = parsed
 					#await self._raise_if_stopped_or_paused()
 					
 					# Run post-processing concurrently with action execution
@@ -769,9 +771,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Keep track of final output
 				final_model_output = parsed
 			
-			# Wait for action execution to complete
-			if action_execution_task:
-				await action_execution_task
+			# Don't wait here - let actions run concurrently with streaming
+			# We'll wait for completion at the end of the method
 				
 		except TimeoutError:
 
@@ -786,6 +787,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				f'LLM call timed out after {self.settings.llm_timeout} seconds. Keep your thinking and output short.'
 			)
 		
+		# Wait for action execution to complete at the very end
+		if action_execution_task:
+			await action_execution_task
 
 		await self._raise_if_stopped_or_paused()
 
