@@ -724,7 +724,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	@observe_debug(ignore_input=True, name='get_next_action')
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
-		"""Execute LLM interaction with streaming for parallel execution"""
+		"""Execute LLM interaction with parallel tasks for true parallel execution"""
 		input_messages = self._message_manager.get_messages()
 		self.logger.debug(
 			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
@@ -733,23 +733,47 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		action_execution_task = None
 		
 		try:
-			first_yield_received = False
-			async for completion in self._get_model_output_with_retry_streaming(input_messages):
-				# First yield: actions - start execution immediately
-				if completion.action and not first_yield_received:
-					first_yield_received = True
-					self.state.last_model_output = completion
+			# Check if the LLM supports parallel tasks (Google chat)
+			if hasattr(self.llm, 'astream_parallel_tasks'):
+				# Use the new parallel tasks approach
+				actions_task, complete_response_task = await self.llm.astream_parallel_tasks(input_messages, self.AgentOutput)
+				
+				# Wait for actions to be available and start execution immediately
+				actions_completion = await actions_task
+				if actions_completion and actions_completion.completion.action:
+					self.state.last_model_output = actions_completion
 					await self._raise_if_stopped_or_paused()
 					
+					# Start action execution in parallel
 					action_execution_task = asyncio.create_task(self._execute_actions())
-					
-				else:
-					# Final yield: complete response - handle callbacks while actions execute in parallel
-					self.state.last_model_output = completion
-					await self._raise_if_stopped_or_paused()
-					
-					# Handle callbacks while actions execute in parallel
-					await self._handle_post_llm_processing(browser_state_summary, input_messages)
+				
+				# Wait for complete response and handle callbacks
+				complete_response_completion = await complete_response_task
+				self.state.last_model_output = complete_response_completion
+				await self._raise_if_stopped_or_paused()
+				
+				# Handle callbacks while actions execute in parallel
+				await self._handle_post_llm_processing(browser_state_summary, input_messages)
+				
+			else:
+				# Fallback to original streaming approach
+				first_yield_received = False
+				async for completion in self._get_model_output_with_retry_streaming(input_messages):
+					# First yield: actions - start execution immediately
+					if completion.action and not first_yield_received:
+						first_yield_received = True
+						self.state.last_model_output = completion
+						await self._raise_if_stopped_or_paused()
+						
+						action_execution_task = asyncio.create_task(self._execute_actions())
+						
+					else:
+						# Final yield: complete response - handle callbacks while actions execute in parallel
+						self.state.last_model_output = completion
+						await self._raise_if_stopped_or_paused()
+						
+						# Handle callbacks while actions execute in parallel
+						await self._handle_post_llm_processing(browser_state_summary, input_messages)
 			
 			# Wait for action execution to complete
 			if action_execution_task:

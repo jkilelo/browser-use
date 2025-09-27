@@ -272,6 +272,151 @@ class ChatGoogle(BaseChatModel):
 					model=self.model,
 				) from e
 
+	async def astream_parallel_tasks(self, messages: list[BaseMessage], output_format: type[T]) -> tuple[asyncio.Task, asyncio.Task]:
+		"""
+		Create two parallel tasks: one for actions, one for complete response.
+		Returns a tuple of (actions_task, complete_response_task).
+		"""
+		contents, system_instruction = GoogleMessageSerializer.serialize_messages(
+			messages, include_system_in_user=self.include_system_in_user
+		)
+
+		# Build config dictionary starting with user-provided config
+		config: types.GenerateContentConfigDict = {}
+		if self.config:
+			config = self.config.copy()
+
+		# Apply model-specific configuration
+		if self.temperature is not None:
+			config['temperature'] = self.temperature
+
+		# Add system instruction if present
+		if system_instruction:
+			config['system_instruction'] = system_instruction
+
+		if self.top_p is not None:
+			config['top_p'] = self.top_p
+
+		if self.seed is not None:
+			config['seed'] = self.seed
+
+		# Set default for flash models
+		if self.thinking_budget is None and ('gemini-2.5-flash' in self.model or 'gemini-flash' in self.model):
+			self.thinking_budget = 0
+
+		if self.thinking_budget is not None:
+			thinking_config_dict: types.ThinkingConfigDict = {'thinking_budget': self.thinking_budget}
+			config['thinking_config'] = thinking_config_dict
+
+		if self.max_output_tokens is not None:
+			config['max_output_tokens'] = self.max_output_tokens
+
+		# Handle structured output
+		config['response_mime_type'] = 'application/json'
+		optimized_schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+		gemini_schema = self._fix_gemini_schema(optimized_schema)
+		config['response_schema'] = gemini_schema
+
+		# Shared state for coordination between tasks
+		actions_completion = None
+		complete_response_completion = None
+		stream_done = asyncio.Event()
+
+		async def _actions_task() -> ChatInvokeCompletion[T] | None:
+			"""Task that extracts and returns actions as soon as they're available."""
+			nonlocal actions_completion
+			
+			# Create streaming request
+			stream = await self.get_client().aio.models.generate_content_stream(
+				model=self.model,
+				contents=contents,
+				config=config,
+			)
+
+			stripped_response = ""
+			
+			async for chunk in stream:
+				if chunk.text:
+					stripped_response += chunk.text.strip().replace("\n", "").replace(" ", "")
+
+					# Extract actions as soon as we detect them
+					if "],\"thinking\":" in stripped_response:
+						end_index = stripped_response.index("\"thinking\":")
+						actions_json = stripped_response[:end_index]
+						actions_json = actions_json.replace("{\"action\":", "")
+
+						try:
+							# Parse and validate actions
+							actions_data = json.loads("{\"action\":" + actions_json + "]}")
+							actions_completion = ChatInvokeCompletion(
+								completion=output_format.model_validate(actions_data),
+								usage=ChatInvokeUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+							)
+							return actions_completion
+						except (json.JSONDecodeError, ValueError) as e:
+							pass  # Continue if we can't parse actions yet
+
+			# If we get here, no actions were found
+			return None
+
+		async def _complete_response_task() -> ChatInvokeCompletion[T]:
+			"""Task that waits for the complete response."""
+			nonlocal complete_response_completion
+			
+			# Create streaming request
+			stream = await self.get_client().aio.models.generate_content_stream(
+				model=self.model,
+				contents=contents,
+				config=config,
+			)
+
+			full_response_text = ""
+			last_chunk = None
+
+			async for chunk in stream:
+				if chunk.text:
+					full_response_text += chunk.text
+				last_chunk = chunk
+
+			# Calculate final usage from last chunk
+			usage = self._get_usage(last_chunk) if last_chunk else ChatInvokeUsage(
+				prompt_tokens=0, completion_tokens=0, total_tokens=0
+			)
+
+			# Parse final complete response
+			if full_response_text:
+				try:
+					text = full_response_text.strip()
+					if text.startswith('```json') and text.endswith('```'):
+						text = text[7:-3].strip()
+					elif text.startswith('```') and text.endswith('```'):
+						text = text[3:-3].strip()
+
+					parsed_data = json.loads(text)
+					complete_response_completion = ChatInvokeCompletion(
+						completion=output_format.model_validate(parsed_data),
+						usage=usage
+					)
+					return complete_response_completion
+				except (json.JSONDecodeError, ValueError) as e:
+					raise ModelProviderError(
+						message=f'Failed to parse final response: {str(e)}',
+						status_code=500,
+						model=self.model,
+					) from e
+			else:
+				raise ModelProviderError(
+					message='No response received from model',
+					status_code=500,
+					model=self.model,
+				)
+
+		# Create and return both tasks
+		actions_task = asyncio.create_task(_actions_task())
+		complete_response_task = asyncio.create_task(_complete_response_task())
+		
+		return actions_task, complete_response_task
+
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
 
