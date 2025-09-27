@@ -1177,8 +1177,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		try:
 			#response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput) # TODO 
-			response = await self.llm.ainvoke3(input_messages, self.AgentOutput)
-
+			response = await self.llm.ainvoke3(input_messages, output_format=self.AgentOutput)
+			parsed = response.completion
+			
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
 				self._recursive_process_all_strings_inside_pydantic_model(response, urls_replaced)
