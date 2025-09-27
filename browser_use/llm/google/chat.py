@@ -231,6 +231,8 @@ class ChatGoogle(BaseChatModel):
 
 		# Accumulate response text and track the last chunk for metadata
 		full_response_text = ""
+		stripped_response = ""
+		actions = None
 		last_chunk = None
 		prompt_tokens = 0
 		completion_tokens = 0
@@ -242,6 +244,14 @@ class ChatGoogle(BaseChatModel):
 		async for chunk in stream:
 			if chunk.text:
 				full_response_text += chunk.text
+				stripped_response += chunk.text.strip().replace("\n", "").replace(" ", "")
+
+				if not actions and "],\"thinking\":" in stripped_response:
+					end_index = stripped_response.index("\"thinking\":")
+					actions = stripped_response[:end_index]
+					actions = actions.replace("{\"action\":", "")
+					print(f"Found actions:{actions}")
+
 			last_chunk = chunk
 			"""prompt_tokens += last_chunk.usage_metadata.prompt_token_count or 0
 			completion_tokens += last_chunk.usage_metadata.candidates_token_count or 0
@@ -300,16 +310,15 @@ class ChatGoogle(BaseChatModel):
 					model=self.model,
 				)
 
-
-	async def astream2(
-		self, 
-		messages: list[BaseMessage], 
-		output_format: type[T]
-		
-	):
+	async def astream_dual(self, messages: list[BaseMessage], output_format: type[T]):
+		"""
+		Streaming method that yields actions first, then full response.
+		"""
 		contents, system_instruction = GoogleMessageSerializer.serialize_messages(
 			messages, include_system_in_user=self.include_system_in_user
 		)
+
+		# Build config dictionary
 		config: types.GenerateContentConfigDict = {}
 		if self.config:
 			config = self.config.copy()
@@ -317,11 +326,17 @@ class ChatGoogle(BaseChatModel):
 		if self.temperature is not None:
 			config['temperature'] = self.temperature
 
+		if system_instruction:
+			config['system_instruction'] = system_instruction
+
 		if self.top_p is not None:
 			config['top_p'] = self.top_p
 
 		if self.seed is not None:
 			config['seed'] = self.seed
+
+		if self.thinking_budget is None and ('gemini-2.5-flash' in self.model or 'gemini-flash' in self.model):
+			self.thinking_budget = 0
 
 		if self.thinking_budget is not None:
 			thinking_config_dict: types.ThinkingConfigDict = {'thinking_budget': self.thinking_budget}
@@ -330,36 +345,70 @@ class ChatGoogle(BaseChatModel):
 		if self.max_output_tokens is not None:
 			config['max_output_tokens'] = self.max_output_tokens
 
+		# Handle structured output
 		config['response_mime_type'] = 'application/json'
-		config['response_schema'] = output_format
+		optimized_schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+		gemini_schema = self._fix_gemini_schema(optimized_schema)
+		config['response_schema'] = gemini_schema
 
-		response = ""
-		stripped_response = ""
-
+		# Create streaming request
 		stream = await self.get_client().aio.models.generate_content_stream(
 			model=self.model,
 			contents=contents,
 			config=config,
 		)
 
-		last_chunk = ""
-		actions = None
+		# Track streaming state
+		full_response_text = ""
+		stripped_response = ""
+		actions_yielded = False
 
 		async for chunk in stream:
-			response += chunk.text
-			stripped_response += chunk.text.strip().replace("\n", "").replace(" ", "")
+			if chunk.text:
+				full_response_text += chunk.text
+				stripped_response += chunk.text.strip().replace("\n", "").replace(" ", "")
 
-			if not actions and "],\"thinking\":" in stripped_response:
-				end_index = stripped_response.index("\"thinking\":")
-				actions = stripped_response[:end_index]
-				actions = actions.replace("{\"action\":", "")
-				print(f"Found actions:{actions}")
+				# Yield actions as soon as we detect them
+				if not actions_yielded and "],\"thinking\":" in stripped_response:
+					end_index = stripped_response.index("\"thinking\":")
+					actions_json = stripped_response[:end_index]
+					actions_json = actions_json.replace("{\"action\":", "")
 
+					try:
+						# Parse and validate actions
+						actions_data = json.loads("{\"action\":" + actions_json + "]}")
+						actions_completion = output_format.model_validate(actions_data)
 
-			# Yield the actions
+						yield ChatInvokeCompletion(
+							completion=actions_completion,
+							usage=ChatInvokeUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+						)
+						actions_yielded = True
+					except (json.JSONDecodeError, ValueError) as e:
+						print(f"Failed to parse actions: {e}")
 
-		# Now similar to the other
-		return response
+		# Yield final complete response
+		if full_response_text:
+			try:
+				text = full_response_text.strip()
+				if text.startswith('```json') and text.endswith('```'):
+					text = text[7:-3].strip()
+				elif text.startswith('```') and text.endswith('```'):
+					text = text[3:-3].strip()
+
+				parsed_data = json.loads(text)
+				completion = output_format.model_validate(parsed_data)
+
+				yield ChatInvokeCompletion(
+					completion=completion,
+					usage=ChatInvokeUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+				)
+			except (json.JSONDecodeError, ValueError) as e:
+				raise ModelProviderError(
+					message=f'Failed to parse final response: {str(e)}',
+					status_code=500,
+					model=self.model,
+				) from e
 
 	async def ainvoke(
 		self, messages: list[BaseMessage], output_format: type[T] | None = None
