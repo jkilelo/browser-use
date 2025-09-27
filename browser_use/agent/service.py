@@ -731,6 +731,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		action_execution_task = None
 		first_yield_done = False
+		first_yield_done = False
 		final_model_output = None
 		
 		try:
@@ -786,10 +787,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			raise TimeoutError(
 				f'LLM call timed out after {self.settings.llm_timeout} seconds. Keep your thinking and output short.'
 			)
-		
-		# Handle retry logic if no actions were yielded
-		if not first_yield_done or not final_model_output or not final_model_output.action:
-			self.logger.warning('Model returned empty action. Retrying...')
 
 			clarification_message = UserMessage(
 				content='You forgot to return an action. Please respond with a valid JSON action according to the expected schema with your assessment and next actions.'
@@ -1307,7 +1304,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	# endregion - URL replacement
 
 	@time_execution_async('--get_next_action')
-	@observe_debug(ignore_input=True, ignore_output=True, name='get_model_output')
+	@observe(ignore_input=True, ignore_output=True, name='get_model_output')
 	async def get_model_output(self, input_messages: list[BaseMessage]) -> AgentOutput:
 		"""Get next action from LLM based on current state"""
 
