@@ -666,26 +666,34 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Phase 3: Get actions and start parallel execution immediately
 			actions, full_response_task = await self._get_next_action_parallel(browser_state_summary)
-			
-			# MAXIMAL PARALLELIZATION: Start action execution immediately while response continues
+
 			action_task = asyncio.create_task(self._execute_actions(actions))
 			self.logger.debug(f'⚡ Step {self.state.n_steps}: Actions executing while response completes in background...')
-			
+
 			# Wait for actions to complete ONLY
 			result = await action_task
 			self.state.last_result = result
-			
+
 			# Phase 4: Continue immediately with basic post-processing (no model output needed)
-			self.logger.debug(f'⚡ Step {self.state.n_steps}: Actions complete! Continuing with post-processing while response completes in background...')
+			self.logger.debug(
+				f'⚡ Step {self.state.n_steps}: Actions complete! Continuing with post-processing while response completes in background...'
+			)
 			await self._post_process()
-			
+
 			# Phase 5: NOW wait for full model output (only when we absolutely need it)
 			self.logger.debug(f'⚡ Step {self.state.n_steps}: Waiting for complete model output...')
 			model_output = await full_response_task
 			self.state.last_model_output = model_output
-			
-			# Phase 6: Final post-processing that requires model output (callbacks, conversation saving)
-			await self._post_process_with_model_output(browser_state_summary)
+
+			# Check again for paused/stopped state after getting model output
+			await self._raise_if_stopped_or_paused()
+
+			# Handle callbacks and conversation saving
+			input_messages = self._message_manager.get_messages()
+			await self._handle_post_llm_processing(browser_state_summary, input_messages)
+
+			# Check again if Ctrl+C was pressed before we commit the output to history
+			await self._raise_if_stopped_or_paused()
 
 		except Exception as e:
 			# Handle ALL exceptions in one place
@@ -729,14 +737,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Get page-specific filtered actions (synchronous, depends on URL)
 		page_filtered_actions = self.tools.registry.get_prompt_description(browser_state_summary.url)
-		
+
 		return browser_state_summary, page_filtered_actions
 
 	def _create_state_messages(
-		self, 
-		browser_state_summary: BrowserStateSummary, 
-		step_info: AgentStepInfo | None,
-		page_filtered_actions: str | None
+		self, browser_state_summary: BrowserStateSummary, step_info: AgentStepInfo | None, page_filtered_actions: str | None
 	) -> None:
 		"""Create state messages with current model output and results"""
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
@@ -753,63 +758,37 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	# NOTE: This method is deprecated in favor of _get_next_action_parallel for better parallelization
 	# Keeping for backwards compatibility but no longer used in main flow
-		
 
 	@observe_debug(ignore_input=True, name='get_next_action_parallel')
-	async def _get_next_action_parallel(self, browser_state_summary: BrowserStateSummary) -> tuple[list[ActionModel], asyncio.Task[AgentOutput]]:
+	async def _get_next_action_parallel(
+		self, browser_state_summary: BrowserStateSummary
+	) -> tuple[list[ActionModel], asyncio.Task[AgentOutput]]:
 		"""Get actions and full response, using streaming for Gemini models"""
 		input_messages = self._message_manager.get_messages()
-		self.logger.debug(
-			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
-		)
 
 		try:
-			# Use parallel streaming for Google models if available
-			if hasattr(self.llm, 'astream_parallel') and 'gemini' in self.llm.model.lower():
-				self.logger.debug('🌊 Using parallel streaming mode')
-				try:
-					# Get streaming generator for true parallel execution
-					stream_generator = self.llm.astream_parallel(input_messages, output_format=self.AgentOutput)
-					
-					# Get the first result (should contain actions)
-					first_result = await stream_generator.__anext__()
-					actions = first_result.completion.action
-					
-					# Create task to get the complete response
-					async def get_full_response():
-						try:
-							# Get the second result (complete response)
-							complete_result = await stream_generator.__anext__()
-							return complete_result.completion
-						except StopAsyncIteration:
-							# If no second result, return the first one
-							return first_result.completion
-					
-					full_response_task = asyncio.create_task(get_full_response())
-					
-					self.logger.debug(f'🚀 Got {len(actions)} actions from parallel streaming, continuing execution...')
-					return actions, full_response_task
-					
-				except Exception as streaming_error:
-					self.logger.warning(f'⚠️ Parallel streaming failed, falling back to standard invoke: {streaming_error}')
-					# Fall through to standard invoke
-			
-			# Standard invoke for other models or fallback
-			response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
+			stream_generator = self.llm.astream_parallel(input_messages, output_format=self.AgentOutput)
 
-			# Extract actions from the response
-			actions = response.completion.action
+			first_result = await stream_generator.__anext__()
+			actions = first_result.completion.action
 
-			# Create a completed task for the full response (since we already have it)
 			async def get_full_response():
-				return response.completion
+				try:
+					complete_result = await stream_generator.__anext__()
+					return complete_result.completion
+				except StopAsyncIteration:
+					# If no second result, return the first one
+					return first_result.completion
 
 			full_response_task = asyncio.create_task(get_full_response())
 
-			# Return actions and the task for full response
 			return actions, full_response_task
-			
+
+		except Exception as streaming_error:
+			self.logger.warning(f'⚠️ Parallel streaming failed, falling back to standard invoke: {streaming_error}')
+
 		except TimeoutError:
+
 			@observe(name='_llm_call_timed_out_with_input')
 			async def _log_model_input_to_lmnr(input_messages: list[BaseMessage]) -> None:
 				"""Log the model input"""
@@ -868,97 +847,34 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				for i, file_path in enumerate(self.state.last_result[-1].attachments):
 					self.logger.info(f'👉 Attachment {i + 1 if total_attachments > 1 else ""}: {file_path}')
 
-	async def _post_process_with_callbacks(self, browser_state_summary: BrowserStateSummary) -> None:
-		"""Handle post-action processing and callbacks - moved after prepare context for maximal parallelization"""
-		# First do the standard post-processing
-		await self._post_process()
-		
-		# Check stop/pause state
-		await self._raise_if_stopped_or_paused()
-		
-		# MAXIMAL PARALLELIZATION: Run callback and conversation saving simultaneously
-		tasks = []
-		
-		# Prepare callback task if needed
-		if self.register_new_step_callback and self.state.last_model_output:
-			if inspect.iscoroutinefunction(self.register_new_step_callback):
-				tasks.append(self.register_new_step_callback(
-					browser_state_summary,
-					self.state.last_model_output,
-					self.state.n_steps,
-				))
-			else:
-				# For sync callback, wrap in coroutine to run in parallel
-				async def sync_callback_wrapper():
-					self.register_new_step_callback(
-						browser_state_summary,
-						self.state.last_model_output,
-						self.state.n_steps,
-					)
-				tasks.append(sync_callback_wrapper())
-
-		# Prepare conversation saving task if needed
-		if self.settings.save_conversation_path and self.state.last_model_output:
-			async def save_conversation_task():
-				conversation_dir = Path(self.settings.save_conversation_path)
-				conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
-				target = conversation_dir / conversation_filename
-				input_messages = self._message_manager.get_messages()
-				await save_conversation(
-					input_messages,
-					self.state.last_model_output,
-					target,
-					self.settings.save_conversation_path_encoding,
-				)
-			tasks.append(save_conversation_task())
-		
-		# Execute all tasks in parallel (if any)
-		if tasks:
-			await asyncio.gather(*tasks)
-
-	async def _post_process_with_model_output(self, browser_state_summary: BrowserStateSummary) -> None:
+	async def _handle_post_llm_processing(self, browser_state_summary: BrowserStateSummary, input_messages) -> None:
 		"""Handle post-processing that requires the full model output (callbacks, conversation saving)"""
 		await self._raise_if_stopped_or_paused()
-		
-		# MAXIMAL PARALLELIZATION: Run callback and conversation saving simultaneously
-		tasks = []
-		
-		# Prepare callback task if needed
+
 		if self.register_new_step_callback and self.state.last_model_output:
 			if inspect.iscoroutinefunction(self.register_new_step_callback):
-				tasks.append(self.register_new_step_callback(
+				await self.register_new_step_callback(
 					browser_state_summary,
 					self.state.last_model_output,
 					self.state.n_steps,
-				))
-			else:
-				# For sync callback, wrap in coroutine to run in parallel
-				async def sync_callback_wrapper():
-					self.register_new_step_callback(
-						browser_state_summary,
-						self.state.last_model_output,
-						self.state.n_steps,
-					)
-				tasks.append(sync_callback_wrapper())
-
-		# Prepare conversation saving task if needed
-		if self.settings.save_conversation_path and self.state.last_model_output:
-			async def save_conversation_task():
-				conversation_dir = Path(self.settings.save_conversation_path)
-				conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
-				target = conversation_dir / conversation_filename
-				input_messages = self._message_manager.get_messages()
-				await save_conversation(
-					input_messages,
-					self.state.last_model_output,
-					target,
-					self.settings.save_conversation_path_encoding,
 				)
-			tasks.append(save_conversation_task())
-		
-		# Execute all tasks in parallel (if any)
-		if tasks:
-			await asyncio.gather(*tasks)
+			else:
+				self.register_new_step_callback(
+					browser_state_summary,
+					self.state.last_model_output,
+					self.state.n_steps,
+				)
+
+		if self.settings.save_conversation_path and self.state.last_model_output:
+			conversation_dir = Path(self.settings.save_conversation_path)
+			conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
+			target = conversation_dir / conversation_filename
+			await save_conversation(
+				input_messages,
+				self.state.last_model_output,
+				target,
+				self.settings.save_conversation_path_encoding,
+			)
 
 	async def _handle_step_error(self, error: Exception) -> None:
 		"""Handle all types of errors that can occur during a step"""
@@ -1092,9 +1008,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				model_output.action = [action_instance]
 
 		return model_output
-
-	# NOTE: This method has been replaced by _post_process_with_callbacks 
-	# for better parallelization. Functionality moved to the new optimized flow.
 
 	async def _make_history_item(
 		self,
@@ -1314,7 +1227,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
 
 			parsed = response.completion
-			
+
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
 				self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
