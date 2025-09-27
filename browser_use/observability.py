@@ -191,8 +191,8 @@ def is_lmnr_available() -> bool:
 
 def is_debug_mode() -> bool:
 	"""Check if we're currently in debug mode."""
-	return _is_debug_mode()
-
+	#	return _is_debug_mode()
+	return True
 
 def get_observability_status() -> dict[str, bool]:
 	"""Get the current status of observability features."""
