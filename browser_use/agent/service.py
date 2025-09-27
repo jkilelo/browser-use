@@ -721,7 +721,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._force_done_after_failure()
 		return browser_state_summary
 
-	@observe_debug(ignore_input=True, name='get_next_action')
+	@observe(ignore_input=True, name='get_next_action')
 	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
 		"""Execute LLM interaction with streaming for parallel execution"""
 		input_messages = self._message_manager.get_messages()
@@ -732,17 +732,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		action_execution_task = None
 		
 		try:
-			async for completion in self._get_model_output_with_retry_streaming(input_messages):
+			#async for completion in self._get_model_output_with_retry_streaming(input_messages):
+			async for completion in self.llm.astream(input_messages, output_format=self.AgentOutput):
 				# First yield: actions - start execution immediately
 				if completion.action and not action_execution_task:
 					self.state.last_model_output = completion
-					await self._raise_if_stopped_or_paused()
+					# await self._raise_if_stopped_or_paused()
 					
 					action_execution_task = asyncio.create_task(self._execute_actions())
 					
 				else:
 					self.state.last_model_output = completion
-					await self._raise_if_stopped_or_paused()
+					# await self._raise_if_stopped_or_paused()
 					
 					# Handle callbacks while actions execute in parallel
 					await self._handle_post_llm_processing(browser_state_summary, input_messages)
@@ -767,6 +768,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._raise_if_stopped_or_paused()
 
 
+	@observe(name='execute_actions',)
 	async def _execute_actions(self) -> None:
 		"""Execute the actions from model output"""
 		if self.state.last_model_output is None:
@@ -778,6 +780,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.state.last_result = result
 
+	
 	async def _post_process(self) -> None:
 		"""Handle post-action processing like download tracking and result logging"""
 		assert self.browser_session is not None, 'BrowserSession is not set up'
@@ -1017,6 +1020,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				raise TimeoutError(f'LLM call timed out after {timeout} seconds. Keep your thinking and output short.')
 			yield completion
 
+	@observe(name='handle_post_llm_processing',)
 	async def _handle_post_llm_processing(
 		self,
 		browser_state_summary: BrowserStateSummary,
