@@ -675,36 +675,44 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
 		"""Prepare the context for the step: browser state, action models, page actions"""
-		# step_start_time is now set in step() method
+		
+		# Check if we have pre-prepared context from previous step
+		if hasattr(self, '_next_step_context') and self._next_step_context:
+			with observe(name='prepare_context_cached', metadata={'step': self.state.n_steps}):
+				self.logger.debug(f'💨 Using pre-prepared context for step {self.state.n_steps}')
+				
+				browser_state_summary = self._next_step_context['browser_state_summary']
+				page_filtered_actions = self._next_step_context['page_filtered_actions']
+				
+				# Clear the pre-prepared context
+				self._next_step_context = None
+		else:
+			# Fallback: prepare context normally (first step or if pre-preparation failed)
+			with observe(name='prepare_context_fresh', metadata={'step': self.state.n_steps}):
+				self.logger.debug(f'🔄 Fresh context preparation for step {self.state.n_steps}')
+				
+				assert self.browser_session is not None, 'BrowserSession is not set up'
 
-		assert self.browser_session is not None, 'BrowserSession is not set up'
+				self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
+				browser_state_summary = await self.browser_session.get_browser_state_summary(
+					include_screenshot=True,
+					include_recent_events=self.include_recent_events,
+				)
+				
+				await self._check_and_update_downloads(f'Step {self.state.n_steps}: after getting browser state')
+				await self._update_action_models_for_page(browser_state_summary.url)
+				page_filtered_actions = self.tools.registry.get_prompt_description(browser_state_summary.url)
 
-		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
-		# Always take screenshots for all steps
-		self.logger.debug('📸 Requesting browser state with include_screenshot=True')
-		browser_state_summary = await self.browser_session.get_browser_state_summary(
-			include_screenshot=True,  # always capture even if use_vision=False so that cloud sync is useful (it's fast now anyway)
-			include_recent_events=self.include_recent_events,
-		)
+		# Log context info
 		if browser_state_summary.screenshot:
 			self.logger.debug(f'📸 Got browser state WITH screenshot, length: {len(browser_state_summary.screenshot)}')
 		else:
 			self.logger.debug('📸 Got browser state WITHOUT screenshot')
 
-		# Check for new downloads after getting browser state (catches PDF auto-downloads and previous step downloads)
-		await self._check_and_update_downloads(f'Step {self.state.n_steps}: after getting browser state')
-
 		self._log_step_context(browser_state_summary)
 		await self._raise_if_stopped_or_paused()
 
-		# Update action models with page-specific actions
-		self.logger.debug(f'📝 Step {self.state.n_steps}: Updating action models...')
-		await self._update_action_models_for_page(browser_state_summary.url)
-
-		# Get page-specific filtered actions
-		page_filtered_actions = self.tools.registry.get_prompt_description(browser_state_summary.url)
-
-		# Page-specific actions will be included directly in the browser_state message
+		# Create messages with previous step's model_output and result
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
 		self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
@@ -714,7 +722,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			use_vision=self.settings.use_vision,
 			page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
 			sensitive_data=self.sensitive_data,
-			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
+			available_file_paths=self.available_file_paths,
 		)
 
 		await self._force_done_after_last_step(step_info)
@@ -729,27 +737,54 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
 		)
 
-		action_execution_task = None
-		
 		try:
-			async for completion in self._get_model_output_with_retry_streaming(input_messages):
-				# First yield: actions - start execution immediately
-				if completion.action and not action_execution_task:
-					self.state.last_model_output = completion
-					await self._raise_if_stopped_or_paused()
-					
-					action_execution_task = asyncio.create_task(self._execute_actions())
-					
-				else:
-					self.state.last_model_output = completion
-					await self._raise_if_stopped_or_paused()
-					
-					# Handle callbacks while actions execute in parallel
-					await self._handle_post_llm_processing(browser_state_summary, input_messages)
+			# Start streaming
+			stream_iterator = self.llm.astream(input_messages, output_format=self.AgentOutput).__aiter__()
 			
-			# Wait for action execution to complete
-			if action_execution_task:
-				await action_execution_task
+			# Get first yield (actions)
+			first_completion = await stream_iterator.__anext__()
+			
+			if first_completion.completion.action:
+				self.state.last_model_output = first_completion.completion
+				await self._raise_if_stopped_or_paused()
+				
+				# Timeline 1: Execute actions + post-process + prepare next context
+				@observe(name='action_timeline')
+				async def action_timeline():
+					# Execute current step's actions
+					await self._execute_actions()
+					
+					# Post-process current step
+					await self._post_process()
+					
+					# Prepare context for NEXT step (in parallel while waiting for model completion)
+					await self._prepare_next_step_context()
+				
+				# Timeline 2: Wait for complete model output + handle dependent tasks
+				@observe(name='model_completion_timeline')
+				async def model_completion_timeline():
+					try:
+						# Continue streaming for complete response
+						async for completion in stream_iterator:
+							self.state.last_model_output = completion.completion
+							await self._raise_if_stopped_or_paused()
+							
+							# Handle model_output dependent tasks
+							await self._handle_post_llm_processing(browser_state_summary, input_messages)
+							break  # We got the complete response
+					except StopAsyncIteration:
+						pass
+				
+				# Execute both timelines in TRUE PARALLEL
+				with observe(name='parallel_execution', metadata={'step': self.state.n_steps}):
+					await asyncio.gather(
+						action_timeline(),
+						model_completion_timeline()
+					)
+			
+			else:
+				# Fallback: no actions in first yield
+				await self._handle_post_llm_processing(browser_state_summary, input_messages)
 				
 		except TimeoutError:
 
@@ -766,7 +801,37 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		await self._raise_if_stopped_or_paused()
 
+	@observe(name='prepare_next_step_context')
+	async def _prepare_next_step_context(self) -> None:
+		"""Prepare context for the NEXT step after current step is complete"""
+		assert self.browser_session is not None, 'BrowserSession is not set up'
+		
+		# Get fresh browser state for next step (after current actions)
+		self.logger.debug(f'🌐 Pre-preparing context for next step...')
+		
+		next_browser_state = await self.browser_session.get_browser_state_summary(
+			include_screenshot=True,
+			include_recent_events=self.include_recent_events,
+		)
+		
+		# Downloads check for next step
+		await self._check_and_update_downloads(f'Pre-preparation: after step {self.state.n_steps}')
+		
+		# Update action models for next step
+		await self._update_action_models_for_page(next_browser_state.url)
+		
+		# Get page-specific actions for next step
+		next_page_filtered_actions = self.tools.registry.get_prompt_description(next_browser_state.url)
+		
+		# Store prepared context for next step
+		self._next_step_context = {
+			'browser_state_summary': next_browser_state,
+			'page_filtered_actions': next_page_filtered_actions
+		}
+		
+		self.logger.debug(f'✅ Context pre-prepared for next step')
 
+	@observe(name='execute_actions', metadata={'step': '{{self.state.n_steps}}'})
 	async def _execute_actions(self) -> None:
 		"""Execute the actions from model output"""
 		if self.state.last_model_output is None:
@@ -778,6 +843,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.state.last_result = result
 
+	@observe(name='post_process', metadata={'step': '{{self.state.n_steps}}'})
 	async def _post_process(self) -> None:
 		"""Handle post-action processing like download tracking and result logging"""
 		assert self.browser_session is not None, 'BrowserSession is not set up'
