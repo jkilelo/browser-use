@@ -730,9 +730,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		action_execution_task = None
-		first_yield_done = False
-		first_yield_done = False
-		final_model_output = None
 		
 		try:
 			urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
@@ -752,12 +749,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						log_response(parsed, self.tools.registry.registry, self.logger)
 					self._log_next_action_summary(parsed)
 					
+					log.error(f'🔄 Step {self.state.n_steps}: Got LLM ACTION response with {len(parsed.action) if parsed.action else 0} actions')
 					# Start execution immediately
 					self.state.last_model_output = parsed
 					await self._raise_if_stopped_or_paused()
 					action_execution_task = asyncio.create_task(self._execute_actions())
 					
 				else:
+					log.error(f'🔄 Step {self.state.n_steps}: Got MODEL OUTPUT response with {len(parsed.action) if parsed.action else 0} actions')
 					self.state.last_model_output = parsed
 					await self._raise_if_stopped_or_paused()
 					
@@ -783,10 +782,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			raise TimeoutError(
 				f'LLM call timed out after {self.settings.llm_timeout} seconds. Keep your thinking and output short.'
 			)
-
-			clarification_message = UserMessage(
-				content='You forgot to return an action. Please respond with a valid JSON action according to the expected schema with your assessment and next actions.'
-			)
+		
 
 		await self._raise_if_stopped_or_paused()
 
@@ -929,118 +925,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.debug('Force done action, because we reached max_failures.')
 			self._message_manager._add_context_message(UserMessage(content=msg))
 			self.AgentOutput = self.DoneAgentOutput
-
-	async def _get_model_output_with_retry(self, input_messages: list[BaseMessage]) -> AgentOutput:
-		"""Get model output with retry logic for empty actions"""
-		model_output = await self.get_model_output(input_messages)
-		self.logger.debug(
-			f'✅ Step {self.state.n_steps}: Got LLM response with {len(model_output.action) if model_output.action else 0} actions'
-		)
-
-		if (
-			not model_output.action
-			or not isinstance(model_output.action, list)
-			or all(action.model_dump() == {} for action in model_output.action)
-		):
-			self.logger.warning('Model returned empty action. Retrying...')
-
-			clarification_message = UserMessage(
-				content='You forgot to return an action. Please respond with a valid JSON action according to the expected schema with your assessment and next actions.'
-			)
-
-			retry_messages = input_messages + [clarification_message]
-			model_output = await self.get_model_output(retry_messages)
-
-			if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
-				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
-				action_instance = self.ActionModel()
-				setattr(
-					action_instance,
-					'done',
-					{
-						'success': False,
-						'text': 'No next action returned by LLM!',
-					},
-				)
-				model_output.action = [action_instance]
-
-		return model_output
-
-	async def _get_model_output_with_retry_streaming(self, input_messages: list[BaseMessage]):
-		"""Get model output with streaming and retry logic for empty actions"""
-		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
-		
-		first_yield_done = False
-		final_model_output = None
-		
-		try:
-			async for completion in self.llm.astream(input_messages, output_format=self.AgentOutput):
-				parsed = completion.completion
-				
-				# Replace any shortened URLs in the LLM response back to original URLs
-				if urls_replaced:
-					self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
-
-				# Cut the number of actions to max_actions_per_step if needed
-				if len(parsed.action) > self.settings.max_actions_per_step:
-					parsed.action = parsed.action[: self.settings.max_actions_per_step]
-
-				# First yield: actions only
-				if parsed.action and not first_yield_done:
-					first_yield_done = True
-					if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
-						log_response(parsed, self.tools.registry.registry, self.logger)
-					self._log_next_action_summary(parsed)
-					yield parsed
-				
-				# Keep track of final output
-				final_model_output = parsed
-			
-			# Final yield: complete response
-			if final_model_output:
-				yield final_model_output
-				
-		except ValidationError:
-			# Just re-raise - Pydantic's validation errors are already descriptive
-			raise
-		
-		# Handle retry logic if no actions were yielded
-		if not first_yield_done or not final_model_output or not final_model_output.action:
-			self.logger.warning('Model returned empty action. Retrying...')
-
-			clarification_message = UserMessage(
-				content='You forgot to return an action. Please respond with a valid JSON action according to the expected schema with your assessment and next actions.'
-			)
-
-			retry_messages = input_messages + [clarification_message]
-			
-			# Retry with regular get_model_output (fallback to non-streaming)
-			model_output = await self.get_model_output(retry_messages)
-
-			if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
-				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
-				action_instance = self.ActionModel()
-				setattr(
-					action_instance,
-					'done',
-					{
-						'success': False,
-						'text': 'No next action returned by LLM!',
-					},
-				)
-				model_output.action = [action_instance]
-
-			yield model_output
-
-	async def _get_model_output_with_retry_streaming_with_timeout(self, input_messages: list[BaseMessage], timeout: int):
-		"""Wrapper for streaming with timeout handling"""
-		import time
-		start_time = time.time()
-		
-		async for completion in self._get_model_output_with_retry_streaming(input_messages):
-			if time.time() - start_time > timeout:
-				raise TimeoutError(f'LLM call timed out after {timeout} seconds. Keep your thinking and output short.')
-			yield completion
 
 	async def _handle_post_llm_processing(
 		self,
