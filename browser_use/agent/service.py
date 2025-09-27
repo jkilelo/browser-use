@@ -776,12 +776,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		try:
-			# Assume ainvoke returns (actions_task, full_response_task)
-			actions_task, full_response_task = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
-			
-			# Get actions immediately
-			actions = await actions_task
-			
+			# Get the complete response from ainvoke
+			response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
+
+			# Extract actions from the response
+			actions = response.completion.action
+
+			# Create a completed task for the full response (since we already have it)
+			async def get_full_response():
+				return response.completion
+
+			full_response_task = asyncio.create_task(get_full_response())
+
 			# Return actions and the task for full response
 			return actions, full_response_task
 			
