@@ -7,12 +7,17 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_serialize
 
 from browser_use.dom.views import DOMInteractedElement, SerializedDOMState
 
+# All
 # Known placeholder image data for about:blank pages - a 4x4 white PNG
 PLACEHOLDER_4PX_SCREENSHOT = (
 	'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAFElEQVR4nGP8//8/AwwwMSAB3BwAlm4DBfIlvvkAAAAASUVORK5CYII='
 )
 
 
+# Requests
+
+
+# Responses
 # Pydantic
 class TabInfo(BaseModel):
 	"""Represents information about a browser tab"""
