@@ -268,7 +268,7 @@ class ChatGoogle(BaseChatModel):
 				status_code=500,
 				model=self.model,
 			)
-		else:		
+		else:
 			if full_response_text:
 				try:
 					text = full_response_text.strip()
@@ -280,6 +280,11 @@ class ChatGoogle(BaseChatModel):
 					# Parse the JSON text and validate with the Pydantic model
 					parsed_data = json.loads(text)
 					completion = output_format.model_validate(parsed_data)
+
+					return ChatInvokeCompletion(
+						completion=completion,
+						usage=usage,
+					)
 				except (json.JSONDecodeError, ValueError) as e:
 					raise ModelProviderError(
 						message=f'Failed to parse or validate streaming response: {str(e)}',
@@ -292,12 +297,6 @@ class ChatGoogle(BaseChatModel):
 					status_code=500,
 					model=self.model,
 				)
-
-			raise ModelProviderError(
-				message='No response text could be parsed from streaming',
-				status_code=500,
-				model=self.model,
-			)
 
 
 	async def astream(
