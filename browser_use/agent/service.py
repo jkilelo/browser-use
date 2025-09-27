@@ -1181,17 +1181,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
-				self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
+				self._recursive_process_all_strings_inside_pydantic_model(response, urls_replaced)
 
 			# cut the number of actions to max_actions_per_step if needed
-			if len(parsed.action) > self.settings.max_actions_per_step:
-				parsed.action = parsed.action[: self.settings.max_actions_per_step]
+			if len(response.action) > self.settings.max_actions_per_step:
+				response.action = response.action[: self.settings.max_actions_per_step]
 
 			if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
-				log_response(parsed, self.tools.registry.registry, self.logger)
+				log_response(response, self.tools.registry.registry, self.logger)
 
-			self._log_next_action_summary(parsed)
-			return parsed
+			self._log_next_action_summary(response)
+			return response
 		except ValidationError:
 			# Just re-raise - Pydantic's validation errors are already descriptive
 			raise
