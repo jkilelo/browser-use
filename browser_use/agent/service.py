@@ -1196,6 +1196,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				parsed.memory = f'{parsed.memory}\n\nGrounding Sources:\n{response.grounding_metadata}'
 			elif response.grounding_metadata:
 				parsed.memory = f'Grounding Sources:\n{response.grounding_metadata}'
+			elif hasattr(self.llm, 'google_search') and getattr(self.llm, 'google_search', False):
+				# Google Search is enabled but no grounding occurred - add note to memory
+				grounding_note = 'Google Search grounding enabled but not triggered for this response'
+				if parsed.memory:
+					parsed.memory = f'{parsed.memory}\n\n{grounding_note}'
+				else:
+					parsed.memory = grounding_note
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:

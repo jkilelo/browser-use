@@ -463,43 +463,41 @@ class ChatGoogle(BaseChatModel):
 														break
 
 									# Method 4: Handle malformed JSON - try to reconstruct
-									if json_text is None and any(
-										key in text for key in ['evaluation_previous_goal', 'memory', 'next_goal', 'action']
-									):
-										self.logger.debug('🔧 Attempting to reconstruct malformed JSON')
-										# Try to find the JSON-like content and add missing braces
-										lines = text.split('\n')
-										json_lines = []
-										in_json = False
+									if json_text is None:
+										# Look for field patterns that indicate JSON content
+										field_patterns = ['evaluation_previous_goal', 'memory', 'next_goal', 'action', 'thinking']
 
-										for line in lines:
-											# Look for JSON field patterns
-											if any(
-												field in line
-												for field in [
-													'"evaluation_previous_goal"',
-													'"memory"',
-													'"next_goal"',
-													'"action"',
-													'"thinking"',
-												]
-											):
-												in_json = True
-												if not json_lines:  # First JSON line
-													json_lines.append('{')
+										# Find any field pattern in the text
+										for field in field_patterns:
+											# Pattern: field": "value" (missing opening quote and brace)
+											pattern1 = f'{field}": "'
+											# Pattern: "field": "value" (proper format)
+											pattern2 = f'"{field}": "'
 
-											if in_json:
-												json_lines.append(line.strip())
-
-												# Check if this might be the end
-												if line.strip().endswith('}') or line.strip().endswith(']'):
+											if pattern1 in text and pattern2 not in text:
+												self.logger.debug(f'🔧 Found malformed JSON starting with {field}')
+												# Find the position and reconstruct
+												start_pos = text.find(pattern1)
+												if start_pos != -1:
+													# Add the missing opening brace and quote
+													json_text = '{' + '"' + text[start_pos:]
+													# Clean up and ensure proper ending
+													if not json_text.rstrip().endswith('}'):
+														json_text = json_text.rstrip() + '}'
+													self.logger.debug('🔧 Reconstructed malformed JSON')
 													break
-
-										if json_lines:
-											if not json_lines[-1].endswith('}'):
-												json_lines.append('}')
-											json_text = '\n'.join(json_lines)
-											self.logger.debug('🔧 Reconstructed JSON from malformed response')
+											elif pattern2 in text:
+												# Standard format found, extract from this point
+												start_pos = text.find(pattern2)
+												if start_pos > 0:
+													# Look backward for opening brace
+													preceding = text[:start_pos].strip()
+													if not preceding.endswith('{'):
+														json_text = '{' + text[start_pos:]
+													else:
+														json_text = text[start_pos - 1 :]  # Include the brace
+													self.logger.debug('🔧 Extracted JSON from field pattern')
+													break
 
 									# Fallback: use entire text
 									if json_text is None:
