@@ -673,6 +673,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		finally:
 			await self._finalize(browser_state_summary)
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='prepare_context')
 	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
 		"""Prepare the context for the step: browser state, action models, page actions"""
 		# step_start_time is now set in step() method
@@ -732,15 +733,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		action_execution_task = None
 		
 		try:
+			first_yield_received = False
 			async for completion in self._get_model_output_with_retry_streaming(input_messages):
 				# First yield: actions - start execution immediately
-				if completion.action and not action_execution_task:
+				if completion.action and not first_yield_received:
+					first_yield_received = True
 					self.state.last_model_output = completion
 					await self._raise_if_stopped_or_paused()
 					
 					action_execution_task = asyncio.create_task(self._execute_actions())
 					
 				else:
+					# Final yield: complete response - handle callbacks while actions execute in parallel
 					self.state.last_model_output = completion
 					await self._raise_if_stopped_or_paused()
 					
@@ -810,6 +814,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				for i, file_path in enumerate(self.state.last_result[-1].attachments):
 					self.logger.info(f'👉 Attachment {i + 1 if total_attachments > 1 else ""}: {file_path}')
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='handle_step_error')
 	async def _handle_step_error(self, error: Exception) -> None:
 		"""Handle all types of errors that can occur during a step"""
 
@@ -837,6 +842,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.state.last_result = [ActionResult(error=error_msg)]
 		return None
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='finalize_step')
 	async def _finalize(self, browser_state_summary: BrowserStateSummary | None) -> None:
 		"""Finalize the step with history, logging, and events"""
 		step_end_time = time.time()
@@ -943,6 +949,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return model_output
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_model_output_streaming')
 	async def _get_model_output_with_retry_streaming(self, input_messages: list[BaseMessage]):
 		"""Get model output with streaming and retry logic for empty actions"""
 		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
@@ -1009,6 +1016,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			yield model_output
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='get_model_output_streaming_timeout')
 	async def _get_model_output_with_retry_streaming_with_timeout(self, input_messages: list[BaseMessage], timeout: int):
 		"""Wrapper for streaming with timeout handling"""
 		import time
