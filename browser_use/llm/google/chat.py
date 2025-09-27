@@ -263,49 +263,40 @@ class ChatGoogle(BaseChatModel):
 
 		# Handle response parsing
 		if output_format is None:
-			# Return string response
-			return ChatInvokeCompletion(
-				completion=full_response_text,
-				usage=usage,
+			raise ModelProviderError(
+				message='No output format provided',
+				status_code=500,
+				model=self.model,
 			)
-		else:
-			# Handle structured output
-			if last_chunk and last_chunk.parsed is not None:
-				# Use parsed response if available
-				if isinstance(last_chunk.parsed, output_format):
-					completion = last_chunk.parsed
-				else:
-					completion = output_format.model_validate(last_chunk.parsed)
-			else:
-				# Parse JSON from text response
-				if full_response_text:
-					try:
-						# Handle JSON wrapped in markdown code blocks
-						text = full_response_text.strip()
-						if text.startswith('```json') and text.endswith('```'):
-							text = text[7:-3].strip()
-						elif text.startswith('```') and text.endswith('```'):
-							text = text[3:-3].strip()
+		else:		
+			if full_response_text:
+				try:
+					text = full_response_text.strip()
+					if text.startswith('```json') and text.endswith('```'):
+						text = text[7:-3].strip()
+					elif text.startswith('```') and text.endswith('```'):
+						text = text[3:-3].strip()
 
-						# Parse the JSON text and validate with the Pydantic model
-						parsed_data = json.loads(text)
-						completion = output_format.model_validate(parsed_data)
+					# Parse the JSON text and validate with the Pydantic model
+					parsed_data = json.loads(text)
+					completion = output_format.model_validate(parsed_data)
 					except (json.JSONDecodeError, ValueError) as e:
 						raise ModelProviderError(
 							message=f'Failed to parse or validate streaming response: {str(e)}',
 							status_code=500,
 							model=self.model,
 						) from e
-				else:
-					raise ModelProviderError(
-						message='No response text received from streaming',
-						status_code=500,
-						model=self.model,
-					)
+			else:
+				raise ModelProviderError(
+					message='No response text received from streaming',
+					status_code=500,
+					model=self.model,
+				)
 
-			return ChatInvokeCompletion(
-				completion=completion,
-				usage=usage,
+			raise ModelProviderError(
+				message='No response text could be parsed from streaming',
+				status_code=500,
+				model=self.model,
 			)
 
 
