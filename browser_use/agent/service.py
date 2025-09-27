@@ -727,35 +727,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.state.last_model_output = first_completion.completion
 				await self._raise_if_stopped_or_paused()
 				
-				# Timeline 1: Execute actions + post-process + prepare next context
-				@observe(name='action_timeline')
-				async def action_timeline():
-					# Execute current step's actions
-					await self._execute_actions()
-					
-					# Post-process current step
-					await self._post_process()
-					
-					# Prepare context for NEXT step (after current step is complete)
-					await self._prepare_next_step_context()
-				
-				# Timeline 2: Wait for complete model output + handle dependent tasks
-				@observe(name='model_completion_timeline')
-				async def model_completion_timeline():
-					try:
-						# Continue streaming for complete response
-						async for completion in stream_iterator:
-							self.state.last_model_output = completion.completion
-							await self._raise_if_stopped_or_paused()
-							
-							# Handle model_output dependent tasks
-							await self._handle_post_llm_processing(browser_state_summary, input_messages)
-							break  # We got the complete response
-					except StopAsyncIteration:
-						pass
-				
 				# Execute both timelines in TRUE PARALLEL
-				await self._execute_timelines_in_parallel(action_timeline, model_completion_timeline)
+				await asyncio.gather(
+					self._run_action_timeline(),
+					self._run_model_completion_timeline(stream_iterator, browser_state_summary, input_messages)
+				)
 			
 			else:
 				# Fallback: no actions in first yield
@@ -774,6 +750,33 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 
 		await self._raise_if_stopped_or_paused()
+
+	@observe(name='action_timeline')
+	async def _run_action_timeline(self) -> None:
+		"""Execute actions, post-process, and prepare next context"""
+		# Execute current step's actions
+		await self._execute_actions()
+		
+		# Post-process current step
+		await self._post_process()
+		
+		# Prepare context for NEXT step (after current step is complete)
+		await self._prepare_next_step_context()
+
+	@observe(name='model_completion_timeline')
+	async def _run_model_completion_timeline(self, stream_iterator, browser_state_summary: BrowserStateSummary, input_messages) -> None:
+		"""Wait for complete model output and handle dependent tasks"""
+		try:
+			# Continue streaming for complete response
+			async for completion in stream_iterator:
+				self.state.last_model_output = completion.completion
+				await self._raise_if_stopped_or_paused()
+				
+				# Handle model_output dependent tasks
+				await self._handle_post_llm_processing(browser_state_summary, input_messages)
+				break  # We got the complete response
+		except StopAsyncIteration:
+			pass
 
 	@observe(name='parallel_execution')
 	async def _execute_timelines_in_parallel(self, action_timeline, model_completion_timeline):
@@ -850,7 +853,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._force_done_after_last_step(step_info)
 		await self._force_done_after_failure()
 		return browser_state_summary
-
 
 	@observe(name='prepare_next_step_context')
 	async def _prepare_next_step_context(self) -> None:
