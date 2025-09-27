@@ -232,34 +232,34 @@ class ChatGoogle(BaseChatModel):
 		# Accumulate response text and track the last chunk for metadata
 		full_response_text = ""
 		last_chunk = None
+		prompt_tokens = 0
+		completion_tokens = 0
+		total_tokens = 0
+		prompt_cached_tokens = 0
+		prompt_cache_creation_tokens = 0
+		prompt_image_tokens = 0
 
 		async for chunk in stream:
 			if chunk.text:
 				full_response_text += chunk.text
 			last_chunk = chunk
+			prompt_tokens += last_chunk.usage_metadata.prompt_token_count or 0
+			completion_tokens += last_chunk.usage_metadata.candidates_token_count or 0
+			total_tokens += last_chunk.usage_metadata.total_token_count or 0
+			prompt_cached_tokens += last_chunk.usage_metadata.cached_content_token_count or 0
+			prompt_cache_creation_tokens += last_chunk.usage_metadata.cached_content_token_count or 0
+			prompt_image_tokens += last_chunk.usage_metadata.prompt_tokens_details or 0
 
 		print(f"full response text: {full_response_text}")
 
-		# Extract usage information from the last chunk
-		usage = None
-		if last_chunk and last_chunk.usage_metadata is not None:
-			image_tokens = 0
-			if last_chunk.usage_metadata.prompt_tokens_details is not None:
-				image_tokens = sum(
-					detail.token_count or 0
-					for detail in last_chunk.usage_metadata.prompt_tokens_details
-					if detail.modality == MediaModality.IMAGE
-				)
-
-			usage = ChatInvokeUsage(
-				prompt_tokens=last_chunk.usage_metadata.prompt_token_count or 0,
-				completion_tokens=(last_chunk.usage_metadata.candidates_token_count or 0)
-				+ (last_chunk.usage_metadata.thoughts_token_count or 0),
-				total_tokens=last_chunk.usage_metadata.total_token_count or 0,
-				prompt_cached_tokens=last_chunk.usage_metadata.cached_content_token_count,
-				prompt_cache_creation_tokens=None,
-				prompt_image_tokens=image_tokens,
-			)
+		usage = ChatInvokeUsage(
+			prompt_tokens=prompt_tokens,
+			completion_tokens=completion_tokens,
+			total_tokens=total_tokens,
+			prompt_cached_tokens=prompt_cached_tokens,
+			prompt_cache_creation_tokens=prompt_cache_creation_tokens,
+			prompt_image_tokens=prompt_image_tokens,
+		)
 
 		# Handle response parsing
 		if output_format is None:
