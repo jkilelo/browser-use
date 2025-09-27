@@ -248,7 +248,7 @@ class ChatGoogle(BaseChatModel):
 			total_tokens += last_chunk.usage_metadata.total_token_count or 0
 			prompt_cached_tokens += last_chunk.usage_metadata.cached_content_token_count or 0
 			prompt_cache_creation_tokens += last_chunk.usage_metadata.cached_content_token_count or 0
-			prompt_image_tokens += last_chunk.usage_metadata.prompt_tokens_details or 0
+			prompt_image_tokens += last_chunk.usage_metadata.prompt_image_tokens or 0
 
 		print(f"full response text: {full_response_text}")
 
