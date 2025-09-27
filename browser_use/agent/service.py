@@ -735,21 +735,17 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		final_model_output = None
 		
 		try:
-			# Process messages and replace long URLs with shorter ones
 			urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
 			
 			async for completion in self.llm.astream(input_messages, output_format=self.AgentOutput):
 				parsed = completion.completion
 				
-				# Replace any shortened URLs in the LLM response back to original URLs
 				if urls_replaced:
 					self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
 
-				# Cut the number of actions to max_actions_per_step if needed
 				if len(parsed.action) > self.settings.max_actions_per_step:
 					parsed.action = parsed.action[: self.settings.max_actions_per_step]
 
-				# First yield: actions only
 				if parsed.action and not first_yield_done:
 					first_yield_done = True
 					if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
@@ -791,28 +787,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			clarification_message = UserMessage(
 				content='You forgot to return an action. Please respond with a valid JSON action according to the expected schema with your assessment and next actions.'
 			)
-
-			retry_messages = input_messages + [clarification_message]
-			
-			# Retry with regular get_model_output (fallback to non-streaming)
-			model_output = await self.get_model_output(retry_messages)
-
-			if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
-				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
-				action_instance = self.ActionModel()
-				setattr(
-					action_instance,
-					'done',
-					{
-						'success': False,
-						'text': 'No next action returned by LLM!',
-					},
-				)
-				model_output.action = [action_instance]
-
-			# Execute the retry result
-			self.state.last_model_output = model_output
-			await self._execute_actions()
 
 		await self._raise_if_stopped_or_paused()
 
