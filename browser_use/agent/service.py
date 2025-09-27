@@ -649,29 +649,135 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	@observe(name='agent.step', ignore_output=True, ignore_input=True)
 	@time_execution_async('--step')
 	async def step(self, step_info: AgentStepInfo | None = None) -> None:
-		"""Execute one step of the task"""
-		# Initialize timing first, before any exceptions can occur
-
+		"""Execute one step with parallel timelines"""
 		self.step_start_time = time.time()
-
 		browser_state_summary = None
 
 		try:
-			# Phase 1: Prepare context and timing
-			browser_state_summary = await self._prepare_context(step_info)
+			# Only prepare context for first step, subsequent steps use pre-prepared context
+			if self.state.n_steps == 0 or not hasattr(self, '_next_step_context') or not self._next_step_context:
+				browser_state_summary = await self._prepare_context(step_info)
+			else:
+				browser_state_summary = await self._use_prepared_context(step_info)
 
-			# Phase 2: Get model output and execute actions
-			await self._get_next_action(browser_state_summary)
-
-			# Phase 3: Post-processing
-			await self._post_process()
+			# Execute the two parallel timelines
+			await self._execute_parallel_timelines(browser_state_summary, step_info)
 
 		except Exception as e:
-			# Handle ALL exceptions in one place
 			await self._handle_step_error(e)
-
 		finally:
 			await self._finalize(browser_state_summary)
+
+	@observe(name='use_prepared_context')
+	async def _use_prepared_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
+		"""Use pre-prepared context from previous step"""
+		if not hasattr(self, '_next_step_context') or not self._next_step_context:
+			raise RuntimeError("No pre-prepared context available")
+		
+		self.logger.debug(f'💨 Using pre-prepared context for step {self.state.n_steps}')
+		
+		browser_state_summary = self._next_step_context['browser_state_summary']
+		page_filtered_actions = self._next_step_context['page_filtered_actions']
+		
+		# Clear the pre-prepared context
+		self._next_step_context = None
+
+		# Log context info
+		if browser_state_summary.screenshot:
+			self.logger.debug(f'📸 Using cached browser state WITH screenshot, length: {len(browser_state_summary.screenshot)}')
+		else:
+			self.logger.debug('📸 Using cached browser state WITHOUT screenshot')
+
+		self._log_step_context(browser_state_summary)
+		await self._raise_if_stopped_or_paused()
+
+		# Create messages with previous step's model_output and result
+		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
+		self._message_manager.create_state_messages(
+			browser_state_summary=browser_state_summary,
+			model_output=self.state.last_model_output,
+			result=self.state.last_result,
+			step_info=step_info,
+			use_vision=self.settings.use_vision,
+			page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
+			sensitive_data=self.sensitive_data,
+			available_file_paths=self.available_file_paths,
+		)
+
+		await self._force_done_after_last_step(step_info)
+		await self._force_done_after_failure()
+		return browser_state_summary
+
+	@observe(name='execute_parallel_timelines')
+	async def _execute_parallel_timelines(self, browser_state_summary: BrowserStateSummary, step_info: AgentStepInfo | None = None) -> None:
+		"""Execute the two parallel timelines for the step"""
+		input_messages = self._message_manager.get_messages()
+		self.logger.debug(
+			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
+		)
+
+		try:
+			# Start streaming
+			stream_iterator = self.llm.astream(input_messages, output_format=self.AgentOutput).__aiter__()
+			
+			# Get first yield (actions)
+			first_completion = await stream_iterator.__anext__()
+			
+			if first_completion.completion.action:
+				self.state.last_model_output = first_completion.completion
+				await self._raise_if_stopped_or_paused()
+				
+				# Timeline 1: Execute actions + post-process + prepare next context
+				@observe(name='action_timeline')
+				async def action_timeline():
+					# Execute current step's actions
+					await self._execute_actions()
+					
+					# Post-process current step
+					await self._post_process()
+					
+					# Prepare context for NEXT step (after current step is complete)
+					await self._prepare_next_step_context()
+				
+				# Timeline 2: Wait for complete model output + handle dependent tasks
+				@observe(name='model_completion_timeline')
+				async def model_completion_timeline():
+					try:
+						# Continue streaming for complete response
+						async for completion in stream_iterator:
+							self.state.last_model_output = completion.completion
+							await self._raise_if_stopped_or_paused()
+							
+							# Handle model_output dependent tasks
+							await self._handle_post_llm_processing(browser_state_summary, input_messages)
+							break  # We got the complete response
+					except StopAsyncIteration:
+						pass
+				
+				# Execute both timelines in TRUE PARALLEL
+				with observe(name='parallel_execution', metadata={'step': self.state.n_steps}):
+					await asyncio.gather(
+						action_timeline(),
+						model_completion_timeline()
+					)
+			
+			else:
+				# Fallback: no actions in first yield
+				await self._handle_post_llm_processing(browser_state_summary, input_messages)
+				
+		except TimeoutError:
+			@observe(name='_llm_call_timed_out_with_input')
+			async def _log_model_input_to_lmnr(input_messages: list[BaseMessage]) -> None:
+				"""Log the model input"""
+				pass
+
+			await _log_model_input_to_lmnr(input_messages)
+
+			raise TimeoutError(
+				f'LLM call timed out after {self.settings.llm_timeout} seconds. Keep your thinking and output short.'
+			)
+
+		await self._raise_if_stopped_or_paused()
 
 	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
 		"""Prepare the context for the step: browser state, action models, page actions"""
@@ -729,77 +835,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._force_done_after_failure()
 		return browser_state_summary
 
-	@observe_debug(ignore_input=True, name='get_next_action')
-	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
-		"""Execute LLM interaction with streaming for parallel execution"""
-		input_messages = self._message_manager.get_messages()
-		self.logger.debug(
-			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
-		)
-
-		try:
-			# Start streaming
-			stream_iterator = self.llm.astream(input_messages, output_format=self.AgentOutput).__aiter__()
-			
-			# Get first yield (actions)
-			first_completion = await stream_iterator.__anext__()
-			
-			if first_completion.completion.action:
-				self.state.last_model_output = first_completion.completion
-				await self._raise_if_stopped_or_paused()
-				
-				# Timeline 1: Execute actions + post-process + prepare next context
-				@observe(name='action_timeline')
-				async def action_timeline():
-					# Execute current step's actions
-					await self._execute_actions()
-					
-					# Post-process current step
-					await self._post_process()
-					
-					# Prepare context for NEXT step (in parallel while waiting for model completion)
-					await self._prepare_next_step_context()
-				
-				# Timeline 2: Wait for complete model output + handle dependent tasks
-				@observe(name='model_completion_timeline')
-				async def model_completion_timeline():
-					try:
-						# Continue streaming for complete response
-						async for completion in stream_iterator:
-							self.state.last_model_output = completion.completion
-							await self._raise_if_stopped_or_paused()
-							
-							# Handle model_output dependent tasks
-							await self._handle_post_llm_processing(browser_state_summary, input_messages)
-							break  # We got the complete response
-					except StopAsyncIteration:
-						pass
-				
-				# Execute both timelines in TRUE PARALLEL
-				with observe(name='parallel_execution', metadata={'step': self.state.n_steps}):
-					await asyncio.gather(
-						action_timeline(),
-						model_completion_timeline()
-					)
-			
-			else:
-				# Fallback: no actions in first yield
-				await self._handle_post_llm_processing(browser_state_summary, input_messages)
-				
-		except TimeoutError:
-
-			@observe(name='_llm_call_timed_out_with_input')
-			async def _log_model_input_to_lmnr(input_messages: list[BaseMessage]) -> None:
-				"""Log the model input"""
-				pass
-
-			await _log_model_input_to_lmnr(input_messages)
-
-			raise TimeoutError(
-				f'LLM call timed out after {self.settings.llm_timeout} seconds. Keep your thinking and output short.'
-			)
-
-		await self._raise_if_stopped_or_paused()
 
 	@observe(name='prepare_next_step_context')
 	async def _prepare_next_step_context(self) -> None:
