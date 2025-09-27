@@ -771,36 +771,52 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Timeline 2: Action executor (waits for actions)
 		@observe(name='action_timeline')
 		async def action_executor():
-			await actions_ready.wait()
-			if shared_state['error']:
-				raise shared_state['error']
-				
-			if shared_state['actions_response'] and shared_state['actions_response'].completion.action:
-				self.state.last_model_output = shared_state['actions_response'].completion
-				await self._raise_if_stopped_or_paused()
-				
-				await self._execute_actions()
-				await self._post_process()
-				await self._prepare_next_step_context()
+			try:
+				await actions_ready.wait()
+				if shared_state['error']:
+					return  # Don't raise, let completion_handler handle it
+					
+				if shared_state['actions_response'] and shared_state['actions_response'].completion.action:
+					# Temporarily set model output for action execution
+					# The completion handler will set the final version later
+					self.state.last_model_output = shared_state['actions_response'].completion
+					await self._raise_if_stopped_or_paused()
+					
+					await self._execute_actions()
+					await self._post_process()
+					await self._prepare_next_step_context()
+			except Exception as e:
+				shared_state['error'] = e
+				actions_ready.set()
+				complete_ready.set()
 		
 		# Timeline 3: Model completion handler (waits for complete response)
 		@observe(name='model_completion_timeline')
 		async def completion_handler():
-			await complete_ready.wait()
-			if shared_state['error']:
-				raise shared_state['error']
-				
-			if shared_state['complete_response']:
-				self.state.last_model_output = shared_state['complete_response'].completion
-				await self._raise_if_stopped_or_paused()
-				await self._handle_post_llm_processing(browser_state_summary, input_messages)
+			try:
+				await complete_ready.wait()
+				if shared_state['error']:
+					raise shared_state['error']
+					
+				if shared_state['complete_response']:
+					# Only set the final model output here to avoid race condition
+					self.state.last_model_output = shared_state['complete_response'].completion
+					await self._raise_if_stopped_or_paused()
+					await self._handle_post_llm_processing(browser_state_summary, input_messages)
+			except Exception as e:
+				shared_state['error'] = e
 		
 		# Execute all three timelines in parallel
 		await asyncio.gather(
 			stream_consumer(),
 			action_executor(),
-			completion_handler()
+			completion_handler(),
+			return_exceptions=True  # Don't let one timeline failure kill others
 		)
+		
+		# Re-raise any errors that occurred
+		if shared_state['error']:
+			raise shared_state['error']
 
 
 
