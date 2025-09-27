@@ -717,14 +717,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		try:
-			# Start streaming and handle it in parallel with action execution
-			stream_iterator = self.llm.astream(input_messages, output_format=self.AgentOutput).__aiter__()
-			
-			# Execute both timelines in TRUE PARALLEL from the start
-			await asyncio.gather(
-				self._run_action_timeline_with_stream(stream_iterator),
-				self._run_model_completion_timeline_full(stream_iterator, browser_state_summary, input_messages)
-			)
+			# Use the streaming method that properly distributes to both timelines
+			await self._execute_with_proper_streaming(browser_state_summary, input_messages)
 				
 		except TimeoutError:
 			@observe(name='_llm_call_timed_out_with_input')
@@ -739,6 +733,74 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			)
 
 		await self._raise_if_stopped_or_paused()
+
+	@observe(name='execute_with_proper_streaming')
+	async def _execute_with_proper_streaming(self, browser_state_summary: BrowserStateSummary, input_messages) -> None:
+		"""Execute streaming with proper coordination between timelines"""
+		# Create events for coordination
+		actions_ready = asyncio.Event()
+		complete_ready = asyncio.Event()
+		
+		# Shared state between timelines
+		shared_state = {
+			'actions_response': None,
+			'complete_response': None,
+			'error': None
+		}
+		
+		# Timeline 1: Stream consumer (gets both yields)
+		@observe(name='stream_consumer')
+		async def stream_consumer():
+			try:
+				stream = self.llm.astream(input_messages, output_format=self.AgentOutput)
+				async for completion in stream:
+					if shared_state['actions_response'] is None:
+						# First yield - actions
+						shared_state['actions_response'] = completion
+						actions_ready.set()
+					else:
+						# Second yield - complete response
+						shared_state['complete_response'] = completion
+						complete_ready.set()
+						break
+			except Exception as e:
+				shared_state['error'] = e
+				actions_ready.set()
+				complete_ready.set()
+		
+		# Timeline 2: Action executor (waits for actions)
+		@observe(name='action_timeline')
+		async def action_executor():
+			await actions_ready.wait()
+			if shared_state['error']:
+				raise shared_state['error']
+				
+			if shared_state['actions_response'] and shared_state['actions_response'].completion.action:
+				self.state.last_model_output = shared_state['actions_response'].completion
+				await self._raise_if_stopped_or_paused()
+				
+				await self._execute_actions()
+				await self._post_process()
+				await self._prepare_next_step_context()
+		
+		# Timeline 3: Model completion handler (waits for complete response)
+		@observe(name='model_completion_timeline')
+		async def completion_handler():
+			await complete_ready.wait()
+			if shared_state['error']:
+				raise shared_state['error']
+				
+			if shared_state['complete_response']:
+				self.state.last_model_output = shared_state['complete_response'].completion
+				await self._raise_if_stopped_or_paused()
+				await self._handle_post_llm_processing(browser_state_summary, input_messages)
+		
+		# Execute all three timelines in parallel
+		await asyncio.gather(
+			stream_consumer(),
+			action_executor(),
+			completion_handler()
+		)
 
 	@observe(name='action_timeline')
 	async def _run_action_timeline_with_stream(self, stream_iterator) -> None:
