@@ -280,6 +280,8 @@ class ChatGoogle(BaseChatModel):
 					# Parse the JSON text and validate with the Pydantic model
 					parsed_data = json.loads(text)
 					completion = output_format.model_validate(parsed_data)
+					print(type(completion))
+					print(f"completion: {completion}")
 
 					return ChatInvokeCompletion(
 						completion=completion,
