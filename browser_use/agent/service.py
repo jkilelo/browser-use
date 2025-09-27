@@ -664,22 +664,28 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Phase 2: Create state messages with current state before LLM call
 			self._create_state_messages(browser_state_summary, step_info, page_filtered_actions)
 
-			# Phase 3: Get actions and full response in parallel
+			# Phase 3: Get actions and start parallel execution immediately
 			actions, full_response_task = await self._get_next_action_parallel(browser_state_summary)
 			
-			# TRUE PARALLELIZATION: Start action execution and response completion simultaneously
+			# MAXIMAL PARALLELIZATION: Start action execution immediately while response continues
 			action_task = asyncio.create_task(self._execute_actions(actions))
+			self.logger.debug(f'⚡ Step {self.state.n_steps}: Actions executing while response completes in background...')
 			
-			# Wait for both to complete in parallel - maximal efficiency!
-			self.logger.debug(f'⚡ Step {self.state.n_steps}: Running action execution and response completion in parallel...')
-			result, model_output = await asyncio.gather(action_task, full_response_task)
-			
-			# Set results
+			# Wait for actions to complete ONLY
+			result = await action_task
 			self.state.last_result = result
+			
+			# Phase 4: Continue immediately with basic post-processing (no model output needed)
+			self.logger.debug(f'⚡ Step {self.state.n_steps}: Actions complete! Continuing with post-processing while response completes in background...')
+			await self._post_process()
+			
+			# Phase 5: NOW wait for full model output (only when we absolutely need it)
+			self.logger.debug(f'⚡ Step {self.state.n_steps}: Waiting for complete model output...')
+			model_output = await full_response_task
 			self.state.last_model_output = model_output
-
-			# Phase 4: Post-processing (moved after prepare context for maximal parallelization)
-			await self._post_process_with_callbacks(browser_state_summary)
+			
+			# Phase 6: Final post-processing that requires model output (callbacks, conversation saving)
+			await self._post_process_with_model_output(browser_state_summary)
 
 		except Exception as e:
 			# Handle ALL exceptions in one place
@@ -868,6 +874,50 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._post_process()
 		
 		# Check stop/pause state
+		await self._raise_if_stopped_or_paused()
+		
+		# MAXIMAL PARALLELIZATION: Run callback and conversation saving simultaneously
+		tasks = []
+		
+		# Prepare callback task if needed
+		if self.register_new_step_callback and self.state.last_model_output:
+			if inspect.iscoroutinefunction(self.register_new_step_callback):
+				tasks.append(self.register_new_step_callback(
+					browser_state_summary,
+					self.state.last_model_output,
+					self.state.n_steps,
+				))
+			else:
+				# For sync callback, wrap in coroutine to run in parallel
+				async def sync_callback_wrapper():
+					self.register_new_step_callback(
+						browser_state_summary,
+						self.state.last_model_output,
+						self.state.n_steps,
+					)
+				tasks.append(sync_callback_wrapper())
+
+		# Prepare conversation saving task if needed
+		if self.settings.save_conversation_path and self.state.last_model_output:
+			async def save_conversation_task():
+				conversation_dir = Path(self.settings.save_conversation_path)
+				conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
+				target = conversation_dir / conversation_filename
+				input_messages = self._message_manager.get_messages()
+				await save_conversation(
+					input_messages,
+					self.state.last_model_output,
+					target,
+					self.settings.save_conversation_path_encoding,
+				)
+			tasks.append(save_conversation_task())
+		
+		# Execute all tasks in parallel (if any)
+		if tasks:
+			await asyncio.gather(*tasks)
+
+	async def _post_process_with_model_output(self, browser_state_summary: BrowserStateSummary) -> None:
+		"""Handle post-processing that requires the full model output (callbacks, conversation saving)"""
 		await self._raise_if_stopped_or_paused()
 		
 		# MAXIMAL PARALLELIZATION: Run callback and conversation saving simultaneously
