@@ -769,14 +769,44 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	@observe_debug(ignore_input=True, name='get_next_action_parallel')
 	async def _get_next_action_parallel(self, browser_state_summary: BrowserStateSummary) -> tuple[list[ActionModel], asyncio.Task[AgentOutput]]:
-		"""Get actions immediately and full response in parallel"""
+		"""Get actions and full response, using streaming for Gemini models"""
 		input_messages = self._message_manager.get_messages()
 		self.logger.debug(
 			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
 		)
 
 		try:
-			# Get the complete response from ainvoke
+			# Use parallel streaming for Google models if available
+			if hasattr(self.llm, 'astream_parallel') and 'gemini' in self.llm.model.lower():
+				self.logger.debug('🌊 Using parallel streaming mode')
+				try:
+					# Get streaming generator for true parallel execution
+					stream_generator = self.llm.astream_parallel(input_messages, output_format=self.AgentOutput)
+					
+					# Get the first result (should contain actions)
+					first_result = await stream_generator.__anext__()
+					actions = first_result.completion.action
+					
+					# Create task to get the complete response
+					async def get_full_response():
+						try:
+							# Get the second result (complete response)
+							complete_result = await stream_generator.__anext__()
+							return complete_result.completion
+						except StopAsyncIteration:
+							# If no second result, return the first one
+							return first_result.completion
+					
+					full_response_task = asyncio.create_task(get_full_response())
+					
+					self.logger.debug(f'🚀 Got {len(actions)} actions from parallel streaming, continuing execution...')
+					return actions, full_response_task
+					
+				except Exception as streaming_error:
+					self.logger.warning(f'⚠️ Parallel streaming failed, falling back to standard invoke: {streaming_error}')
+					# Fall through to standard invoke
+			
+			# Standard invoke for other models or fallback
 			response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
 
 			# Extract actions from the response
@@ -1226,12 +1256,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
 
 		try:
-			#response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput) # TODO 
-			response = await self.llm.astream(input_messages, output_format=self.AgentOutput)
-			# TODO here assume ainvoke yields two results 
-			# one is the action 
-			# the other one is the rest of the response 
-			# 
+			# Use streaming when available (Google models), otherwise fall back to ainvoke
+			if hasattr(self.llm, 'astream') and 'gemini' in self.llm.model.lower():
+				response = await self.llm.astream(input_messages, output_format=self.AgentOutput)
+			else:
+				response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
 
 			parsed = response.completion
 			
