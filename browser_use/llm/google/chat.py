@@ -238,7 +238,7 @@ class ChatGoogle(BaseChatModel):
 				full_response_text += chunk.text
 			last_chunk = chunk
 
-		print(f"Last chunk: {last_chunk}")
+		print(f"full response text: {full_response_text}")
 
 		# Extract usage information from the last chunk
 		usage = None
