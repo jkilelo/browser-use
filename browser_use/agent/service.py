@@ -767,6 +767,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._raise_if_stopped_or_paused()
 
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='execute_actions_parallel')
 	async def _execute_actions(self) -> None:
 		"""Execute the actions from model output"""
 		if self.state.last_model_output is None:
@@ -778,6 +779,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self.state.last_result = result
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='post_process_parallel')
 	async def _post_process(self) -> None:
 		"""Handle post-action processing like download tracking and result logging"""
 		assert self.browser_session is not None, 'BrowserSession is not set up'
@@ -1017,6 +1019,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				raise TimeoutError(f'LLM call timed out after {timeout} seconds. Keep your thinking and output short.')
 			yield completion
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='handle_post_llm_processing_parallel')
 	async def _handle_post_llm_processing(
 		self,
 		browser_state_summary: BrowserStateSummary,
