@@ -755,11 +755,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						pass
 				
 				# Execute both timelines in TRUE PARALLEL
-				with observe(name='parallel_execution', metadata={'step': self.state.n_steps}):
-					await asyncio.gather(
-						action_timeline(),
-						model_completion_timeline()
-					)
+				await self._execute_timelines_in_parallel(action_timeline, model_completion_timeline)
 			
 			else:
 				# Fallback: no actions in first yield
@@ -779,35 +775,55 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		await self._raise_if_stopped_or_paused()
 
+	@observe(name='parallel_execution')
+	async def _execute_timelines_in_parallel(self, action_timeline, model_completion_timeline):
+		"""Execute both timelines in parallel"""
+		await asyncio.gather(
+			action_timeline(),
+			model_completion_timeline()
+		)
+
+	@observe(name='use_cached_context')
+	async def _use_cached_context(self) -> tuple[BrowserStateSummary, str | None]:
+		"""Use pre-prepared context from previous step"""
+		self.logger.debug(f'💨 Using pre-prepared context for step {self.state.n_steps}')
+		
+		browser_state_summary = self._next_step_context['browser_state_summary']
+		page_filtered_actions = self._next_step_context['page_filtered_actions']
+		
+		# Clear the pre-prepared context
+		self._next_step_context = None
+		
+		return browser_state_summary, page_filtered_actions
+
+	@observe(name='prepare_fresh_context')
+	async def _prepare_fresh_context(self) -> tuple[BrowserStateSummary, str | None]:
+		"""Prepare fresh context for the step"""
+		self.logger.debug(f'🔄 Fresh context preparation for step {self.state.n_steps}')
+		
+		assert self.browser_session is not None, 'BrowserSession is not set up'
+
+		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
+		browser_state_summary = await self.browser_session.get_browser_state_summary(
+			include_screenshot=True,
+			include_recent_events=self.include_recent_events,
+		)
+		
+		await self._check_and_update_downloads(f'Step {self.state.n_steps}: after getting browser state')
+		await self._update_action_models_for_page(browser_state_summary.url)
+		page_filtered_actions = self.tools.registry.get_prompt_description(browser_state_summary.url)
+		
+		return browser_state_summary, page_filtered_actions
+
 	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
 		"""Prepare the context for the step: browser state, action models, page actions"""
 		
 		# Check if we have pre-prepared context from previous step
 		if hasattr(self, '_next_step_context') and self._next_step_context:
-			with observe(name='prepare_context_cached', metadata={'step': self.state.n_steps}):
-				self.logger.debug(f'💨 Using pre-prepared context for step {self.state.n_steps}')
-				
-				browser_state_summary = self._next_step_context['browser_state_summary']
-				page_filtered_actions = self._next_step_context['page_filtered_actions']
-				
-				# Clear the pre-prepared context
-				self._next_step_context = None
+			browser_state_summary, page_filtered_actions = await self._use_cached_context()
 		else:
 			# Fallback: prepare context normally (first step or if pre-preparation failed)
-			with observe(name='prepare_context_fresh', metadata={'step': self.state.n_steps}):
-				self.logger.debug(f'🔄 Fresh context preparation for step {self.state.n_steps}')
-				
-				assert self.browser_session is not None, 'BrowserSession is not set up'
-
-				self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
-				browser_state_summary = await self.browser_session.get_browser_state_summary(
-					include_screenshot=True,
-					include_recent_events=self.include_recent_events,
-				)
-				
-				await self._check_and_update_downloads(f'Step {self.state.n_steps}: after getting browser state')
-				await self._update_action_models_for_page(browser_state_summary.url)
-				page_filtered_actions = self.tools.registry.get_prompt_description(browser_state_summary.url)
+			browser_state_summary, page_filtered_actions = await self._prepare_fresh_context()
 
 		# Log context info
 		if browser_state_summary.screenshot:
