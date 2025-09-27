@@ -1,6 +1,5 @@
 import asyncio
 import json
-import ijson
 import io
 import logging
 import time
