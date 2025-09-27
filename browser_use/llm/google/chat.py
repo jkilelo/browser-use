@@ -423,20 +423,29 @@ class ChatGoogle(BaseChatModel):
 								try:
 									text = response.text.strip()
 
-									# Look for JSON in the text - it might be embedded in other content
-									json_start = -1
-									json_end = -1
-
-									# Try to find JSON block markers first
+									# Look for JSON in the text - handle various formats
+									json_text = None
+									
+									# Method 1: Look for ```json blocks
 									if '```json' in text:
 										json_start = text.find('```json') + 7
 										json_end = text.find('```', json_start)
+										if json_end != -1:
+											json_text = text[json_start:json_end].strip()
+											self.logger.debug('🔧 Extracted from ```json``` block')
+									
+									# Method 2: Look for ``` blocks containing JSON
 									elif '```' in text and '{' in text:
-										# Generic code block with JSON
 										json_start = text.find('```') + 3
 										json_end = text.find('```', json_start)
-									else:
-										# Look for JSON object boundaries
+										if json_end != -1:
+											potential_json = text[json_start:json_end].strip()
+											if potential_json.startswith('{') or potential_json.startswith('"'):
+												json_text = potential_json
+												self.logger.debug('🔧 Extracted from ``` block')
+									
+									# Method 3: Look for JSON object boundaries
+									if json_text is None:
 										json_start = text.find('{')
 										if json_start != -1:
 											# Find the matching closing brace
@@ -447,16 +456,42 @@ class ChatGoogle(BaseChatModel):
 												elif text[i] == '}':
 													brace_count -= 1
 													if brace_count == 0:
-														json_end = i + 1
+														json_text = text[json_start:i + 1].strip()
+														self.logger.debug(f'🔧 Extracted JSON object from position {json_start}:{i+1}')
 														break
-
-									if json_start != -1 and json_end != -1:
-										json_text = text[json_start:json_end].strip()
-										self.logger.debug(f'🔧 Extracted JSON from position {json_start}:{json_end}')
-									else:
-										# Fallback: try the entire text
+									
+									# Method 4: Handle malformed JSON - try to reconstruct
+									if json_text is None and any(key in text for key in ['evaluation_previous_goal', 'memory', 'next_goal', 'action']):
+										self.logger.debug('🔧 Attempting to reconstruct malformed JSON')
+										# Try to find the JSON-like content and add missing braces
+										lines = text.split('\n')
+										json_lines = []
+										in_json = False
+										
+										for line in lines:
+											# Look for JSON field patterns
+											if any(field in line for field in ['"evaluation_previous_goal"', '"memory"', '"next_goal"', '"action"', '"thinking"']):
+												in_json = True
+												if not json_lines:  # First JSON line
+													json_lines.append('{')
+											
+											if in_json:
+												json_lines.append(line.strip())
+												
+												# Check if this might be the end
+												if line.strip().endswith('}') or line.strip().endswith(']'):
+													break
+										
+										if json_lines:
+											if not json_lines[-1].endswith('}'):
+												json_lines.append('}')
+											json_text = '\n'.join(json_lines)
+											self.logger.debug('🔧 Reconstructed JSON from malformed response')
+									
+									# Fallback: use entire text
+									if json_text is None:
 										json_text = text
-										self.logger.debug('🔧 Using entire text as JSON')
+										self.logger.debug('🔧 Using entire text as JSON fallback')
 
 									# Parse the JSON text and validate with the Pydantic model
 									parsed_data = json.loads(json_text)
