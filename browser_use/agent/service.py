@@ -730,23 +730,45 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		action_execution_task = None
+		first_yield_done = False
+		final_model_output = None
 		
 		try:
-			#async for completion in self._get_model_output_with_retry_streaming(input_messages):
+			# Process messages and replace long URLs with shorter ones
+			urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
+			
 			async for completion in self.llm.astream(input_messages, output_format=self.AgentOutput):
-				# First yield: actions - start execution immediately
-				if completion.action and not action_execution_task:
-					self.state.last_model_output = completion
-					# await self._raise_if_stopped_or_paused()
+				parsed = completion.completion
+				
+				# Replace any shortened URLs in the LLM response back to original URLs
+				if urls_replaced:
+					self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
+
+				# Cut the number of actions to max_actions_per_step if needed
+				if len(parsed.action) > self.settings.max_actions_per_step:
+					parsed.action = parsed.action[: self.settings.max_actions_per_step]
+
+				# First yield: actions only
+				if parsed.action and not first_yield_done:
+					first_yield_done = True
+					if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
+						log_response(parsed, self.tools.registry.registry, self.logger)
+					self._log_next_action_summary(parsed)
 					
+					# Start execution immediately
+					self.state.last_model_output = parsed
+					await self._raise_if_stopped_or_paused()
 					action_execution_task = asyncio.create_task(self._execute_actions())
 					
 				else:
-					self.state.last_model_output = completion
-					# await self._raise_if_stopped_or_paused()
+					self.state.last_model_output = parsed
+					await self._raise_if_stopped_or_paused()
 					
 					# Handle callbacks while actions execute in parallel
 					await self._handle_post_llm_processing(browser_state_summary, input_messages)
+				
+				# Keep track of final output
+				final_model_output = parsed
 			
 			# Wait for action execution to complete
 			if action_execution_task:
@@ -764,11 +786,40 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			raise TimeoutError(
 				f'LLM call timed out after {self.settings.llm_timeout} seconds. Keep your thinking and output short.'
 			)
+		
+		# Handle retry logic if no actions were yielded
+		if not first_yield_done or not final_model_output or not final_model_output.action:
+			self.logger.warning('Model returned empty action. Retrying...')
+
+			clarification_message = UserMessage(
+				content='You forgot to return an action. Please respond with a valid JSON action according to the expected schema with your assessment and next actions.'
+			)
+
+			retry_messages = input_messages + [clarification_message]
+			
+			# Retry with regular get_model_output (fallback to non-streaming)
+			model_output = await self.get_model_output(retry_messages)
+
+			if not model_output.action or all(action.model_dump() == {} for action in model_output.action):
+				self.logger.warning('Model still returned empty after retry. Inserting safe noop action.')
+				action_instance = self.ActionModel()
+				setattr(
+					action_instance,
+					'done',
+					{
+						'success': False,
+						'text': 'No next action returned by LLM!',
+					},
+				)
+				model_output.action = [action_instance]
+
+			# Execute the retry result
+			self.state.last_model_output = model_output
+			await self._execute_actions()
 
 		await self._raise_if_stopped_or_paused()
 
 
-	@observe(name='execute_actions',)
 	async def _execute_actions(self) -> None:
 		"""Execute the actions from model output"""
 		if self.state.last_model_output is None:
@@ -1020,7 +1071,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				raise TimeoutError(f'LLM call timed out after {timeout} seconds. Keep your thinking and output short.')
 			yield completion
 
-	@observe(name='handle_post_llm_processing',)
 	async def _handle_post_llm_processing(
 		self,
 		browser_state_summary: BrowserStateSummary,
