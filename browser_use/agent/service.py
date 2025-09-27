@@ -802,51 +802,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			completion_handler()
 		)
 
-	@observe(name='action_timeline')
-	async def _run_action_timeline_with_stream(self, stream_iterator) -> None:
-		"""Wait for first stream yield (actions) then execute actions, post-process, and prepare next context"""
-		# Get first yield (actions) from the stream
-		first_completion = await stream_iterator.__anext__()
-		
-		if first_completion.completion.action:
-			self.state.last_model_output = first_completion.completion
-			await self._raise_if_stopped_or_paused()
-			
-			# Execute current step's actions
-			await self._execute_actions()
-			
-			# Post-process current step
-			await self._post_process()
-			
-			# Prepare context for NEXT step (after current step is complete)
-			await self._prepare_next_step_context()
-		else:
-			# No actions available, just wait
-			pass
 
-	@observe(name='model_completion_timeline')
-	async def _run_model_completion_timeline_full(self, stream_iterator, browser_state_summary: BrowserStateSummary, input_messages) -> None:
-		"""Wait for complete model output and handle dependent tasks"""
-		try:
-			# Wait for the second yield (complete response) from the stream
-			# The first yield was consumed by action_timeline
-			async for completion in stream_iterator:
-				self.state.last_model_output = completion.completion
-				await self._raise_if_stopped_or_paused()
-				
-				# Handle model_output dependent tasks
-				await self._handle_post_llm_processing(browser_state_summary, input_messages)
-				break  # We got the complete response
-		except StopAsyncIteration:
-			pass
-
-	@observe(name='parallel_execution')
-	async def _execute_timelines_in_parallel(self, action_timeline, model_completion_timeline):
-		"""Execute both timelines in parallel"""
-		await asyncio.gather(
-			action_timeline(),
-			model_completion_timeline()
-		)
 
 	@observe(name='use_cached_context')
 	async def _use_cached_context(self) -> tuple[BrowserStateSummary, str | None]:
