@@ -717,25 +717,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		try:
-			# Start streaming
+			# Start streaming and handle it in parallel with action execution
 			stream_iterator = self.llm.astream(input_messages, output_format=self.AgentOutput).__aiter__()
 			
-			# Get first yield (actions)
-			first_completion = await stream_iterator.__anext__()
-			
-			if first_completion.completion.action:
-				self.state.last_model_output = first_completion.completion
-				await self._raise_if_stopped_or_paused()
-				
-				# Execute both timelines in TRUE PARALLEL
-				await asyncio.gather(
-					self._run_action_timeline(),
-					self._run_model_completion_timeline(stream_iterator, browser_state_summary, input_messages)
-				)
-			
-			else:
-				# Fallback: no actions in first yield
-				await self._handle_post_llm_processing(browser_state_summary, input_messages)
+			# Execute both timelines in TRUE PARALLEL from the start
+			await asyncio.gather(
+				self._run_action_timeline_with_stream(stream_iterator),
+				self._run_model_completion_timeline_full(stream_iterator, browser_state_summary, input_messages)
+			)
 				
 		except TimeoutError:
 			@observe(name='_llm_call_timed_out_with_input')
@@ -752,22 +741,33 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._raise_if_stopped_or_paused()
 
 	@observe(name='action_timeline')
-	async def _run_action_timeline(self) -> None:
-		"""Execute actions, post-process, and prepare next context"""
-		# Execute current step's actions
-		await self._execute_actions()
+	async def _run_action_timeline_with_stream(self, stream_iterator) -> None:
+		"""Wait for first stream yield (actions) then execute actions, post-process, and prepare next context"""
+		# Get first yield (actions) from the stream
+		first_completion = await stream_iterator.__anext__()
 		
-		# Post-process current step
-		await self._post_process()
-		
-		# Prepare context for NEXT step (after current step is complete)
-		await self._prepare_next_step_context()
+		if first_completion.completion.action:
+			self.state.last_model_output = first_completion.completion
+			await self._raise_if_stopped_or_paused()
+			
+			# Execute current step's actions
+			await self._execute_actions()
+			
+			# Post-process current step
+			await self._post_process()
+			
+			# Prepare context for NEXT step (after current step is complete)
+			await self._prepare_next_step_context()
+		else:
+			# No actions available, just wait
+			pass
 
 	@observe(name='model_completion_timeline')
-	async def _run_model_completion_timeline(self, stream_iterator, browser_state_summary: BrowserStateSummary, input_messages) -> None:
+	async def _run_model_completion_timeline_full(self, stream_iterator, browser_state_summary: BrowserStateSummary, input_messages) -> None:
 		"""Wait for complete model output and handle dependent tasks"""
 		try:
-			# Continue streaming for complete response
+			# Wait for the second yield (complete response) from the stream
+			# The first yield was consumed by action_timeline
 			async for completion in stream_iterator:
 				self.state.last_model_output = completion.completion
 				await self._raise_if_stopped_or_paused()
