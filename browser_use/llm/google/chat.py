@@ -169,7 +169,7 @@ class ChatGoogle(BaseChatModel):
 	async def ainvoke(self, messages: list[BaseMessage], output_format: type[T]) -> ChatInvokeCompletion[T]: ...
 
 
-	async def ainvoke3(self, messages: list[BaseMessage], output_format: type[T] | None = None) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
+	async def astream(self, messages: list[BaseMessage], output_format: type[T] | None = None) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
 		"""
 		Invoke the model using streaming API and produce a response equivalent to the non-streaming one.
 
@@ -243,13 +243,13 @@ class ChatGoogle(BaseChatModel):
 			if chunk.text:
 				full_response_text += chunk.text
 			last_chunk = chunk
-			prompt_tokens += last_chunk.usage_metadata.prompt_token_count or 0
+			"""prompt_tokens += last_chunk.usage_metadata.prompt_token_count or 0
 			completion_tokens += last_chunk.usage_metadata.candidates_token_count or 0
 			total_tokens += last_chunk.usage_metadata.total_token_count or 0
 			prompt_cached_tokens += last_chunk.usage_metadata.cached_content_token_count or 0
 			prompt_cache_creation_tokens += last_chunk.usage_metadata.cached_content_token_count or 0
-			prompt_image_tokens += last_chunk.usage_metadata.prompt_image_tokens or 0
-
+			prompt_image_tokens += last_chunk.usage_metadata.prompt_image_tokens or 0"""
+		# TODO: fix this
 		print(f"full response text: {full_response_text}")
 
 		usage = ChatInvokeUsage(
@@ -301,7 +301,7 @@ class ChatGoogle(BaseChatModel):
 				)
 
 
-	async def astream(
+	async def astream2(
 		self, 
 		messages: list[BaseMessage], 
 		output_format: type[T]
@@ -355,6 +355,10 @@ class ChatGoogle(BaseChatModel):
 				actions = actions.replace("{\"action\":", "")
 				print(f"Found actions:{actions}")
 
+
+			# Yield the actions
+
+		# Now similar to the other
 		return response
 
 	async def ainvoke(

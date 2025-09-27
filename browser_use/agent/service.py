@@ -660,10 +660,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			# Phase 1: Prepare context and timing
 			browser_state_summary = await self._prepare_context(step_info)
 
-			# Phase 2: Get model output and execute actions
-			# We need to wait here to get the memory from the model 
-			await self._get_next_action(browser_state_summary)
-			await self._execute_actions()
+			# Phase 2: Get actions and full response in parallel
+			actions, full_response_task = await self._get_next_action_parallel(browser_state_summary)
+			
+			# Execute actions immediately
+			result = await self._execute_actions(actions)
+			
+			# Wait for complete response and set it
+			model_output = await full_response_task
+			self.state.last_model_output = model_output
 
 			# Phase 3: Post-processing
 			await self._post_process()
@@ -759,16 +764,55 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# check again if Ctrl+C was pressed before we commit the output to history
 		await self._raise_if_stopped_or_paused()
 
-	async def _execute_actions(self) -> None:
-		"""Execute the actions from model output"""
-		if self.state.last_model_output is None:
-			raise ValueError('No model output to execute actions from')
+		# TOOD gcan you execute the acitons once we have them
+		
 
-		self.logger.debug(f'⚡ Step {self.state.n_steps}: Executing {len(self.state.last_model_output.action)} actions...')
-		result = await self.multi_act(self.state.last_model_output.action)
+	@observe_debug(ignore_input=True, name='get_next_action_parallel')
+	async def _get_next_action_parallel(self, browser_state_summary: BrowserStateSummary) -> tuple[list[ActionModel], asyncio.Task[AgentOutput]]:
+		"""Get actions immediately and full response in parallel"""
+		input_messages = self._message_manager.get_messages()
+		self.logger.debug(
+			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
+		)
+
+		try:
+			# Assume ainvoke returns (actions_task, full_response_task)
+			actions_task, full_response_task = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
+			
+			# Get actions immediately
+			actions = await actions_task
+			
+			# Return actions and the task for full response
+			return actions, full_response_task
+			
+		except TimeoutError:
+			@observe(name='_llm_call_timed_out_with_input')
+			async def _log_model_input_to_lmnr(input_messages: list[BaseMessage]) -> None:
+				"""Log the model input"""
+				pass
+
+			await _log_model_input_to_lmnr(input_messages)
+
+			raise TimeoutError(
+				f'LLM call timed out after {self.settings.llm_timeout} seconds. Keep your thinking and output short.'
+			)
+
+	async def _execute_actions(self, actions: list[ActionModel] | None = None) -> list[ActionResult]:
+		"""Execute the actions from model output or provided actions list"""
+		if actions is None:
+			if self.state.last_model_output is None:
+				raise ValueError('No model output to execute actions from')
+			actions = self.state.last_model_output.action
+
+		if not actions:
+			return []
+
+		self.logger.debug(f'⚡ Step {self.state.n_steps}: Executing {len(actions)} actions...')
+		result = await self.multi_act(actions)
 		self.logger.debug(f'✅ Step {self.state.n_steps}: Actions completed')
 
 		self.state.last_result = result
+		return result
 
 	async def _post_process(self) -> None:
 		"""Handle post-action processing like download tracking and result logging"""
@@ -1178,6 +1222,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			#response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput) # TODO 
 			response = await self.llm.ainvoke3(input_messages, output_format=self.AgentOutput)
+			# TODO here assume ainvoke yields two results 
+			# one is the action 
+			# the other one is the rest of the response 
+			# 
+
 			parsed = response.completion
 			
 			# Replace any shortened URLs in the LLM response back to original URLs
