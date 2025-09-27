@@ -113,6 +113,69 @@ agent = Agent(
 )
 ```
 
+#### Google Search Grounding [example](https://github.com/browser-use/browser-use/blob/main/examples/models/gemini_google_search.py)
+
+Enable Google Search grounding for **direct LLM calls** to get real-time information instantly:
+
+```python
+from browser_use import ChatGoogle
+from browser_use.llm.messages import UserMessage
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Enable Google Search grounding for direct LLM calls
+llm = ChatGoogle(
+    model='gemini-2.5-flash',
+    google_search=True  # Enables Google Search grounding
+)
+
+# Direct LLM call with current information
+response = await llm.ainvoke(
+    messages=[UserMessage(content="Who won Euro 2024?")]
+)
+
+print(response.completion)  # Current, accurate information
+print(response.grounding_metadata)  # Sources and search queries used
+```
+
+<Warning>
+For browser automation agents, Google Search grounding is disabled by default since agents have their own browser-based search tools. Use Google Search grounding primarily for direct LLM calls when you need instant access to current information.
+</Warning>
+
+#### Google Search + Structured Output [example](https://github.com/browser-use/browser-use/blob/main/examples/models/gemini_google_search_structured.py)
+
+Google Search grounding works seamlessly with structured output for precise, current data:
+
+```python
+from browser_use import ChatGoogle
+from pydantic import BaseModel, Field
+
+class MatchResult(BaseModel):
+    winner: str = Field(description="The team that won")
+    final_score: str = Field(description="The final score")
+    venue: str = Field(description="Stadium where final was played")
+
+# Combine Google Search with structured output
+llm = ChatGoogle(
+    model='gemini-2.5-flash',
+    google_search=True  # Real-time information + structured response
+)
+
+# Get current information in a structured format
+response = await llm.ainvoke(
+    messages=[{"role": "user", "content": "Who won Euro 2024?"}],
+    output_format=MatchResult
+)
+
+print(f"Winner: {response.completion.winner}")
+print(f"Score: {response.completion.final_score}")
+```
+
+<Tip>
+Google Search grounding automatically provides the model with access to current information from Google Search. This is particularly useful for tasks requiring up-to-date facts, current events, or recent developments. It works perfectly with structured output to get current data in your desired format.
+</Tip>
+
 Required environment variables:
 
 ```bash .env

@@ -43,3 +43,6 @@ class ChatInvokeCompletion(BaseModel, Generic[T]):
 
 	usage: ChatInvokeUsage | None
 	"""The usage of the response."""
+
+	grounding_metadata: str | None = None
+	"""Google only: Grounding metadata from Google Search or other grounding sources."""

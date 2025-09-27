@@ -52,6 +52,7 @@ class ChatGoogle(BaseChatModel):
 		temperature: Temperature for response generation
 		config: Additional configuration parameters to pass to generate_content
 			(e.g., tools, safety_settings, etc.).
+		google_search: If True, enables Google Search grounding tool
 		api_key: Google API key
 		vertexai: Whether to use Vertex AI
 		credentials: Google credentials object
@@ -64,6 +65,13 @@ class ChatGoogle(BaseChatModel):
 	Example:
 		from google.genai import types
 
+		# With Google Search grounding
+		llm = ChatGoogle(
+			model='gemini-2.5-flash',
+			google_search=True
+		)
+
+		# With custom tools
 		llm = ChatGoogle(
 			model='gemini-2.0-flash-exp',
 			config={
@@ -80,6 +88,7 @@ class ChatGoogle(BaseChatModel):
 	thinking_budget: int | None = None  # for gemini-2.5 flash and flash-lite models, default will be set to 0
 	max_output_tokens: int | None = 8192
 	config: types.GenerateContentConfigDict | None = None
+	google_search: bool = True  # Enable Google Search grounding
 	include_system_in_user: bool = False
 	supports_structured_output: bool = True  # New flag
 
@@ -163,6 +172,97 @@ class ChatGoogle(BaseChatModel):
 
 		return usage
 
+	def _get_grounding_metadata(self, response: types.GenerateContentResponse) -> str | None:
+		"""Extract grounding metadata from the response as a formatted string."""
+
+		# First check if we have any candidates
+		if not response.candidates:
+			self.logger.debug('🔍 No candidates in response')
+			return None
+
+		candidate = response.candidates[0]
+		if not candidate.grounding_metadata:
+			self.logger.debug('🔍 No grounding_metadata in candidate')
+			return None
+
+		grounding = candidate.grounding_metadata
+		metadata_parts = []
+
+		# Log all available fields for debugging
+		self.logger.debug(f'🔍 Grounding object type: {type(grounding)}')
+		if hasattr(grounding, '__dict__'):
+			self.logger.debug(f'🔍 Grounding fields: {list(grounding.__dict__.keys())}')
+
+		# Try to get all attributes from the grounding object
+		attrs = dir(grounding)
+		non_private_attrs = [attr for attr in attrs if not attr.startswith('_')]
+		self.logger.debug(f'🔍 Available attributes: {non_private_attrs}')
+
+		# Check all possible fields
+		for attr in [
+			'grounding_chunks',
+			'grounding_supports',
+			'web_search_queries',
+			'retrieval_queries',
+			'search_entry_point',
+			'retrieval_metadata',
+		]:
+			if hasattr(grounding, attr):
+				value = getattr(grounding, attr)
+				self.logger.debug(f'🔍 {attr}: {value}')
+
+		# Extract grounding chunks
+		if hasattr(grounding, 'grounding_chunks') and grounding.grounding_chunks:
+			metadata_parts.append(f'Grounding Sources ({len(grounding.grounding_chunks)} sources):')
+			for i, chunk in enumerate(grounding.grounding_chunks, 1):
+				if hasattr(chunk, 'web') and chunk.web:
+					metadata_parts.append(f'  {i}. {chunk.web.title} - {chunk.web.uri}')
+
+		# Extract grounding supports
+		if hasattr(grounding, 'grounding_supports') and grounding.grounding_supports:
+			metadata_parts.append(f'Grounded Segments ({len(grounding.grounding_supports)} segments):')
+			for i, support in enumerate(grounding.grounding_supports, 1):
+				if hasattr(support, 'segment') and support.segment:
+					# Clean up the segment text - avoid JSON artifacts
+					segment_text = support.segment.text
+					if segment_text and not ('{' in segment_text and '}' in segment_text and '"' in segment_text):
+						metadata_parts.append(f'  {i}. "{segment_text}"')
+						if hasattr(support, 'grounding_chunk_indices') and support.grounding_chunk_indices:
+							metadata_parts.append(f'     Sources: {support.grounding_chunk_indices}')
+
+		# Extract search queries
+		if hasattr(grounding, 'web_search_queries') and grounding.web_search_queries:
+			metadata_parts.append(f'Search Queries: {", ".join(grounding.web_search_queries)}')
+
+		if hasattr(grounding, 'retrieval_queries') and grounding.retrieval_queries:
+			metadata_parts.append(f'Retrieval Queries: {", ".join(grounding.retrieval_queries)}')
+
+		# Search entry point
+		if hasattr(grounding, 'search_entry_point') and grounding.search_entry_point:
+			metadata_parts.append('Search Entry Point: Available')
+
+		# If no standard grounding data, try to extract from the full response
+		if not metadata_parts:
+			# Check if there's any indication of search/grounding in the response
+			if hasattr(response, 'usage_metadata') and response.usage_metadata:
+				if (
+					hasattr(response.usage_metadata, 'tool_use_prompt_token_count')
+					and response.usage_metadata.tool_use_prompt_token_count
+				):
+					metadata_parts.append(
+						f'Google Search grounding used (tool tokens: {response.usage_metadata.tool_use_prompt_token_count})'
+					)
+
+			# Check if the response text contains indicators of current information
+			if hasattr(response, 'candidates') and response.candidates:
+				text = response.candidates[0].content.parts[0].text if response.candidates[0].content.parts else ''
+				if any(indicator in text.lower() for indicator in ['current', 'today', 'latest', 'now', 'recent', 'as of']):
+					metadata_parts.append('')
+
+		result = '\n'.join(metadata_parts) if metadata_parts else None
+		self.logger.debug(f'🔍 Final grounding metadata: {result}')
+		return result
+
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...
 
@@ -192,6 +292,12 @@ class ChatGoogle(BaseChatModel):
 		config: types.GenerateContentConfigDict = {}
 		if self.config:
 			config = self.config.copy()
+
+		# Add Google Search grounding tool if enabled
+		if self.google_search:
+			grounding_tool = types.Tool(google_search=types.GoogleSearch())
+			existing_tools = config.get('tools', [])
+			config['tools'] = existing_tools + [grounding_tool]
 
 		# Apply model-specific configuration (these can override config)
 		if self.temperature is not None:
@@ -242,59 +348,126 @@ class ChatGoogle(BaseChatModel):
 						self.logger.warning('⚠️ Empty text response received')
 
 					usage = self._get_usage(response)
+					grounding_metadata = self._get_grounding_metadata(response)
 
 					return ChatInvokeCompletion(
 						completion=text,
 						usage=usage,
+						grounding_metadata=grounding_metadata,
 					)
 
 				else:
 					# Handle structured output
 					if self.supports_structured_output:
-						# Use native JSON mode
-						self.logger.debug(f'🔧 Requesting structured output for {output_format.__name__}')
-						config['response_mime_type'] = 'application/json'
-						# Convert Pydantic model to Gemini-compatible schema
-						optimized_schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+						# Check if tools are present - Google API doesn't support tools + JSON mode
+						has_tools = config.get('tools') and len(config.get('tools', [])) > 0
 
-						gemini_schema = self._fix_gemini_schema(optimized_schema)
-						config['response_schema'] = gemini_schema
+						if has_tools:
+							# Fallback to prompt-based JSON when tools are present
+							self.logger.debug(f'🔄 Using prompt-based JSON mode for {output_format.__name__} (tools present)')
+							# Don't set response_mime_type when tools are present
+						else:
+							# Use native JSON mode when no tools
+							self.logger.debug(f'🔧 Requesting structured output for {output_format.__name__}')
+							config['response_mime_type'] = 'application/json'
+							# Convert Pydantic model to Gemini-compatible schema
+							optimized_schema = SchemaOptimizer.create_optimized_json_schema(output_format)
 
-						response = await self.get_client().aio.models.generate_content(
-							model=self.model,
-							contents=contents,
-							config=config,
-						)
+							gemini_schema = self._fix_gemini_schema(optimized_schema)
+							config['response_schema'] = gemini_schema
+
+						if has_tools:
+							# When tools are present, use prompt-based approach
+							# Create a copy of messages to modify
+							modified_messages = [m.model_copy(deep=True) for m in messages]
+
+							# Add JSON instruction to the last message
+							if modified_messages and isinstance(modified_messages[-1].content, str):
+								json_instruction = f'\n\nPlease respond with a valid JSON object that matches this schema: {SchemaOptimizer.create_optimized_json_schema(output_format)}'
+								modified_messages[-1].content += json_instruction
+
+							# Re-serialize with modified messages
+							tools_contents, tools_system = GoogleMessageSerializer.serialize_messages(
+								modified_messages, include_system_in_user=self.include_system_in_user
+							)
+
+							# Update config with system instruction if present
+							tools_config = config.copy()
+							if tools_system:
+								tools_config['system_instruction'] = tools_system
+
+							response = await self.get_client().aio.models.generate_content(
+								model=self.model,
+								contents=tools_contents,  # type: ignore
+								config=tools_config,
+							)
+						else:
+							# Native JSON mode without tools
+							response = await self.get_client().aio.models.generate_content(
+								model=self.model,
+								contents=contents,
+								config=config,
+							)
 
 						elapsed = time.time() - start_time
 						self.logger.debug(f'✅ Got structured response in {elapsed:.2f}s')
 
 						usage = self._get_usage(response)
+						grounding_metadata = self._get_grounding_metadata(response)
 
-						# Handle case where response.parsed might be None
-						if response.parsed is None:
+						# Handle JSON parsing for both native and prompt-based approaches
+						if response.parsed is None or has_tools:
 							self.logger.debug('📝 Parsing JSON from text response')
-							# When using response_schema, Gemini returns JSON as text
+							# Parse JSON from text (used for both tools+JSON and native JSON fallback)
 							if response.text:
 								try:
-									# Handle JSON wrapped in markdown code blocks (common Gemini behavior)
 									text = response.text.strip()
-									if text.startswith('```json') and text.endswith('```'):
-										text = text[7:-3].strip()
-										self.logger.debug('🔧 Stripped ```json``` wrapper from response')
-									elif text.startswith('```') and text.endswith('```'):
-										text = text[3:-3].strip()
-										self.logger.debug('🔧 Stripped ``` wrapper from response')
+
+									# Look for JSON in the text - it might be embedded in other content
+									json_start = -1
+									json_end = -1
+
+									# Try to find JSON block markers first
+									if '```json' in text:
+										json_start = text.find('```json') + 7
+										json_end = text.find('```', json_start)
+									elif '```' in text and '{' in text:
+										# Generic code block with JSON
+										json_start = text.find('```') + 3
+										json_end = text.find('```', json_start)
+									else:
+										# Look for JSON object boundaries
+										json_start = text.find('{')
+										if json_start != -1:
+											# Find the matching closing brace
+											brace_count = 0
+											for i in range(json_start, len(text)):
+												if text[i] == '{':
+													brace_count += 1
+												elif text[i] == '}':
+													brace_count -= 1
+													if brace_count == 0:
+														json_end = i + 1
+														break
+
+									if json_start != -1 and json_end != -1:
+										json_text = text[json_start:json_end].strip()
+										self.logger.debug(f'🔧 Extracted JSON from position {json_start}:{json_end}')
+									else:
+										# Fallback: try the entire text
+										json_text = text
+										self.logger.debug('🔧 Using entire text as JSON')
 
 									# Parse the JSON text and validate with the Pydantic model
-									parsed_data = json.loads(text)
+									parsed_data = json.loads(json_text)
 									return ChatInvokeCompletion(
 										completion=output_format.model_validate(parsed_data),
 										usage=usage,
+										grounding_metadata=grounding_metadata,
 									)
 								except (json.JSONDecodeError, ValueError) as e:
 									self.logger.error(f'❌ Failed to parse JSON response: {str(e)}')
-									self.logger.debug(f'Raw response text: {response.text[:200]}...')
+									self.logger.debug(f'Raw response text: {response.text[:500]}...')
 									raise ModelProviderError(
 										message=f'Failed to parse or validate response {response}: {str(e)}',
 										status_code=500,
@@ -313,12 +486,14 @@ class ChatGoogle(BaseChatModel):
 							return ChatInvokeCompletion(
 								completion=response.parsed,
 								usage=usage,
+								grounding_metadata=grounding_metadata,
 							)
 						else:
 							# If it's not the expected type, try to validate it
 							return ChatInvokeCompletion(
 								completion=output_format.model_validate(response.parsed),
 								usage=usage,
+								grounding_metadata=grounding_metadata,
 							)
 					else:
 						# Fallback: Request JSON in the prompt for models without native JSON mode
@@ -369,6 +544,7 @@ class ChatGoogle(BaseChatModel):
 								return ChatInvokeCompletion(
 									completion=output_format.model_validate(parsed_data),
 									usage=usage,
+									grounding_metadata=grounding_metadata,
 								)
 							except (json.JSONDecodeError, ValueError) as e:
 								self.logger.error(f'❌ Failed to parse fallback JSON: {str(e)}')

@@ -349,6 +349,18 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# These will be used for the system prompt to maintain caching
 		self.unfiltered_actions = self.tools.registry.get_prompt_description()
 
+		# Check if Google Search grounding is enabled for the LLM
+		google_search_info = ''
+		if hasattr(self.llm, 'google_search') and getattr(self.llm, 'google_search', False):
+			google_search_info = "\n\nIMPORTANT: You have Google Search grounding enabled. This means when you provide answers that would benefit from current information (like weather, news, prices, recent events), your knowledge will automatically be enhanced with real-time Google Search results. You don't need to use any special actions - just provide the answer and the grounding will happen automatically. The search sources will appear in your memory field."
+
+		# Combine extended system message with Google Search info
+		final_extend_message = ''
+		if extend_system_message:
+			final_extend_message = extend_system_message
+		if google_search_info:
+			final_extend_message = final_extend_message + google_search_info if final_extend_message else google_search_info
+
 		# Initialize message manager with state
 		# Initial system prompt with all actions - will be updated during each step
 		self._message_manager = MessageManager(
@@ -357,7 +369,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				action_description=self.unfiltered_actions,
 				max_actions_per_step=self.settings.max_actions_per_step,
 				override_system_message=override_system_message,
-				extend_system_message=extend_system_message,
+				extend_system_message=final_extend_message,
 				use_thinking=self.settings.use_thinking,
 				flash_mode=self.settings.flash_mode,
 			).get_system_message(),
@@ -1178,6 +1190,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
 			parsed = response.completion
+
+			# Add grounding metadata to memory if available (Google Search grounding)
+			if response.grounding_metadata and parsed.memory:
+				parsed.memory = f'{parsed.memory}\n\nGrounding Sources:\n{response.grounding_metadata}'
+			elif response.grounding_metadata:
+				parsed.memory = f'Grounding Sources:\n{response.grounding_metadata}'
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
