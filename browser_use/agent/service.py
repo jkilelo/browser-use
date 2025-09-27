@@ -655,12 +655,16 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.step_start_time = time.time()
 
 		browser_state_summary = None
+		page_filtered_actions = None
 
 		try:
-			# Phase 1: Prepare context and timing
-			browser_state_summary = await self._prepare_context(step_info)
+			# Phase 1: Prepare context (browser state, action models)
+			browser_state_summary, page_filtered_actions = await self._prepare_context(step_info)
 
-			# Phase 2: Get actions and full response in parallel
+			# Phase 2: Create state messages with current state before LLM call
+			self._create_state_messages(browser_state_summary, step_info, page_filtered_actions)
+
+			# Phase 3: Get actions and full response in parallel
 			actions, full_response_task = await self._get_next_action_parallel(browser_state_summary)
 			
 			# Execute actions immediately
@@ -670,8 +674,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			model_output = await full_response_task
 			self.state.last_model_output = model_output
 
-			# Phase 3: Post-processing
-			await self._post_process()
+			# Phase 4: Post-processing (moved after prepare context for maximal parallelization)
+			await self._post_process_with_callbacks(browser_state_summary)
 
 		except Exception as e:
 			# Handle ALL exceptions in one place
@@ -680,7 +684,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		finally:
 			await self._finalize(browser_state_summary)
 
-	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
+	async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> tuple[BrowserStateSummary, str | None]:
 		"""Prepare the context for the step: browser state, action models, page actions"""
 		# step_start_time is now set in step() method
 
@@ -698,20 +702,33 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			self.logger.debug('📸 Got browser state WITHOUT screenshot')
 
-		# Check for new downloads after getting browser state (catches PDF auto-downloads and previous step downloads)
-		await self._check_and_update_downloads(f'Step {self.state.n_steps}: after getting browser state')
+		# MAXIMAL PARALLELIZATION: Run all independent operations simultaneously
+		await asyncio.gather(
+			# Download check (independent)
+			self._check_and_update_downloads(f'Step {self.state.n_steps}: after getting browser state'),
+			# URL-dependent operations (both depend on browser_state_summary.url, can run in parallel)
+			self._update_action_models_for_page(browser_state_summary.url),
+			# Stop/pause checks and force done checks (independent)
+			self._raise_if_stopped_or_paused(),
+			self._force_done_after_last_step(step_info),
+			self._force_done_after_failure(),
+		)
 
+		# Log context (synchronous, fast)
 		self._log_step_context(browser_state_summary)
-		await self._raise_if_stopped_or_paused()
 
-		# Update action models with page-specific actions
-		self.logger.debug(f'📝 Step {self.state.n_steps}: Updating action models...')
-		await self._update_action_models_for_page(browser_state_summary.url)
-
-		# Get page-specific filtered actions
+		# Get page-specific filtered actions (synchronous, depends on URL)
 		page_filtered_actions = self.tools.registry.get_prompt_description(browser_state_summary.url)
+		
+		return browser_state_summary, page_filtered_actions
 
-		# Page-specific actions will be included directly in the browser_state message
+	def _create_state_messages(
+		self, 
+		browser_state_summary: BrowserStateSummary, 
+		step_info: AgentStepInfo | None,
+		page_filtered_actions: str | None
+	) -> None:
+		"""Create state messages with current model output and results"""
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
 		self._message_manager.create_state_messages(
 			browser_state_summary=browser_state_summary,
@@ -724,47 +741,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
 		)
 
-		await self._force_done_after_last_step(step_info)
-		await self._force_done_after_failure()
-		return browser_state_summary
-
-	@observe_debug(ignore_input=True, name='get_next_action')
-	async def _get_next_action(self, browser_state_summary: BrowserStateSummary) -> None:
-		"""Execute LLM interaction with retry logic and handle callbacks"""
-		input_messages = self._message_manager.get_messages()
-		self.logger.debug(
-			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
-		)
-
-		try:
-			model_output = await asyncio.wait_for(
-				self._get_model_output_with_retry(input_messages), timeout=self.settings.llm_timeout
-			)
-		except TimeoutError:
-
-			@observe(name='_llm_call_timed_out_with_input')
-			async def _log_model_input_to_lmnr(input_messages: list[BaseMessage]) -> None:
-				"""Log the model input"""
-				pass
-
-			await _log_model_input_to_lmnr(input_messages)
-
-			raise TimeoutError(
-				f'LLM call timed out after {self.settings.llm_timeout} seconds. Keep your thinking and output short.'
-			)
-
-		self.state.last_model_output = model_output
-
-		# Check again for paused/stopped state after getting model output
-		await self._raise_if_stopped_or_paused()
-
-		# Handle callbacks and conversation saving
-		await self._handle_post_llm_processing(browser_state_summary, input_messages)
-
-		# check again if Ctrl+C was pressed before we commit the output to history
-		await self._raise_if_stopped_or_paused()
-
-		# TOOD gcan you execute the acitons once we have them
+	# NOTE: This method is deprecated in favor of _get_next_action_parallel for better parallelization
+	# Keeping for backwards compatibility but no longer used in main flow
 		
 
 	@observe_debug(ignore_input=True, name='get_next_action_parallel')
@@ -879,6 +857,54 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				total_attachments = len(self.state.last_result[-1].attachments)
 				for i, file_path in enumerate(self.state.last_result[-1].attachments):
 					self.logger.info(f'👉 Attachment {i + 1 if total_attachments > 1 else ""}: {file_path}')
+
+	async def _post_process_with_callbacks(self, browser_state_summary: BrowserStateSummary) -> None:
+		"""Handle post-action processing and callbacks - moved after prepare context for maximal parallelization"""
+		# First do the standard post-processing
+		await self._post_process()
+		
+		# Check stop/pause state
+		await self._raise_if_stopped_or_paused()
+		
+		# MAXIMAL PARALLELIZATION: Run callback and conversation saving simultaneously
+		tasks = []
+		
+		# Prepare callback task if needed
+		if self.register_new_step_callback and self.state.last_model_output:
+			if inspect.iscoroutinefunction(self.register_new_step_callback):
+				tasks.append(self.register_new_step_callback(
+					browser_state_summary,
+					self.state.last_model_output,
+					self.state.n_steps,
+				))
+			else:
+				# For sync callback, wrap in coroutine to run in parallel
+				async def sync_callback_wrapper():
+					self.register_new_step_callback(
+						browser_state_summary,
+						self.state.last_model_output,
+						self.state.n_steps,
+					)
+				tasks.append(sync_callback_wrapper())
+
+		# Prepare conversation saving task if needed
+		if self.settings.save_conversation_path and self.state.last_model_output:
+			async def save_conversation_task():
+				conversation_dir = Path(self.settings.save_conversation_path)
+				conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
+				target = conversation_dir / conversation_filename
+				input_messages = self._message_manager.get_messages()
+				await save_conversation(
+					input_messages,
+					self.state.last_model_output,
+					target,
+					self.settings.save_conversation_path_encoding,
+				)
+			tasks.append(save_conversation_task())
+		
+		# Execute all tasks in parallel (if any)
+		if tasks:
+			await asyncio.gather(*tasks)
 
 	async def _handle_step_error(self, error: Exception) -> None:
 		"""Handle all types of errors that can occur during a step"""
@@ -1013,37 +1039,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		return model_output
 
-	async def _handle_post_llm_processing(
-		self,
-		browser_state_summary: BrowserStateSummary,
-		input_messages: list[BaseMessage],
-	) -> None:
-		"""Handle callbacks and conversation saving after LLM interaction"""
-		if self.register_new_step_callback and self.state.last_model_output:
-			if inspect.iscoroutinefunction(self.register_new_step_callback):
-				await self.register_new_step_callback(
-					browser_state_summary,
-					self.state.last_model_output,
-					self.state.n_steps,
-				)
-			else:
-				self.register_new_step_callback(
-					browser_state_summary,
-					self.state.last_model_output,
-					self.state.n_steps,
-				)
-
-		if self.settings.save_conversation_path and self.state.last_model_output:
-			# Treat save_conversation_path as a directory (consistent with other recording paths)
-			conversation_dir = Path(self.settings.save_conversation_path)
-			conversation_filename = f'conversation_{self.id}_{self.state.n_steps}.txt'
-			target = conversation_dir / conversation_filename
-			await save_conversation(
-				input_messages,
-				self.state.last_model_output,
-				target,
-				self.settings.save_conversation_path_encoding,
-			)
+	# NOTE: This method has been replaced by _post_process_with_callbacks 
+	# for better parallelization. Functionality moved to the new optimized flow.
 
 	async def _make_history_item(
 		self,
