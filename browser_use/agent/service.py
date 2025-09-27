@@ -732,9 +732,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		action_execution_task = None
 		
 		try:
-			async for completion in self._get_model_output_with_retry_streaming_with_timeout(
-				input_messages, timeout=self.settings.llm_timeout
-			):
+			async for completion in self._get_model_output_with_retry_streaming(input_messages):
 				# First yield: actions - start execution immediately
 				if completion.action and not action_execution_task:
 					self.state.last_model_output = completion
