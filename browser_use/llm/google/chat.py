@@ -161,9 +161,10 @@ class ChatGoogle(BaseChatModel):
 
 		return usage
 
-	async def astream(self, messages: list[BaseMessage], output_format: type[T]):
+	def astream(self, messages: list[BaseMessage], output_format: type[T]):
 		"""
-		Streaming method that yields actions first, then full response for true parallel execution.
+		Streaming method that returns tasks for actions and complete response.
+		Returns (actions_task, complete_task) for true parallel execution.
 		"""
 		contents, system_instruction = GoogleMessageSerializer.serialize_messages(
 			messages, include_system_in_user=self.include_system_in_user
@@ -212,70 +213,101 @@ class ChatGoogle(BaseChatModel):
 			config=config,
 		)
 
-		# Track streaming state
-		full_response_text = ""
-		stripped_response = ""
-		actions_yielded = False
-		last_chunk = None
+		# Shared state for coordination
+		shared_state = {
+			'full_response_text': "",
+			'stripped_response': "",
+			'actions_completion': None,
+			'complete_completion': None,
+			'last_chunk': None,
+			'actions_ready': asyncio.Event(),
+			'complete_ready': asyncio.Event(),
+			'error': None
+		}
 
-		async for chunk in stream:
-			if chunk.text:
-				full_response_text += chunk.text
-				stripped_response += chunk.text.strip().replace("\n", "").replace(" ", "")
-
-				# Yield actions as soon as we detect them
-				if not actions_yielded and "],\"thinking\":" in stripped_response:
-					end_index = stripped_response.index("\"thinking\":")
-					actions_json = stripped_response[:end_index]
-					actions_json = actions_json.replace("{\"action\":", "")
-
-					try:
-						# Parse and validate actions
-						actions_data = json.loads("{\"action\":" + actions_json + "]}")
-						actions_completion = output_format.model_validate(actions_data)
-
-						yield ChatInvokeCompletion(
-							completion=actions_completion,
-							usage=ChatInvokeUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-						)
-						actions_yielded = True
-						
-						# Yield control to allow other tasks to run
-						await asyncio.sleep(0)
-					except (json.JSONDecodeError, ValueError) as e:
-						pass  # Continue if we can't parse actions yet
-
-			# Yield control after each chunk to allow other tasks to run
-			await asyncio.sleep(0)
-			last_chunk = chunk
-
-		# Calculate final usage from last chunk
-		usage = self._get_usage(last_chunk) if last_chunk else ChatInvokeUsage(
-			prompt_tokens=0, completion_tokens=0, total_tokens=0
-		)
-
-		# Yield final complete response
-		if full_response_text:
+		async def stream_processor():
+			"""Process the stream and populate shared state"""
 			try:
-				text = full_response_text.strip()
-				if text.startswith('```json') and text.endswith('```'):
-					text = text[7:-3].strip()
-				elif text.startswith('```') and text.endswith('```'):
-					text = text[3:-3].strip()
+				async for chunk in stream:
+					if chunk.text:
+						shared_state['full_response_text'] += chunk.text
+						shared_state['stripped_response'] += chunk.text.strip().replace("\n", "").replace(" ", "")
 
-				parsed_data = json.loads(text)
-				completion = output_format.model_validate(parsed_data)
+						# Check for actions as soon as we detect them
+						if shared_state['actions_completion'] is None and "],\"thinking\":" in shared_state['stripped_response']:
+							end_index = shared_state['stripped_response'].index("\"thinking\":")
+							actions_json = shared_state['stripped_response'][:end_index]
+							actions_json = actions_json.replace("{\"action\":", "")
 
-				yield ChatInvokeCompletion(
-					completion=completion,
-					usage=usage
-				)
-			except (json.JSONDecodeError, ValueError) as e:
-				raise ModelProviderError(
-					message=f'Failed to parse final response: {str(e)}',
-					status_code=500,
-					model=self.model,
-				) from e
+							try:
+								# Parse and validate actions
+								actions_data = json.loads("{\"action\":" + actions_json + "]}")
+								actions_completion = output_format.model_validate(actions_data)
+
+								shared_state['actions_completion'] = ChatInvokeCompletion(
+									completion=actions_completion,
+									usage=ChatInvokeUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+								)
+								shared_state['actions_ready'].set()
+							except (json.JSONDecodeError, ValueError) as e:
+								pass  # Continue if we can't parse actions yet
+
+					shared_state['last_chunk'] = chunk
+					# Yield control to allow other tasks to run
+					await asyncio.sleep(0)
+
+				# Process final complete response
+				if shared_state['full_response_text']:
+					try:
+						text = shared_state['full_response_text'].strip()
+						if text.startswith('```json') and text.endswith('```'):
+							text = text[7:-3].strip()
+						elif text.startswith('```') and text.endswith('```'):
+							text = text[3:-3].strip()
+
+						parsed_data = json.loads(text)
+						completion = output_format.model_validate(parsed_data)
+
+						usage = self._get_usage(shared_state['last_chunk']) if shared_state['last_chunk'] else ChatInvokeUsage(
+							prompt_tokens=0, completion_tokens=0, total_tokens=0
+						)
+
+						shared_state['complete_completion'] = ChatInvokeCompletion(
+							completion=completion,
+							usage=usage
+						)
+						shared_state['complete_ready'].set()
+					except (json.JSONDecodeError, ValueError) as e:
+						shared_state['error'] = ModelProviderError(
+							message=f'Failed to parse final response: {str(e)}',
+							status_code=500,
+							model=self.model,
+						)
+						shared_state['complete_ready'].set()
+			except Exception as e:
+				shared_state['error'] = e
+				shared_state['actions_ready'].set()
+				shared_state['complete_ready'].set()
+
+		async def get_actions():
+			"""Task that waits for and returns actions"""
+			await shared_state['actions_ready'].wait()
+			if shared_state['error']:
+				raise shared_state['error']
+			return shared_state['actions_completion']
+
+		async def get_complete():
+			"""Task that waits for and returns complete response"""
+			await shared_state['complete_ready'].wait()
+			if shared_state['error']:
+				raise shared_state['error']
+			return shared_state['complete_completion']
+
+		# Start the stream processor and store the task
+		stream_processor_task = asyncio.create_task(stream_processor())
+
+		# Return the two tasks - they will complete as soon as their respective events are set
+		return get_actions(), get_complete()
 
 	@overload
 	async def ainvoke(self, messages: list[BaseMessage], output_format: None = None) -> ChatInvokeCompletion[str]: ...

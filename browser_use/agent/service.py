@@ -742,41 +742,51 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
 			self.logger.debug(f'🔗 Step {self.state.n_steps}: URL processing completed, starting LLM stream')
 			
-			# Start the streaming loop
-			async for completion in self.llm.astream(input_messages, output_format=self.AgentOutput):
+			# Get the task-based streaming approach
+			actions_task, complete_task = self.llm.astream(input_messages, output_format=self.AgentOutput)
+			
+			# Process both tasks concurrently - whichever completes first gets processed immediately
+			async def process_actions():
+				"""Process actions when they become available"""
+				nonlocal action_execution_task, first_yield_done
+				actions_completion = await actions_task
 				streaming_time = asyncio.get_event_loop().time() - streaming_start_time
-				parsed = completion.completion
 				
-				self.logger.debug(f'📡 Step {self.state.n_steps}: Received LLM completion at {streaming_time:.2f}s')
-				
-				if urls_replaced:
-					self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
+				if actions_completion:
+					parsed = actions_completion.completion
+					self.logger.debug(f'📡 Step {self.state.n_steps}: Received LLM actions at {streaming_time:.2f}s')
+					
+					if urls_replaced:
+						self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
 
-				if len(parsed.action) > self.settings.max_actions_per_step:
-					parsed.action = parsed.action[: self.settings.max_actions_per_step]
+					if len(parsed.action) > self.settings.max_actions_per_step:
+						parsed.action = parsed.action[: self.settings.max_actions_per_step]
 
-				# Always update the model output
-				self.state.last_model_output = parsed
+					# Always update the model output
+					self.state.last_model_output = parsed
+					
+					# Start action execution immediately when we have actions
+					if parsed.action and not action_execution_task:
+						if not first_yield_done:
+							first_yield_done = True
+							if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
+								log_response(parsed, self.tools.registry.registry, self.logger)
+							self._log_next_action_summary(parsed)
+						
+						self.logger.info(f'🎯 Step {self.state.n_steps}: Got LLM ACTION response with {len(parsed.action)} actions at {streaming_time:.2f}s - STARTING CONCURRENT EXECUTION')
+						
+						# Start action execution in background - DON'T AWAIT
+						action_execution_task = asyncio.create_task(self._execute_actions())
+						self.logger.debug(f'⚡ Step {self.state.n_steps}: Action execution task created')
+			
+			async def process_complete():
+				"""Process complete response when it becomes available"""
+				nonlocal post_processing_task, final_model_output
+				complete_completion = await complete_task
+				streaming_time = asyncio.get_event_loop().time() - streaming_start_time
 				
-				# Start action execution immediately when we have actions
-				if parsed.action and not action_execution_task:
-					if not first_yield_done:
-						first_yield_done = True
-						if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
-							log_response(parsed, self.tools.registry.registry, self.logger)
-						self._log_next_action_summary(parsed)
-					
-					self.logger.info(f'🎯 Step {self.state.n_steps}: Got LLM ACTION response with {len(parsed.action)} actions at {streaming_time:.2f}s - STARTING CONCURRENT EXECUTION')
-					
-					# Start action execution in background - DON'T AWAIT
-					action_execution_task = asyncio.create_task(self._execute_actions())
-					self.logger.debug(f'⚡ Step {self.state.n_steps}: Action execution task created, continuing LLM streaming')
-					
-					# Yield control to allow action execution to start
-					await asyncio.sleep(0)
-					self.logger.debug(f'🔄 Step {self.state.n_steps}: Yielded control, action execution should be starting')
-					
-				else:
+				if complete_completion:
+					parsed = complete_completion.completion
 					self.logger.debug(f'📝 Step {self.state.n_steps}: Got MODEL OUTPUT response at {streaming_time:.2f}s')
 					
 					# Start post-processing in background - DON'T AWAIT
@@ -784,11 +794,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 						post_processing_task = asyncio.create_task(self._handle_post_llm_processing(browser_state_summary, input_messages))
 						self.logger.debug(f'🔄 Step {self.state.n_steps}: Post-processing task created')
 					
-					# Yield control to allow post-processing to start
-					await asyncio.sleep(0)
-				
-				# Keep track of final output
-				final_model_output = parsed
+					# Keep track of final output
+					final_model_output = parsed
+			
+			# Run both processors concurrently - they will complete as soon as their respective tasks are ready
+			await asyncio.gather(
+				process_actions(),
+				process_complete(),
+				return_exceptions=True
+			)
 			
 			streaming_end_time = asyncio.get_event_loop().time() - streaming_start_time
 			self.logger.info(f'✅ Step {self.state.n_steps}: LLM streaming completed in {streaming_end_time:.2f}s')
