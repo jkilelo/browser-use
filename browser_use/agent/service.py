@@ -1179,6 +1179,11 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
 			parsed = response.completion
+			# Really make sure we don't use memory fields
+			parsed.thinking = None
+			parsed.evaluation_previous_goal = None
+			parsed.memory = None
+			parsed.next_goal = None
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
