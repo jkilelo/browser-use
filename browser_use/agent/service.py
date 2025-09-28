@@ -85,11 +85,12 @@ def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 	if logger is None:
 		logger = logging.getLogger(__name__)
 
-	# Only log thinking if it's present
-	if response.current_state.thinking:
-		logger.debug(f'💡 Thinking:\n{response.current_state.thinking}')
+	# Only log thinking if it's present and available
+	thinking = response.current_state.thinking
+	if thinking:
+		logger.debug(f'💡 Thinking:\n{thinking}')
 
-	# Only log evaluation if it's not empty
+	# Only log evaluation if it's not empty and available
 	eval_goal = response.current_state.evaluation_previous_goal
 	if eval_goal:
 		if 'success' in eval_goal.lower():
@@ -105,11 +106,12 @@ def log_response(response: AgentOutput, registry=None, logger=None) -> None:
 			# No color for unknown/neutral
 			logger.info(f'  {emoji} Eval: {eval_goal}')
 
-	# Always log memory if present
-	if response.current_state.memory:
-		logger.debug(f'🧠 Memory: {response.current_state.memory}')
+	# Always log memory if present and available
+	memory = response.current_state.memory
+	if memory:
+		logger.debug(f'🧠 Memory: {memory}')
 
-	# Only log next goal if it's not empty
+	# Only log next goal if it's not empty and available
 	next_goal = response.current_state.next_goal
 	if next_goal:
 		# Blue color for next goal
@@ -601,7 +603,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Initially only include actions with no filters
 		self.ActionModel = self.tools.registry.create_action_model()
 		# Create output model with the dynamic actions
-		if self.settings.flash_mode:
+		if self.settings.ultra_flash_lobotomized_mode:
+			self.AgentOutput = AgentOutput.type_with_custom_actions_ultra_flash_lobotomized_mode(self.ActionModel)
+		elif self.settings.flash_mode:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
 		elif self.settings.use_thinking:
 			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
@@ -610,7 +614,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# used to force the done action when max_steps is reached
 		self.DoneActionModel = self.tools.registry.create_action_model(include_actions=['done'])
-		if self.settings.flash_mode:
+		if self.settings.ultra_flash_lobotomized_mode:
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_ultra_flash_lobotomized_mode(self.DoneActionModel)
+		elif self.settings.flash_mode:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
 		elif self.settings.use_thinking:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)
@@ -1179,11 +1185,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		try:
 			response = await self.llm.ainvoke(input_messages, output_format=self.AgentOutput)
 			parsed = response.completion
-			# Really make sure we don't use memory fields
-			parsed.thinking = None
-			parsed.evaluation_previous_goal = None
-			parsed.memory = None
-			parsed.next_goal = None
+			# Really make sure we don't use memory fields (only if they exist)
+			if hasattr(parsed, 'thinking'):
+				parsed.thinking = None
+			if hasattr(parsed, 'evaluation_previous_goal'):
+				parsed.evaluation_previous_goal = None
+			if hasattr(parsed, 'memory'):
+				parsed.memory = None
+			if hasattr(parsed, 'next_goal'):
+				parsed.next_goal = None
 
 			# Replace any shortened URLs in the LLM response back to original URLs
 			if urls_replaced:
@@ -2068,7 +2078,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Create new action model with current page's filtered actions
 		self.ActionModel = self.tools.registry.create_action_model(page_url=page_url)
 		# Update output model with the new actions
-		if self.settings.flash_mode:
+		if self.settings.ultra_flash_lobotomized_mode:
+			self.AgentOutput = AgentOutput.type_with_custom_actions_ultra_flash_lobotomized_mode(self.ActionModel)
+		elif self.settings.flash_mode:
 			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
 		elif self.settings.use_thinking:
 			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
@@ -2077,7 +2089,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Update done action model too
 		self.DoneActionModel = self.tools.registry.create_action_model(include_actions=['done'], page_url=page_url)
-		if self.settings.flash_mode:
+		if self.settings.ultra_flash_lobotomized_mode:
+			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_ultra_flash_lobotomized_mode(self.DoneActionModel)
+		elif self.settings.flash_mode:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.DoneActionModel)
 		elif self.settings.use_thinking:
 			self.DoneAgentOutput = AgentOutput.type_with_custom_actions(self.DoneActionModel)

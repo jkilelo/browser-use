@@ -46,6 +46,7 @@ class AgentSettings(BaseModel):
 	use_thinking: bool = True
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
 	exclude_memory_fields: bool = True  # If enabled, excludes evaluation_previous_goal, memory, next_goal from prompts
+	ultra_flash_lobotomized_mode: bool = True  # If enabled, only asks for action - ultimate minimal mode
 	max_history_items: int | None = None
 
 	page_extraction_llm: BaseChatModel | None = None
@@ -170,10 +171,10 @@ class AgentOutput(BaseModel):
 	def current_state(self) -> AgentBrain:
 		"""For backward compatibility - returns an AgentBrain with the flattened properties"""
 		return AgentBrain(
-			thinking=self.thinking,
-			evaluation_previous_goal=self.evaluation_previous_goal if self.evaluation_previous_goal else '',
-			memory=self.memory if self.memory else '',
-			next_goal=self.next_goal if self.next_goal else '',
+			thinking=getattr(self, 'thinking', None),
+			evaluation_previous_goal=getattr(self, 'evaluation_previous_goal', '') or '',
+			memory=getattr(self, 'memory', '') or '',
+			next_goal=getattr(self, 'next_goal', '') or '',
 		)
 
 	@staticmethod
@@ -244,6 +245,36 @@ class AgentOutput(BaseModel):
 		)
 
 		model.__doc__ = 'AgentOutput model with custom actions'
+		return model
+
+	@staticmethod
+	def type_with_custom_actions_ultra_flash_lobotomized_mode(custom_actions: type[ActionModel]) -> type[AgentOutput]:
+		"""Extend actions with custom actions for ultra flash lobotomized mode - action field only"""
+
+		class AgentOutputUltraFlashLobotomized(AgentOutput):
+			@classmethod
+			def model_json_schema(cls, **kwargs):
+				schema = super().model_json_schema(**kwargs)
+				# Remove all fields except action
+				del schema['properties']['thinking']
+				del schema['properties']['evaluation_previous_goal']
+				del schema['properties']['memory']
+				del schema['properties']['next_goal']
+				# Update required fields to only include action
+				schema['required'] = ['action']
+				return schema
+
+		model = create_model(
+			'AgentOutput',
+			__base__=AgentOutputUltraFlashLobotomized,
+			action=(
+				list[custom_actions],  # type: ignore
+				Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
+			),
+			__module__=AgentOutputUltraFlashLobotomized.__module__,
+		)
+
+		model.__doc__ = 'AgentOutput model with custom actions for ultra flash lobotomized mode'
 		return model
 
 
