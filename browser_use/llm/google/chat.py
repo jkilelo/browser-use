@@ -239,9 +239,14 @@ class ChatGoogle(BaseChatModel):
 							usage=ChatInvokeUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 						)
 						actions_yielded = True
+						
+						# Yield control to allow other tasks to run
+						await asyncio.sleep(0)
 					except (json.JSONDecodeError, ValueError) as e:
 						pass  # Continue if we can't parse actions yet
 
+			# Yield control after each chunk to allow other tasks to run
+			await asyncio.sleep(0)
 			last_chunk = chunk
 
 		# Calculate final usage from last chunk
