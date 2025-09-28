@@ -729,15 +729,25 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			f'🤖 Step {self.state.n_steps}: Calling LLM with {len(input_messages)} messages (model: {self.llm.model})...'
 		)
 
+		# Track concurrent execution
 		action_execution_task = None
+		post_processing_task = None
 		first_yield_done = False
 		final_model_output = None
+		streaming_start_time = asyncio.get_event_loop().time()
+		
+		self.logger.debug(f'🚀 Step {self.state.n_steps}: Starting concurrent LLM streaming and action execution')
 		
 		try:
 			urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(input_messages)
+			self.logger.debug(f'🔗 Step {self.state.n_steps}: URL processing completed, starting LLM stream')
 			
+			# Start the streaming loop
 			async for completion in self.llm.astream(input_messages, output_format=self.AgentOutput):
+				streaming_time = asyncio.get_event_loop().time() - streaming_start_time
 				parsed = completion.completion
+				
+				self.logger.debug(f'📡 Step {self.state.n_steps}: Received LLM completion at {streaming_time:.2f}s')
 				
 				if urls_replaced:
 					self._recursive_process_all_strings_inside_pydantic_model(parsed, urls_replaced)
@@ -756,25 +766,36 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 							log_response(parsed, self.tools.registry.registry, self.logger)
 						self._log_next_action_summary(parsed)
 					
-					logger.error(f'🔄 Step {self.state.n_steps}: Got LLM ACTION response with {len(parsed.action) if parsed.action else 0} actions')
-					# Start execution immediately
-					#await self._raise_if_stopped_or_paused()
+					self.logger.info(f'🎯 Step {self.state.n_steps}: Got LLM ACTION response with {len(parsed.action)} actions at {streaming_time:.2f}s - STARTING CONCURRENT EXECUTION')
+					
+					# Start action execution in background - DON'T AWAIT
 					action_execution_task = asyncio.create_task(self._execute_actions())
+					self.logger.debug(f'⚡ Step {self.state.n_steps}: Action execution task created, continuing LLM streaming')
+					
+					# Yield control to allow action execution to start
+					await asyncio.sleep(0)
+					self.logger.debug(f'🔄 Step {self.state.n_steps}: Yielded control, action execution should be starting')
 					
 				else:
-					logger.error(f'🔄 Step {self.state.n_steps}: Got MODEL OUTPUT response with {len(parsed.action) if parsed.action else 0} actions')
-					#await self._raise_if_stopped_or_paused()
+					self.logger.debug(f'📝 Step {self.state.n_steps}: Got MODEL OUTPUT response at {streaming_time:.2f}s')
 					
-					# Run post-processing concurrently with action execution
-					asyncio.create_task(self._handle_post_llm_processing(browser_state_summary, input_messages))
+					# Start post-processing in background - DON'T AWAIT
+					if not post_processing_task:
+						post_processing_task = asyncio.create_task(self._handle_post_llm_processing(browser_state_summary, input_messages))
+						self.logger.debug(f'🔄 Step {self.state.n_steps}: Post-processing task created')
+					
+					# Yield control to allow post-processing to start
+					await asyncio.sleep(0)
 				
 				# Keep track of final output
 				final_model_output = parsed
 			
-			# Don't wait here - let actions run concurrently with streaming
-			# We'll wait for completion at the end of the method
+			streaming_end_time = asyncio.get_event_loop().time() - streaming_start_time
+			self.logger.info(f'✅ Step {self.state.n_steps}: LLM streaming completed in {streaming_end_time:.2f}s')
 				
 		except TimeoutError:
+			streaming_time = asyncio.get_event_loop().time() - streaming_start_time
+			self.logger.error(f'⏰ Step {self.state.n_steps}: LLM call timed out after {streaming_time:.2f}s')
 
 			@observe(name='_llm_call_timed_out_with_input')
 			async def _log_model_input_to_lmnr(input_messages: list[BaseMessage]) -> None:
@@ -789,19 +810,42 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		
 		# Wait for action execution to complete at the very end
 		if action_execution_task:
+			action_wait_start = asyncio.get_event_loop().time()
+			self.logger.debug(f'⏳ Step {self.state.n_steps}: Waiting for action execution to complete...')
 			await action_execution_task
+			action_wait_time = asyncio.get_event_loop().time() - action_wait_start
+			self.logger.info(f'✅ Step {self.state.n_steps}: Action execution completed, waited {action_wait_time:.2f}s')
+		else:
+			self.logger.warning(f'⚠️ Step {self.state.n_steps}: No action execution task found!')
+		
+		# Wait for post-processing to complete
+		if post_processing_task:
+			post_wait_start = asyncio.get_event_loop().time()
+			self.logger.debug(f'⏳ Step {self.state.n_steps}: Waiting for post-processing to complete...')
+			await post_processing_task
+			post_wait_time = asyncio.get_event_loop().time() - post_wait_start
+			self.logger.debug(f'✅ Step {self.state.n_steps}: Post-processing completed, waited {post_wait_time:.2f}s')
+
+		total_time = asyncio.get_event_loop().time() - streaming_start_time
+		self.logger.info(f'🏁 Step {self.state.n_steps}: Total _get_next_action time: {total_time:.2f}s')
 
 		await self._raise_if_stopped_or_paused()
 
 
 	async def _execute_actions(self) -> None:
 		"""Execute the actions from model output"""
+		action_start_time = asyncio.get_event_loop().time()
+		self.logger.info(f'🚀 Step {self.state.n_steps}: ACTION EXECUTION STARTED at {action_start_time:.2f}s')
+		
 		if self.state.last_model_output is None:
 			raise ValueError('No model output to execute actions from')
 
 		self.logger.debug(f'⚡ Step {self.state.n_steps}: Executing {len(self.state.last_model_output.action)} actions...')
 		result = await self.multi_act(self.state.last_model_output.action)
-		self.logger.debug(f'✅ Step {self.state.n_steps}: Actions completed')
+		
+		action_end_time = asyncio.get_event_loop().time()
+		action_duration = action_end_time - action_start_time
+		self.logger.info(f'✅ Step {self.state.n_steps}: ACTION EXECUTION COMPLETED in {action_duration:.2f}s')
 
 		self.state.last_result = result
 
@@ -939,6 +983,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		input_messages: list[BaseMessage],
 	) -> None:
 		"""Handle callbacks and conversation saving after LLM interaction"""
+		post_start_time = asyncio.get_event_loop().time()
+		self.logger.debug(f'🔄 Step {self.state.n_steps}: POST-PROCESSING STARTED at {post_start_time:.2f}s')
 		if self.register_new_step_callback and self.state.last_model_output:
 			if inspect.iscoroutinefunction(self.register_new_step_callback):
 				await self.register_new_step_callback(
@@ -964,6 +1010,10 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				target,
 				self.settings.save_conversation_path_encoding,
 			)
+		
+		post_end_time = asyncio.get_event_loop().time()
+		post_duration = post_end_time - post_start_time
+		self.logger.debug(f'✅ Step {self.state.n_steps}: POST-PROCESSING COMPLETED in {post_duration:.2f}s')
 
 	async def _make_history_item(
 		self,
