@@ -161,7 +161,7 @@ class ChatGoogle(BaseChatModel):
 
 		return usage
 
-	def astream(self, messages: list[BaseMessage], output_format: type[T]):
+	async def astream(self, messages: list[BaseMessage], output_format: type[T]):
 		"""
 		Streaming method that returns tasks for actions and complete response.
 		Returns (actions_task, complete_task) for true parallel execution.

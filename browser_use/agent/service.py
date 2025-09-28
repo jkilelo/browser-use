@@ -743,7 +743,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.debug(f'🔗 Step {self.state.n_steps}: URL processing completed, starting LLM stream')
 			
 			# Get the task-based streaming approach
-			actions_task, complete_task = self.llm.astream(input_messages, output_format=self.AgentOutput)
+			actions_task, complete_task = await self.llm.astream(input_messages, output_format=self.AgentOutput)
 			
 			# Process both tasks concurrently - whichever completes first gets processed immediately
 			async def process_actions():
