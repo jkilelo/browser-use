@@ -30,7 +30,7 @@ class HistoryItem(BaseModel):
 		if self.error is not None and self.system_message is not None:
 			raise ValueError('Cannot have both error and system_message at the same time')
 
-	def to_string(self) -> str:
+	def to_string(self, exclude_memory_fields: bool = False) -> str:
 		"""Get string representation of the history item"""
 		step_str = 'step' if self.step_number is not None else 'step_unknown'
 
@@ -43,16 +43,16 @@ class HistoryItem(BaseModel):
 		else:
 			content_parts = []
 
-			# Only include evaluation_previous_goal if it's not None/empty
-			if self.evaluation_previous_goal:
+			# Only include evaluation_previous_goal if it's not None/empty and not excluded
+			if self.evaluation_previous_goal and not exclude_memory_fields:
 				content_parts.append(f'{self.evaluation_previous_goal}')
 
-			# Always include memory
-			if self.memory:
+			# Always include memory unless excluded
+			if self.memory and not exclude_memory_fields:
 				content_parts.append(f'{self.memory}')
 
-			# Only include next_goal if it's not None/empty
-			if self.next_goal:
+			# Only include next_goal if it's not None/empty and not excluded
+			if self.next_goal and not exclude_memory_fields:
 				content_parts.append(f'{self.next_goal}')
 
 			if self.action_results:

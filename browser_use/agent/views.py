@@ -45,6 +45,7 @@ class AgentSettings(BaseModel):
 	max_actions_per_step: int = 4
 	use_thinking: bool = True
 	flash_mode: bool = False  # If enabled, disables evaluation_previous_goal and next_goal, and sets use_thinking = False
+	exclude_memory_fields: bool = True  # If enabled, excludes evaluation_previous_goal, memory, next_goal from prompts
 	max_history_items: int | None = None
 
 	page_extraction_llm: BaseChatModel | None = None

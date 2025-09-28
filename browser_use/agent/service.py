@@ -364,6 +364,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			file_system=self.file_system,
 			state=self.state.message_manager_state,
 			use_thinking=self.settings.use_thinking,
+			exclude_memory_fields=self.settings.exclude_memory_fields,
 			# Settings that were previously in MessageManagerSettings
 			include_attributes=self.settings.include_attributes,
 			sensitive_data=sensitive_data,

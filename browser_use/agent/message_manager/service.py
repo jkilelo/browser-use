@@ -103,6 +103,7 @@ class MessageManager:
 		file_system: FileSystem,
 		state: MessageManagerState = MessageManagerState(),
 		use_thinking: bool = True,
+		exclude_memory_fields: bool = True,
 		include_attributes: list[str] | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_history_items: int | None = None,
@@ -117,6 +118,7 @@ class MessageManager:
 		self.file_system = file_system
 		self.sensitive_data_description = ''
 		self.use_thinking = use_thinking
+		self.exclude_memory_fields = exclude_memory_fields
 		self.max_history_items = max_history_items
 		self.vision_detail_level = vision_detail_level
 		self.include_tool_call_examples = include_tool_call_examples
@@ -138,13 +140,13 @@ class MessageManager:
 		"""Build agent history description from list of items, respecting max_history_items limit"""
 		if self.max_history_items is None:
 			# Include all items
-			return '\n'.join(item.to_string() for item in self.state.agent_history_items)
+			return '\n'.join(item.to_string(exclude_memory_fields=self.exclude_memory_fields) for item in self.state.agent_history_items)
 
 		total_items = len(self.state.agent_history_items)
 
 		# If we have fewer items than the limit, just return all items
 		if total_items <= self.max_history_items:
-			return '\n'.join(item.to_string() for item in self.state.agent_history_items)
+			return '\n'.join(item.to_string(exclude_memory_fields=self.exclude_memory_fields) for item in self.state.agent_history_items)
 
 		# We have more items than the limit, so we need to omit some
 		omitted_count = total_items - self.max_history_items
@@ -154,11 +156,11 @@ class MessageManager:
 		recent_items_count = self.max_history_items - 1  # -1 for first item
 
 		items_to_include = [
-			self.state.agent_history_items[0].to_string(),  # Keep first item (initialization)
+			self.state.agent_history_items[0].to_string(exclude_memory_fields=self.exclude_memory_fields),  # Keep first item (initialization)
 			f'<sys>[... {omitted_count} previous steps omitted...]</sys>',
 		]
 		# Add most recent items
-		items_to_include.extend([item.to_string() for item in self.state.agent_history_items[-recent_items_count:]])
+		items_to_include.extend([item.to_string(exclude_memory_fields=self.exclude_memory_fields) for item in self.state.agent_history_items[-recent_items_count:]])
 
 		return '\n'.join(items_to_include)
 
@@ -243,13 +245,19 @@ class MessageManager:
 					history_item = HistoryItem(step_number=step_number, error='Agent failed to output in the right format.')
 					self.state.agent_history_items.append(history_item)
 		else:
-			history_item = HistoryItem(
-				step_number=step_number,
-				evaluation_previous_goal=model_output.current_state.evaluation_previous_goal,
-				memory=model_output.current_state.memory,
-				next_goal=model_output.current_state.next_goal,
-				action_results=action_results,
-			)
+			if self.exclude_memory_fields:
+				history_item = HistoryItem(
+					step_number=step_number,
+					action_results=action_results,
+				)
+			else:
+				history_item = HistoryItem(
+					step_number=step_number,
+					evaluation_previous_goal=model_output.current_state.evaluation_previous_goal,
+					memory=model_output.current_state.memory,
+					next_goal=model_output.current_state.next_goal,
+					action_results=action_results,
+				)
 			self.state.agent_history_items.append(history_item)
 
 	def _get_sensitive_data_description(self, current_page_url) -> str:
