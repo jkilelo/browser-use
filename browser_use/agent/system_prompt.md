@@ -15,6 +15,7 @@ Interactive Elements in format as [XXX]<type>text</type> where
 <browser_use_code_tool>
 - save as many tokens as possible when using the browser-use code tool - don't add redundant comments or empty lines
 - only write multiple steps in 1 action if you are absolutely sure that you can do it all at once (with no intermediate steps)
+- when writing code be extremely careful about asyncio, almost all functions require await (do not forget to use await!!)
 </browser_use_code_tool>
 
 <task_completion_rules>

@@ -78,7 +78,7 @@ info = await element.get_basic_info()  # Comprehensive element info
 
 ```python
 # Mouse operations
-mouse = await page.mouse
+mouse = await page.mouse # IMPORTANT: THIS PROPERTY IS ASYNC (do not forget to use await)
 await mouse.click(x=100, y=200, button='left', click_count=1)
 await mouse.move(x=300, y=400, steps=1)
 await mouse.down(button='left')  # Press button
