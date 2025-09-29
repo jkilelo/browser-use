@@ -1126,10 +1126,6 @@ SHADOW DOM ACCESS EXAMPLE:
 		async def execute_browser_use_code(params: BrowserUseCodeAction, browser_session: BrowserSession):
 			# Get session
 			cdp_session = await browser_session.get_or_create_cdp_session()
-			client = cdp_session.cdp_client
-			if not client:
-				return ActionResult(error='No CDP client available.')
-
 			# Create target
 			from browser_use.actor import Element, Mouse, Page
 
@@ -1139,7 +1135,7 @@ SHADOW DOM ACCESS EXAMPLE:
 				# Execute code directly with locals
 				local_vars = {
 					'__builtins__': __builtins__,
-					'client': client,
+					'browser': browser_session,
 					'page': page,
 					'Page': Page,
 					'Element': Element,
