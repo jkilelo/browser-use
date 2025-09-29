@@ -120,7 +120,7 @@ class Tools(Generic[Context]):
 		# 'write_file',
 		# 'replace_file_str',
 		# 'read_file',
-		'execute_js',
+		# 'execute_js',
 	]
 
 	def __init__(
