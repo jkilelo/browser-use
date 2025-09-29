@@ -3,6 +3,7 @@ import enum
 import json
 import logging
 import os
+from pathlib import Path
 from typing import Any, Generic, TypeVar
 
 try:
@@ -1116,7 +1117,7 @@ SHADOW DOM ACCESS EXAMPLE:
 				logger.info(error_msg)
 				return ActionResult(error=error_msg)
 
-		browser_use_code_tool_description = open('browser_use/tools/browser_use_code_tool_description.md').read()
+		browser_use_code_tool_description = (Path(__file__).parent / 'browser_use_code_tool_description.md').read_text()
 
 		@self.registry.action(
 			browser_use_code_tool_description,
