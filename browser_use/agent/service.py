@@ -2061,13 +2061,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Update action models with page-specific actions"""
 		# Create new action model with current page's filtered actions
 		self.ActionModel = self.tools.registry.create_action_model(page_url=page_url)
+
 		# Update output model with the new actions
-		if self.settings.flash_mode:
-			self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
-		elif self.settings.use_thinking:
-			self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
-		else:
-			self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
+		# by default flash mode -> don't use anything else but memory and action
+		self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
+
+		# if self.settings.use_thinking:
+		# 	self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
+		# else:
+		# 	self.AgentOutput = AgentOutput.type_with_custom_actions_no_thinking(self.ActionModel)
 
 		# Update done action model too
 		self.DoneActionModel = self.tools.registry.create_action_model(include_actions=['done'], page_url=page_url)

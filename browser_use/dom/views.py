@@ -16,58 +16,82 @@ from browser_use.observability import observe_debug
 
 # Serializer types
 DEFAULT_INCLUDE_ATTRIBUTES = [
-	'title',
-	'type',
-	'checked',
-	# 'class',
+	# Core identification attributes (critical for JavaScript selectors)
 	'id',
+	# 'class',
 	'name',
-	'role',
+	'data-testid',
+	'data-test',
+	'data-cy',
+	# Form attributes
+	'type',
 	'value',
 	'placeholder',
-	'data-date-format',
-	'alt',
-	'aria-label',
-	'aria-expanded',
-	'data-state',
-	'aria-checked',
-	# ARIA value attributes for datetime/range inputs
-	'aria-valuemin',
-	'aria-valuemax',
-	'aria-valuenow',
-	'aria-placeholder',
-	# Validation attributes - help agents avoid brute force attempts
-	'pattern',
-	'min',
-	'max',
-	'minlength',
-	'maxlength',
-	'step',
-	# Webkit shadow DOM identifiers
-	'pseudo',
-	# Accessibility properties from ax_node (ordered by importance for automation)
+	'required',
+	'disabled',
 	'checked',
 	'selected',
+	'readonly',
+	'autocomplete',
+	'min',
+	'max',
+	'step',
+	'pattern',
+	'maxlength',
+	'minlength',
+	# Link and media attributes
+	'href',
+	'src',
+	'alt',
+	'target',
+	'rel',
+	'download',
+	# Semantic and accessibility
+	'role',
+	'aria-label',
+	'aria-expanded',
+	'aria-checked',
+	'aria-selected',
+	'aria-hidden',
+	'aria-describedby',
+	'aria-labelledby',
+	'title',
+	# Interactive states
+	'data-state',
+	'data-active',
+	'data-selected',
+	'data-disabled',
+	'data-loading',
+	# Common framework attributes
+	'data-v-',
+	'ng-',
+	'data-react',
+	'data-component',
+	'data-element',
+	# Content attributes
+	'contenteditable',
+	'spellcheck',
+	'draggable',
+	'tabindex',
+	# Coordinate attributes (computed from layout)
+	'x',
+	'y',
+	# 'width',
+	# 'height',
+	# Accessibility properties from ax_node
 	'expanded',
 	'pressed',
-	'disabled',
-	'invalid',  # Current validation state from AX node
-	'valuemin',  # Min value from AX node (for datetime/range)
-	'valuemax',  # Max value from AX node (for datetime/range)
-	'valuenow',
-	'keyshortcuts',
 	'haspopup',
 	'multiselectable',
-	# Less commonly needed (uncomment if required):
-	# 'readonly',
-	'required',
+	'valuenow',
 	'valuetext',
+	'keyshortcuts',
 	'level',
 	'busy',
 	'live',
-	# Accessibility name (contains text content for StaticText elements)
 	'ax_name',
 ]
+
 
 STATIC_ATTRIBUTES = {
 	'class',

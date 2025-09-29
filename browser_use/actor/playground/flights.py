@@ -21,7 +21,7 @@ async def main():
 
 	await asyncio.sleep(1)
 
-	round_trip_button = await page.must_get_element_by_prompt('round trip button', llm)
+	round_trip_button = await page.must_get_element_by_prompt('round trip ubutton', llm)
 	await round_trip_button.click()
 
 	one_way_button = await page.must_get_element_by_prompt('one way button', llm)

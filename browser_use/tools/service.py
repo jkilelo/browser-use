@@ -34,6 +34,7 @@ from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.views import (
+	BrowserUseCodeAction,
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
@@ -100,12 +101,34 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 
 
 class Tools(Generic[Context]):
+	MINIMAL_ACTIONS_EXCLUDE_LIST = [
+		'search_google',
+		'go_back',
+		'wait',
+		'click_element_by_index',
+		'input_text',
+		'upload_file_to_element',
+		'switch_tab',
+		'close_tab',
+		'extract_structured_data',
+		'scroll',
+		'send_keys',
+		'scroll_to_text',
+		'get_dropdown_options',
+		'select_dropdown_option',
+		# 'write_file',
+		# 'replace_file_str',
+		# 'read_file',
+		'execute_js',
+	]
+
 	def __init__(
 		self,
-		exclude_actions: list[str] = [],
+		exclude_actions: list[str] = MINIMAL_ACTIONS_EXCLUDE_LIST,
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
+		self.exclude_actions = exclude_actions
 		self.registry = Registry[Context](exclude_actions)
 		self.display_files_in_done_text = display_files_in_done_text
 
@@ -1093,6 +1116,122 @@ SHADOW DOM ACCESS EXAMPLE:
 				logger.info(error_msg)
 				return ActionResult(error=error_msg)
 
+		browser_use_code_tool_description = open('browser_use/tools/browser_use_code_tool_description.md').read()
+
+		@self.registry.action(
+			browser_use_code_tool_description,
+			param_model=BrowserUseCodeAction,
+		)
+		async def execute_browser_use_code(params: BrowserUseCodeAction, browser_session: BrowserSession):
+			# Get session
+			cdp_session = await browser_session.get_or_create_cdp_session()
+			client = cdp_session.cdp_client
+			if not client:
+				return ActionResult(error='No CDP client available.')
+
+			# Create target
+			from browser_use.actor import Element, Mouse, Page
+
+			page = await browser_session.get_current_page()
+
+			try:
+				# Execute code directly with locals
+				local_vars = {
+					'__builtins__': __builtins__,
+					'client': client,
+					'page': page,
+					'Page': Page,
+					'Element': Element,
+					'Mouse': Mouse,
+					'asyncio': asyncio,
+					'json': json,
+					'os': os,
+				}
+
+				# Just exec the code directly - use local_vars as globals so everything is accessible
+				exec(params.code, local_vars)
+
+				# If there's an executor function, call it (no args needed - everything is in context)
+				if 'executor' in local_vars:
+					result = await local_vars['executor']()
+				else:
+					result = None
+
+				action_result = f"""```python\n{params.code}\n```"""
+
+				if result is not None:
+					action_result += f'\nResult: {result}'
+
+				return ActionResult(extracted_content=action_result)
+
+			except Exception as e:
+				action_result = f"""```python\n{params.code}\n```"""
+				action_result += f'\nError: {str(e)}'
+
+				return ActionResult(error=action_result)
+
+	def _get_javascript_debugging_tips(self, error_type: str, error_description: str, code: str) -> str:
+		"""Provide debugging tips based on the error type."""
+		error_lower = f'{error_type} {error_description}'.lower()
+
+		if 'cannot read' in error_lower and 'null' in error_lower:
+			return 'Element not found. Check if selector exists and page is loaded.'
+		elif 'cannot read' in error_lower and 'undefined' in error_lower:
+			return 'Property/method does not exist. Check spelling and object structure.'
+		elif 'permission denied' in error_lower or 'access denied' in error_lower:
+			return 'Cross-origin or iframe access blocked. Use getIframeDocument() helper.'
+		elif 'form.submit is not a function' in error_lower:
+			return 'Form may be overridden. Try form.dispatchEvent(new Event("submit")).'
+		elif 'click' in code.lower() and 'function' in error_lower:
+			return 'Element may not be clickable. Try element.dispatchEvent(new MouseEvent("click")).'
+		elif 'queryselector' in error_lower:
+			return 'Invalid CSS selector. Check syntax and escape special characters.'
+
+		return ''
+
+	def _fix_common_js_issues(self, code: str) -> str:
+		"""Fix JavaScript issues - but only for execute_js, not browser actor code"""
+		import re
+
+		# Don't modify JavaScript inside target.evaluate() calls - that's handled separately
+		if 'target.evaluate(' in code:
+			return code  # Let the browser actor handler deal with this
+
+		# Existing logic for direct JavaScript execution via execute_js action
+		# Remove optional chaining which isn't supported in older CDP
+		code = re.sub(r'\?\.\s*', '.', code)
+
+		# Fix missing quotes around selectors
+		code = re.sub(r'querySelectorAll\(([a-zA-Z]\w*)\)', r"querySelectorAll('\1')", code)
+		code = re.sub(r'querySelector\(([a-zA-Z]\w*)\)', r"querySelector('\1')", code)
+
+		# Handle multiline code - convert to single expression or add return
+		lines = [line.strip() for line in code.strip().split('\n') if line.strip()]
+
+		if len(lines) > 1:
+			# Check if last line is already a return or single expression
+			last_line = lines[-1]
+
+			# If last line ends with semicolon, it's a statement not expression
+			if last_line.endswith(';'):
+				# Convert last statement to return
+				if last_line.startswith('JSON.stringify'):
+					lines[-1] = f'return {last_line[:-1]}'  # Remove ; and add return
+				elif not last_line.startswith('return'):
+					lines[-1] = f'return {last_line[:-1]}'  # Remove ; and add return
+
+			# Join with semicolons for multiple statements
+			if any(line.startswith('return') for line in lines):
+				code = '; '.join(lines[:-1]) + '; ' + lines[-1]
+			else:
+				# If no return, make it a single expression
+				if lines[-1].startswith('JSON.stringify'):
+					code = '; '.join(lines)
+				else:
+					code = '; '.join(lines[:-1]) + '; return ' + lines[-1]
+
+		return code
+
 	# Custom done action for structured output
 	@observe_debug(ignore_input=True, ignore_output=True, name='extract_clean_markdown')
 	async def extract_clean_markdown(
@@ -1342,6 +1481,37 @@ SHADOW DOM ACCESS EXAMPLE:
 					raise ValueError(f'Invalid action result type: {type(result)} of {result}')
 		return ActionResult()
 
+	def __repr__(self) -> str:
+		"""Return a string representation showing available tools."""
+		actions = sorted(self.registry.registry.actions.keys())
+		action_list = ', '.join(actions)
+		excluded_count = len(self.exclude_actions)
+
+		return f'Tools(actions=[{action_list}], total={len(actions)}, excluded={excluded_count})'
+
+	def get_tools_info(self, max_description_length: int = 250) -> str:
+		"""Return detailed information about available tools with descriptions."""
+		actions = sorted(self.registry.registry.actions.items())
+		lines = [f'Tools Summary: {len(actions)} available, {len(self.exclude_actions)} excluded\n']
+
+		for name, action in actions:
+			# Truncate long descriptions for readability
+			description = action.description
+			if len(description) > max_description_length:
+				description = description[: max_description_length - 3] + '...'
+			# Clean up description formatting
+			description = ' '.join(description.split())
+			lines.append(f'  {name}: {description}')
+
+		return '\n'.join(lines)
+
 
 # Alias for backwards compatibility
 Controller = Tools
+
+
+if __name__ == '__main__':
+	print('=== Minimal Tools (default exclude list) ===')
+	minimal_tools = Tools()
+	print(repr(minimal_tools))
+	print(minimal_tools.get_tools_info(max_description_length=100000))

@@ -204,8 +204,8 @@ class MessageManager:
 				logger.debug(f'Added extracted_content to action_results: {action_result.extracted_content}')
 
 			if action_result.error:
-				if len(action_result.error) > 200:
-					error_text = action_result.error[:100] + '......' + action_result.error[-100:]
+				if len(action_result.error) > 1000:
+					error_text = action_result.error[:500] + '......' + action_result.error[-500:]
 				else:
 					error_text = action_result.error
 				action_results += f'{error_text}\n'
