@@ -35,7 +35,18 @@ if TYPE_CHECKING:
 
 
 class Page:
-	"""Page operations (tab or iframe)."""
+	"""Page operations (tab or iframe).
+
+	⚠️ ALL METHODS IN THIS CLASS ARE ASYNC AND MUST BE AWAITED.
+
+	This is NOT Playwright or Puppeteer - only methods documented in this class exist.
+	Check method signatures carefully before use.
+
+	Important:
+	- page.mouse is an async property: use `mouse = await page.mouse`
+	- All navigation methods (goto, go_back, reload) are async
+	- All element finding methods are async
+	"""
 
 	def __init__(
 		self, browser_session: 'BrowserSession', target_id: str, session_id: str | None = None, llm: 'BaseChatModel | None' = None
@@ -77,7 +88,12 @@ class Page:
 
 	@property
 	async def mouse(self) -> 'Mouse':
-		"""Get the mouse interface for this target."""
+		"""Get the mouse interface for this target.
+
+		⚠️ This is an async property - must be awaited:
+		    mouse = await page.mouse
+		    await mouse.click(100, 200)
+		"""
 		if not self._mouse:
 			session_id = await self._ensure_session()
 			from .mouse import Mouse

@@ -10,7 +10,14 @@ if TYPE_CHECKING:
 
 
 class Mouse:
-	"""Mouse operations for a target."""
+	"""Mouse operations for a target.
+
+	⚠️ ALL METHODS IN THIS CLASS ARE ASYNC AND MUST BE AWAITED.
+
+	Access via: mouse = await page.mouse
+
+	This is NOT Playwright or Puppeteer - only methods documented in this class exist.
+	"""
 
 	def __init__(self, browser_session: 'BrowserSession', session_id: str | None = None, target_id: str | None = None):
 		self._browser_session = browser_session

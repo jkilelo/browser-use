@@ -59,7 +59,19 @@ class ElementInfo(TypedDict):
 
 
 class Element:
-	"""Element operations using BackendNodeId."""
+	"""Element operations using BackendNodeId.
+
+	⚠️ ALL METHODS IN THIS CLASS ARE ASYNC AND MUST BE AWAITED.
+
+	This is NOT Playwright or Puppeteer - only methods documented in this class exist.
+
+	Common mistakes:
+	- Element does NOT have .scroll() method (use mouse.scroll() or page.evaluate())
+	- Element does NOT have .text or .text_content properties (use get_attribute('textContent'))
+	- Element does NOT have .innerText property (use get_attribute('innerText'))
+
+	All interaction methods (click, fill, hover) are async and must be awaited.
+	"""
 
 	def __init__(
 		self,

@@ -34,11 +34,11 @@ class TabInfo(BaseModel):
 
 	@field_serializer('target_id')
 	def serialize_target_id(self, target_id: TargetID, _info: Any) -> str:
-		return target_id[-4:]
+		return target_id
 
 	@field_serializer('parent_target_id')
 	def serialize_parent_target_id(self, parent_target_id: TargetID | None, _info: Any) -> str | None:
-		return parent_target_id[-4:] if parent_target_id else None
+		return parent_target_id if parent_target_id else None
 
 
 class PageInfo(BaseModel):

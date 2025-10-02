@@ -1,5 +1,27 @@
 Execute Browser Actor code using the browser-use actor library.
 
+⚠️ **CRITICAL RULES - READ BEFORE WRITING CODE:**
+
+1. **ONLY USE METHODS FROM THE "API Reference" SECTION BELOW**
+   - If a method is NOT listed in the API Reference, it DOES NOT EXIST
+   - This is NOT Playwright, NOT Puppeteer, NOT Selenium
+   - Do not assume methods exist just because they exist in other libraries
+
+2. **ALL METHODS ARE ASYNC - ALWAYS USE await**
+   - Every method call must be awaited: `await page.goto()`, `await element.click()`
+   - Forgetting await causes "coroutine has no attribute" errors
+
+3. **CHECK THE API REFERENCE BEFORE EVERY METHOD CALL**
+   - Before writing `element.some_method()`, verify it exists in API Reference
+   - If unsure, DON'T use it - only use documented methods
+
+4. **COMMON MISTAKES TO AVOID:**
+   - ❌ Using Playwright methods (e.g., `page.locator()`, `page.waitForSelector()`)
+   - ❌ Using Puppeteer methods (e.g., `page.$()`, `page.$$()`)
+   - ❌ Calling methods not in API Reference (e.g., `element.scroll()`, `page.bring_to_front()`)
+   - ❌ Forgetting to await async methods
+   - ❌ Treating response objects as they have properties like `.text` - check API Reference for correct access
+
 <DOCS>
 Browser Actor is a web automation library built on CDP (Chrome DevTools Protocol) that provides low-level browser automation capabilities within the browser-use ecosystem.
 
@@ -131,94 +153,216 @@ BrowserSession**): Main browser session manager with tab operations
 
 ## API Reference
 
-### Browser Methods (Tab Management)
-- `new_page(url=None)` → `Page` - Create blank tab or navigate to URL
-- `get_pages()` → `list[Page]` - Get all available pages
-- `get_current_page()` → `Page | None` - Get the currently focused page
-- `close_page(page: Page | str)` - Close page by object or ID
-- Session management and CDP client operations
+⚠️ **THIS IS THE COMPLETE LIST OF AVAILABLE METHODS. NOTHING ELSE EXISTS.**
 
-### Page Methods (Page Operations)
-- `get_elements_by_css_selector(selector: str)` → `list[Element]` - Find elements by CSS selector
-- `get_element(backend_node_id: int)` → `Element` - Get element by backend node ID
-- `get_element_by_prompt(prompt: str, llm)` → `Element | None` - AI-powered element finding
-- `must_get_element_by_prompt(prompt: str, llm)` → `Element` - AI element finding (raises if not found)
-- `goto(url: str)` - Navigate this page to URL
-- `go_back()`, `go_forward()` - Navigate history (with error handling)
-- `reload()` - Reload the current page
-- `evaluate(page_function: str, *args)` → `str` - Execute JavaScript (MUST use (...args) => format)
-- `press(key: str)` - Press key on page (supports "Control+A" format)
-- `set_viewport_size(width: int, height: int)` - Set viewport dimensions
-- `get_url()` → `str`, `get_title()` → `str` - Get page information
-- `mouse` → `Mouse` - Get mouse interface for this page
+### Browser Methods (Tab Management) - ALL ASYNC
 
-### Element Methods (DOM Interactions)
-- `click(button='left', click_count=1, modifiers=None)` - Click element with advanced fallbacks
-- `fill(text: str, clear_existing=True)` - Fill input with text (clears first by default)
-- `hover()` - Hover over element
-- `focus()` - Focus the element
-- `check()` - Toggle checkbox/radio button (clicks to change state)
-- `select_option(values: str | list[str])` - Select dropdown options
-- `drag_to(target_element: Element | Position, source_position=None, target_position=None)` - Drag to target element
-- `get_attribute(name: str)` → `str | None` - Get attribute value
-- `get_bounding_box()` → `BoundingBox | None` - Get element position/size
-- `get_basic_info()` → `ElementInfo` - Get comprehensive element information
+**Tab Operations:**
+async new_page(url: str | None = None) → Page - Create new tab (blank if url=None, or navigate to url)
+async get_pages() → list[Page] - Get all available pages/tabs
+async get_current_page() → Page | None - Get the currently focused page
+async close_page(page: Page | str) - Close page by object or ID
 
+**Important:** Use `browser.new_page()`, `browser.get_pages()`, etc. The browser object is available as `browser` in your code context.
 
-### Mouse Methods (Coordinate-Based Operations)
-- `click(x: int, y: int, button='left', click_count=1)` - Click at coordinates
-- `move(x: int, y: int, steps=1)` - Move to coordinates
-- `down(button='left', click_count=1)`, `up(button='left', click_count=1)` - Press/release button
-- `scroll(x=0, y=0, delta_x=None, delta_y=None)` - Scroll page at coordinates
+---
+
+### Page Methods (Page Operations) - ALL ASYNC
+
+**Element Finding:**
+async get_elements_by_css_selector(selector: str) → list[Element] - Find elements by CSS selector (returns immediately, doesn't wait)
+async get_element(backend_node_id: int) → Element - Get element by backend node ID
+async get_element_by_prompt(prompt: str, llm) → Element | None - AI-powered element finding (requires llm parameter)
+async must_get_element_by_prompt(prompt: str, llm) → Element - AI element finding (raises if not found)
+
+**Navigation:**
+async goto(url: str) - Navigate this page to URL
+async go_back() - Navigate back in history
+async go_forward() - Navigate forward in history
+async reload() - Reload the current page
+
+**JavaScript & Interaction:**
+async evaluate(page_function: str, *args) → str - Execute JavaScript (MUST use (...args) => {...} arrow function format)
+async press(key: str) - Press key on page (supports "Control+A" format)
+
+**Page Info:**
+async get_url() → str - Get current page URL
+async get_title() → str - Get current page title
+async set_viewport_size(width: int, height: int) - Set viewport dimensions
+
+**Async Property:**
+await page.mouse → Mouse - Get mouse interface (MUST await this property)
+
+⚠️ **Playwright/Puppeteer methods like `page.locator()`, `page.$()`, `page.waitForSelector()`, `page.bring_to_front()` DO NOT EXIST**
+
+---
+
+### Element Methods (DOM Interactions) - ALL ASYNC
+
+**Actions:**
+async click(button='left', click_count=1, modifiers=None) - Click element with options
+async fill(text: str, clear_existing=True) - Fill input with text (clears first by default)
+async hover() - Hover over element
+async focus() - Focus the element
+async check() - Toggle checkbox/radio button (clicks to change state)
+async select_option(values: str | list[str]) - Select dropdown options
+async drag_to(target: Element | Position, ...) - Drag to target element
+
+**Properties:**
+async get_attribute(name: str) → str | None - Get attribute value
+async get_bounding_box() → BoundingBox | None - Get element position/size (returns dict with x, y, width, height)
+async get_basic_info() → ElementInfo - Get comprehensive element information (returns dict with nodeId, nodeName, attributes, etc.)
+
+⚠️ **Element does NOT have: `.scroll()`, `.text`, `.text_content`, `.innerText` as properties**
+⚠️ **To get text content: `await element.get_attribute('textContent')` or use `page.evaluate()`**
+
+---
+
+### Mouse Methods (Coordinate-Based Operations) - ALL ASYNC
+
+**Mouse Operations:**
+async click(x: int, y: int, button='left', click_count=1) - Click at coordinates
+async move(x: int, y: int, steps=1) - Move to coordinates
+async down(button='left', click_count=1) - Press mouse button
+async up(button='left', click_count=1) - Release mouse button
+async scroll(x=0, y=0, delta_x=None, delta_y=None) - Scroll page at coordinates
+
+⚠️ **Elements do NOT have scroll() - use mouse.scroll() instead**
+
+---
+
+### How to Access These Objects
+
+In your code context, these are available:
+```python
+browser  # BrowserSession - use for tab management
+page     # Page - current page (or get via browser.get_current_page())
+Element  # Class - instantiate via page.get_element() or page.get_elements_by_css_selector()
+Mouse    # Class - get via: mouse = await page.mouse
+```
 
 ## Important Usage Notes
 
-**This is browser-use actor, NOT Playwright or Selenium.** Only use the methods documented above.
+### This is Browser-Use Actor - NOT Other Libraries
 
-### Critical JavaScript Rules
-- `page.evaluate()` MUST use `(...args) => {}` arrow function format
-- Always returns string (objects are JSON-stringified automatically)
-- Use single quotes around the function: `page.evaluate('() => document.title')`
-- For complex selectors in JS: `'() => document.querySelector("input[name=\\"email\\"]")'`
+**browser-use/actor is its own library with its own API.**
 
-### Method Restrictions
-- `get_elements_by_css_selector()` returns immediately (no automatic waiting)
-- For dropdowns: use `element.select_option()`, NOT `element.fill()`
-- Form submission: click submit button or use `page.press("Enter")`
-- No methods like: `element.submit()`, `element.dispatch_event()`, `element.get_property()`
+❌ **Do NOT use:**
+- Playwright methods (`page.locator()`, `page.waitForSelector()`, `page.click()` without element, etc.)
+- Puppeteer methods (`page.$()`, `page.$$()`, `page.evaluate()` with different signature, etc.)
+- Selenium methods (`driver.find_element()`, etc.)
 
-### Error Prevention
-- Always verify page state changes with `page.get_url()`, `page.get_title()`
-- Use `element.get_attribute()` to check element properties
-- Validate CSS selectors before use
-- Handle navigation timing with appropriate `asyncio.sleep()` calls
+✅ **Only use methods documented in the API Reference section above.**
 
+### Critical Method Restrictions
 
-- CRITICAL: Use Variables for JavaScript - NEVER inline JavaScript - ALWAYS use separate variables:
+**If a method is not in the API Reference, it does not exist:**
+- Element has NO `.scroll()` method - use `mouse.scroll()` or `page.evaluate()`
+- Element has NO `.text` or `.text_content` properties - use `await element.get_attribute('textContent')`
+- Page has NO `.locator()`, `.waitForSelector()`, `.bring_to_front()`, etc.
+
+### Async Property Access
+
 ```python
 # ✅ CORRECT:
-js_code = """() => document.querySelector("button").click()"""  
+mouse = await page.mouse
+await mouse.click(100, 200)
+
+# ❌ WRONG:
+mouse = page.mouse  # This is a coroutine, not a Mouse object
+await mouse.click(100, 200)  # Will error: 'coroutine' object has no attribute 'click'
+```
+
+### Response Object Access
+
+Methods like `get_bounding_box()` return dictionaries, not objects:
+
+```python
+# ✅ CORRECT:
+box = await element.get_bounding_box()
+if box:
+    x = box['x']  # Dictionary access
+    width = box['width']
+
+# ❌ WRONG:
+box = await element.get_bounding_box()
+x = box.x  # Will error if box is dict
+```
+
+### Element Finding
+
+```python
+# get_elements_by_css_selector returns immediately (no waiting):
+elements = await page.get_elements_by_css_selector("button")
+
+# For dropdowns, use element.select_option(), NOT element.fill():
+await element.select_option(["option1"])
+
+# Form submission - click submit button or press Enter:
+await page.press("Enter")
+```
+
+### JavaScript Code Guidelines
+
+**Critical: Use Triple-Quoted Strings to Avoid Escaping Issues**
+
+When writing JavaScript code, use Python triple-quoted strings to avoid escape character problems:
+
+```python
+# ✅ CORRECT - Use triple quotes, allows you to use both ' and " freely:
+js_code = '''() => {
+    const button = document.querySelector("button[data-id='submit']");
+    return button ? button.textContent : null;
+}'''
 result = await page.evaluate(js_code)
 
-# ❌ WRONG - breaks CDP:
-result = await page.evaluate('() => document.querySelector("button").click()')
+# ❌ WRONG - Double quotes with escaping gets messy:
+result = await page.evaluate("() => document.querySelector(\"button\").click()")
 ```
+
+**JavaScript Format Requirements:**
+- MUST start with `(...args) =>` arrow function format
+- Returns are automatic - last expression is returned
+- Objects/arrays are JSON-stringified automatically
+- Always returns string type
+
+**Examples:**
+```python
+# Simple expression:
+js_code = '''() => document.title'''
+
+# With arguments:
+js_code = '''(selector) => document.querySelector(selector).textContent'''
+result = await page.evaluate(js_code, "h1")
+
+# Complex multi-line:
+js_code = '''() => {
+    const items = document.querySelectorAll('.item');
+    return Array.from(items).map(i => i.textContent);
+}'''
+```
+
+**Why Triple Quotes?**
+- Allows natural use of both `'` and `"` in JavaScript without escaping
+- Cleaner, more readable code
+- Avoids JSON string escaping issues
+- JavaScript can always use template literals `` ` `` if needed
 </output_format>
 </DOCS>
 
 <EXAMPLE_CODE_EXECUTION>
 ```python
 async def executor():
-  element = await page.getElement(backend_node_id=1234)
+  element = await page.get_element(backend_node_id=1234)
   await element.click()
 ```
 
 ```python
 async def executor():
-  element = await page.getElement(backend_node_id=231)
+  element = await page.get_element(backend_node_id=231)
   if element:
     await element.click()
-  element_2 = await page.getElement(backend_node_id=232)
+  element_2 = await page.get_element(backend_node_id=232)
   await asyncio.sleep(0.5)
   if element_2:
     await element_2.fill("Hello World")
@@ -244,13 +388,36 @@ async def executor():
 </EXAMPLE_CODE_EXECUTION>
 
 <RULES>
-- Functions should start with `async def executor(): ...` (no parameters)
-- Do not implement waiting for CSS functions - our native implementation doesn't wait
-- Use backendNodeId for element interaction when possible
-- Use raw strings r"pattern" for regex patterns to avoid escape sequence warnings
-- Between the clicks and actions make sure to add some `asyncio.sleep(1)`, to make sure stuff loads correctly
-- Maximum code length is 500 characters
-- DO NOT TRY TO GUESS OTHER METHODS on `Page`, `Element`, `Mouse`. You can only use the ones defined in <DOCS>. Capital letters matter. This is extremely important, otherwise the execution will fail. If you need to remember the method names, write a comment with a method name reflected from <DOCS>.before the line of code.
+1. **ONLY USE METHODS FROM API REFERENCE SECTION**
+   - Before writing ANY method call, verify it exists in API Reference above
+   - Do not use methods from Playwright, Puppeteer, Selenium, or any other library
+   - If method not in API Reference = method does not exist
+
+2. **Function Format:**
+   - Functions must start with `async def executor():` (no parameters)
+   - All variables (client, page, browser, Element, Mouse, asyncio, json, os) are available in context
+
+3. **JavaScript Code:**
+   - Use triple-quoted strings: `js_code = '''...'''`
+   - Must use `(...args) => {...}` arrow function format
+   - Use raw strings for regex: `r"pattern"`
+
+4. **Async Rules:**
+   - ALL API methods are async - must use `await`
+   - `page.mouse` is async property: `mouse = await page.mouse`
+
+5. **Timing:**
+   - Add `await asyncio.sleep(0.5-1)` between actions for page loads
+
+6. **Code Length:**
+   - Maximum 500 characters
+
+7. **Before Submitting Code - Verify:**
+   ✓ Every method used exists in API Reference
+   ✓ All async methods are awaited
+   ✓ No Playwright/Puppeteer methods used
+   ✓ JavaScript uses triple quotes and arrow function format
+   ✓ Using correct method names (snake_case: get_element, not getElement)
 </RULES>
 
 <EXPECTED_OUTPUT>

@@ -1680,10 +1680,11 @@ class BrowserSession(BaseModel):
 		return await self.get_dom_element_by_index(index)
 
 	async def get_target_id_from_tab_id(self, tab_id: str) -> TargetID:
-		"""Get the full-length TargetID from the truncated 4-char tab_id."""
+		"""Get the full-length TargetID from tab_id (supports both full and truncated 4-char IDs)."""
 		# First check cached sessions
 		for full_target_id in self._cdp_session_pool.keys():
-			if full_target_id.endswith(tab_id):
+			# Try exact match first (for full IDs), then endswith (for backward compatibility with 4-char IDs)
+			if full_target_id == tab_id or full_target_id.endswith(tab_id):
 				# Verify target still exists
 				if await self._is_target_valid(full_target_id):
 					return full_target_id
@@ -1701,10 +1702,11 @@ class BrowserSession(BaseModel):
 		all_targets = await self.cdp_client.send.Target.getTargets()
 		# Filter for valid page/tab targets only
 		for target in all_targets.get('targetInfos', []):
-			if target['targetId'].endswith(tab_id) and target.get('type') == 'page':
+			# Try exact match first (for full IDs), then endswith (for backward compatibility with 4-char IDs)
+			if (target['targetId'] == tab_id or target['targetId'].endswith(tab_id)) and target.get('type') == 'page':
 				return target['targetId']
 
-		raise ValueError(f'No TargetID found ending in tab_id=...{tab_id}')
+		raise ValueError(f'No TargetID found matching tab_id={tab_id}')
 
 	async def _is_target_valid(self, target_id: TargetID) -> bool:
 		"""Check if a target ID is still valid."""
