@@ -241,6 +241,7 @@ browser  # BrowserSession - use for tab management
 page     # Page - current page (or get via browser.get_current_page())
 Element  # Class - instantiate via page.get_element() or page.get_elements_by_css_selector()
 Mouse    # Class - get via: mouse = await page.mouse
+llm      # LLM - use for AI-powered features like page.get_element_by_prompt("search button", llm=llm)
 ```
 
 ## Important Usage Notes
@@ -435,21 +436,27 @@ async def executor():
 <EXPECTED_OUTPUT>
 Use `async def executor():` - all variables available in context:
 
-Context: client (cdp client), page (current open page), Element/Mouse classes, asyncio/json/os available (no import needed).
+Context: browser (BrowserSession), page (current open page), Element/Mouse classes, llm (for AI-powered features), asyncio/json/os available (no import needed).
 
 For example:
 ```python
 async def executor():
     # Navigate existing page
     await page.goto("https://example.com")
-    
+
     # Or create new page and navigate
     new_page = await browser.new_page()
     await new_page.goto("https://example.com")
-    
+
+    # Use backend_node_id to get element
     element = await page.get_element(backend_node_id=12345)
     if element:
         await element.fill("text")
+
+    # Or use AI-powered element finding
+    help_link = await page.get_element_by_prompt("help link", llm=llm)
+    if help_link:
+        await help_link.click()
 
     await asyncio.sleep(1)
 

@@ -1123,7 +1123,9 @@ SHADOW DOM ACCESS EXAMPLE:
 			browser_use_code_tool_description,
 			param_model=BrowserUseCodeAction,
 		)
-		async def execute_browser_use_code(params: BrowserUseCodeAction, browser_session: BrowserSession):
+		async def execute_browser_use_code(
+			params: BrowserUseCodeAction, browser_session: BrowserSession, page_extraction_llm: BaseChatModel
+		):
 			# Get session
 			cdp_session = await browser_session.get_or_create_cdp_session()
 			# Create target
@@ -1143,6 +1145,7 @@ SHADOW DOM ACCESS EXAMPLE:
 					'asyncio': asyncio,
 					'json': json,
 					'os': os,
+					'llm': page_extraction_llm,
 				}
 
 				# Just exec the code directly - use local_vars as globals so everything is accessible
