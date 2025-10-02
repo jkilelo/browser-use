@@ -8,12 +8,10 @@ from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
 	from cdp_use.cdp.dom.commands import (
-		DescribeNodeParameters,
 		FocusParameters,
 		GetAttributesParameters,
 		GetBoxModelParameters,
 		PushNodesByBackendIdsToFrontendParameters,
-		RequestChildNodesParameters,
 		ResolveNodeParameters,
 	)
 	from cdp_use.cdp.input.commands import (
@@ -540,61 +538,258 @@ class Element:
 		await self.click()
 
 	async def select_option(self, values: str | list[str]) -> None:
-		"""Select option(s) in a select element."""
+		"""Select option(s) in a select element using JavaScript execution.
+
+		Handles native <select> elements, ARIA dropdowns, and custom dropdowns.
+		Uses JavaScript-based selection to avoid DOM tree manipulation issues.
+		"""
 		if isinstance(values, str):
 			values = [values]
 
-		# Focus the element first
+		# For now, select the first value (most common use case)
+		# Multi-select could be enhanced in the future if needed
+		target_text = values[0] if values else ''
+
+		if not target_text:
+			raise ValueError('No value provided to select')
+
+		# Convert backend node ID to object ID for JavaScript execution
 		try:
-			await self.focus()
-		except Exception:
-			logger.warning('Failed to focus element')
+			object_result = await self._client.send.DOM.resolveNode(
+				params={'backendNodeId': self._backend_node_id}, session_id=self._session_id
+			)
+			remote_object = object_result.get('object', {})
+			object_id = remote_object.get('objectId')
+			if not object_id:
+				raise ValueError('Could not get object ID from resolved node')
+		except Exception as e:
+			raise ValueError(f'Failed to resolve node to object: {e}') from e
 
-		# For select elements, we need to find option elements and click them
-		# This is a simplified approach - in practice, you might need to handle
-		# different select types (single vs multi-select) differently
-		node_id = await self._get_node_id()
+		# Comprehensive JavaScript function that handles all dropdown types
+		selection_script = """
+		function(targetText) {
+			const startElement = this;
 
-		# Request child nodes to get the options
-		params: 'RequestChildNodesParameters' = {'nodeId': node_id, 'depth': 1}
-		await self._client.send.DOM.requestChildNodes(params, session_id=self._session_id)
+			// Function to attempt selection on a dropdown element
+			function attemptSelection(element) {
+				// Handle native select elements
+				if (element.tagName.toLowerCase() === 'select') {
+					const options = Array.from(element.options);
+					const targetTextLower = targetText.toLowerCase();
 
-		# Get the updated node description with children
-		describe_params: 'DescribeNodeParameters' = {'nodeId': node_id, 'depth': 1}
-		describe_result = await self._client.send.DOM.describeNode(describe_params, session_id=self._session_id)
+					for (const option of options) {
+						const optionTextLower = option.text.trim().toLowerCase();
+						const optionValueLower = option.value.toLowerCase();
 
-		select_node = describe_result['node']
+						// Match against both text and value (case-insensitive)
+						if (optionTextLower === targetTextLower || optionValueLower === targetTextLower) {
+							element.value = option.value;
+							option.selected = true;
 
-		# Find and select matching options
-		for child in select_node.get('children', []):
-			if child.get('nodeName', '').lower() == 'option':
-				# Get option attributes
-				attrs = child.get('attributes', [])
-				option_attrs = {}
-				for i in range(0, len(attrs), 2):
-					if i + 1 < len(attrs):
-						option_attrs[attrs[i]] = attrs[i + 1]
+							// Trigger change events
+							const changeEvent = new Event('change', { bubbles: true });
+							element.dispatchEvent(changeEvent);
 
-				option_value = option_attrs.get('value', '')
-				option_text = child.get('nodeValue', '')
+							return {
+								success: true,
+								message: `Selected option: ${option.text.trim()} (value: ${option.value})`,
+								value: option.value
+							};
+						}
+					}
 
-				# Check if this option should be selected
-				should_select = option_value in values or option_text in values
+					// Return available options as separate field
+					const availableOptions = options.map(opt => ({
+						text: opt.text.trim(),
+						value: opt.value
+					}));
 
-				if should_select:
-					# Click the option to select it
-					option_node_id = child.get('nodeId')
-					if option_node_id:
-						# Get backend node ID for the option
-						option_describe_params: 'DescribeNodeParameters' = {'nodeId': option_node_id}
-						option_backend_result = await self._client.send.DOM.describeNode(
-							option_describe_params, session_id=self._session_id
-						)
-						option_backend_id = option_backend_result['node']['backendNodeId']
+					return {
+						success: false,
+						error: `Option with text or value '${targetText}' not found in select element`,
+						availableOptions: availableOptions
+					};
+				}
 
-						# Create an Element for the option and click it
-						option_element = Element(self._browser_session, option_backend_id, self._session_id)
-						await option_element.click()
+				// Handle ARIA dropdowns/menus
+				const role = element.getAttribute('role');
+				if (role === 'menu' || role === 'listbox' || role === 'combobox') {
+					const menuItems = element.querySelectorAll('[role="menuitem"], [role="option"]');
+					const targetTextLower = targetText.toLowerCase();
+
+					for (const item of menuItems) {
+						if (item.textContent) {
+							const itemTextLower = item.textContent.trim().toLowerCase();
+							const itemValueLower = (item.getAttribute('data-value') || '').toLowerCase();
+
+							// Match against both text and data-value (case-insensitive)
+							if (itemTextLower === targetTextLower || itemValueLower === targetTextLower) {
+								// Clear previous selections
+								menuItems.forEach(mi => {
+									mi.setAttribute('aria-selected', 'false');
+									mi.classList.remove('selected');
+								});
+
+								// Select this item
+								item.setAttribute('aria-selected', 'true');
+								item.classList.add('selected');
+
+								// Trigger click and change events
+								item.click();
+								const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
+								item.dispatchEvent(clickEvent);
+
+								return {
+									success: true,
+									message: `Selected ARIA menu item: ${item.textContent.trim()}`
+								};
+							}
+						}
+					}
+
+					// Return available options as separate field
+					const availableOptions = Array.from(menuItems).map(item => ({
+						text: item.textContent ? item.textContent.trim() : '',
+						value: item.getAttribute('data-value') || ''
+					})).filter(opt => opt.text || opt.value);
+
+					return {
+						success: false,
+						error: `Menu item with text or value '${targetText}' not found`,
+						availableOptions: availableOptions
+					};
+				}
+
+				// Handle Semantic UI or custom dropdowns
+				if (element.classList.contains('dropdown') || element.classList.contains('ui')) {
+					const menuItems = element.querySelectorAll('.item, .option, [data-value]');
+					const targetTextLower = targetText.toLowerCase();
+
+					for (const item of menuItems) {
+						if (item.textContent) {
+							const itemTextLower = item.textContent.trim().toLowerCase();
+							const itemValueLower = (item.getAttribute('data-value') || '').toLowerCase();
+
+							// Match against both text and data-value (case-insensitive)
+							if (itemTextLower === targetTextLower || itemValueLower === targetTextLower) {
+								// Clear previous selections
+								menuItems.forEach(mi => {
+									mi.classList.remove('selected', 'active');
+								});
+
+								// Select this item
+								item.classList.add('selected', 'active');
+
+								// Update dropdown text if there's a text element
+								const textElement = element.querySelector('.text');
+								if (textElement) {
+									textElement.textContent = item.textContent.trim();
+								}
+
+								// Trigger click and change events
+								item.click();
+								const clickEvent = new MouseEvent('click', { view: window, bubbles: true, cancelable: true });
+								item.dispatchEvent(clickEvent);
+
+								// Also dispatch on the main dropdown element
+								const dropdownChangeEvent = new Event('change', { bubbles: true });
+								element.dispatchEvent(dropdownChangeEvent);
+
+								return {
+									success: true,
+									message: `Selected custom dropdown item: ${item.textContent.trim()}`
+								};
+							}
+						}
+					}
+
+					// Return available options as separate field
+					const availableOptions = Array.from(menuItems).map(item => ({
+						text: item.textContent ? item.textContent.trim() : '',
+						value: item.getAttribute('data-value') || ''
+					})).filter(opt => opt.text || opt.value);
+
+					return {
+						success: false,
+						error: `Custom dropdown item with text or value '${targetText}' not found`,
+						availableOptions: availableOptions
+					};
+				}
+
+				return null; // Not a dropdown element
+			}
+
+			// Function to recursively search children for dropdowns
+			function searchChildrenForSelection(element, maxDepth, currentDepth = 0) {
+				if (currentDepth >= maxDepth) return null;
+
+				// Check all direct children
+				for (let child of element.children) {
+					// Try selection on this child
+					const result = attemptSelection(child);
+					if (result && result.success) {
+						return result;
+					}
+
+					// Recursively check this child's children
+					const childResult = searchChildrenForSelection(child, maxDepth, currentDepth + 1);
+					if (childResult && childResult.success) {
+						return childResult;
+					}
+				}
+
+				return null;
+			}
+
+			// First try the target element itself
+			let selectionResult = attemptSelection(startElement);
+			if (selectionResult) {
+				// If attemptSelection returned a result (success or failure), use it
+				// Don't search children if we found a dropdown element but selection failed
+				return selectionResult;
+			}
+
+			// Only search children if target element is not a dropdown element
+			selectionResult = searchChildrenForSelection(startElement, 4);
+			if (selectionResult && selectionResult.success) {
+				return selectionResult;
+			}
+
+			return {
+				success: false,
+				error: `Element and its children (depth 4) do not contain a dropdown with option '${targetText}' (tag: ${startElement.tagName}, role: ${startElement.getAttribute('role')}, classes: ${startElement.className})`
+			};
+		}
+		"""
+
+		# Execute the selection script
+		try:
+			result = await self._client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': selection_script,
+					'arguments': [{'value': target_text}],
+					'objectId': object_id,
+					'returnByValue': True,
+				},
+				session_id=self._session_id,
+			)
+
+			selection_result = result.get('result', {}).get('value', {})
+
+			if not selection_result.get('success'):
+				error_msg = selection_result.get('error', f'Failed to select option: {target_text}')
+				available_options = selection_result.get('availableOptions', [])
+
+				if available_options:
+					options_str = ', '.join(
+						[opt.get('text', opt.get('value', '')) for opt in available_options if isinstance(opt, dict)]
+					)
+					raise ValueError(f'{error_msg}. Available options: {options_str}')
+				else:
+					raise ValueError(error_msg)
+
+		except Exception as e:
+			raise ValueError(f'Failed to select dropdown option: {str(e)}') from e
 
 	async def drag_to(
 		self,

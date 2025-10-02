@@ -76,6 +76,9 @@ class Page:
 				self._client.send.Network.enable(session_id=self._session_id),
 			)
 
+		else:
+			await self._client.send.DOM.enable(session_id=self._session_id)  # fallback to enable DOM (idk, maybe helps)
+
 		return self._session_id
 
 	@property

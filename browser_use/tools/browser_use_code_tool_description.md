@@ -52,6 +52,7 @@ page = Page(browser_session, target_id, session_id)
 page = await browser.new_page()  # Create blank tab
 page = await browser.new_page("https://example.com")  # Create tab with URL
 pages = await browser.get_pages()  # Get all existing tabs
+await browser.switch_page(page)  # Switch to specific tab
 await browser.close_page(page)  # Close specific tab
 
 # Navigation
@@ -161,9 +162,10 @@ BrowserSession**): Main browser session manager with tab operations
 async new_page(url: str | None = None) → Page - Create new tab (blank if url=None, or navigate to url)
 async get_pages() → list[Page] - Get all available pages/tabs
 async get_current_page() → Page | None - Get the currently focused page
+async switch_page(page: Page | str) - Switch to page by object or ID
 async close_page(page: Page | str) - Close page by object or ID
 
-**Important:** Use `browser.new_page()`, `browser.get_pages()`, etc. The browser object is available as `browser` in your code context.
+**Important:** Use `browser.new_page()`, `browser.get_pages()`, `browser.switch_page()`, etc. The browser object is available as `browser` in your code context.
 
 ---
 
@@ -381,9 +383,19 @@ async def executor():
             return {title, date: dateMatch?dateMatch[0]:null};
         }));
     }"""
-    
+
     result = await page.evaluate(js_code)
     return result
+```
+
+```python
+# Switch between pages/tabs
+async def executor():
+    pages = await browser.get_pages()
+    # Switch to second page
+    if len(pages) > 1:
+        await browser.switch_page(pages[1])
+    await asyncio.sleep(0.5)
 ```
 </EXAMPLE_CODE_EXECUTION>
 

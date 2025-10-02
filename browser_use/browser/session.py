@@ -971,6 +971,21 @@ class BrowserSession(BaseModel):
 		params: CloseTargetParameters = {'targetId': target_id}
 		await self.cdp_client.send.Target.closeTarget(params)
 
+	async def switch_page(self, page: 'Union[Page, str]') -> None:
+		"""Switch to a page by Page object or target ID."""
+		from cdp_use.cdp.target.commands import ActivateTargetParameters
+
+		# Import here to avoid circular import
+		from browser_use.actor.page import Page as Target
+
+		if isinstance(page, Target):
+			target_id = page._target_id
+		else:
+			target_id = str(page)
+
+		params: ActivateTargetParameters = {'targetId': target_id}
+		await self.cdp_client.send.Target.activateTarget(params)
+
 	async def cookies(self, urls: list[str] | None = None) -> list['Cookie']:
 		"""Get cookies, optionally filtered by URLs."""
 		from cdp_use.cdp.network.library import GetCookiesParameters
