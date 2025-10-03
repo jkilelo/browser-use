@@ -166,6 +166,10 @@ class ChatGoogle(BaseChatModel):
 		Streaming method that returns tasks for actions and complete response.
 		Returns (actions_task, complete_task) for true parallel execution.
 		"""
+		import time
+
+		astream_start = time.time()
+		print('[TIMING] astream: START at 0.000s')
 		contents, system_instruction = GoogleMessageSerializer.serialize_messages(
 			messages, include_system_in_user=self.include_system_in_user
 		)
@@ -192,10 +196,12 @@ class ChatGoogle(BaseChatModel):
 		# Set default for flash models
 		if self.thinking_budget is None and ('gemini-2.5-flash' in self.model or 'gemini-flash' in self.model):
 			self.thinking_budget = 0
+			print(f'[TIMING] astream: Auto-set thinking_budget=0 for flash model')
 
 		if self.thinking_budget is not None:
 			thinking_config_dict: types.ThinkingConfigDict = {'thinking_budget': self.thinking_budget}
 			config['thinking_config'] = thinking_config_dict
+			print(f'[TIMING] astream: Applied thinking_budget={self.thinking_budget} to config')
 
 		if self.max_output_tokens is not None:
 			config['max_output_tokens'] = self.max_output_tokens
@@ -207,78 +213,107 @@ class ChatGoogle(BaseChatModel):
 		config['response_schema'] = gemini_schema
 
 		# Create streaming request - must await to get the async iterable
+		stream_create_start = time.time()
+		print(f'[TIMING] astream: Calling generate_content_stream at {stream_create_start - astream_start:.3f}s')
 		stream = await self.get_client().aio.models.generate_content_stream(
 			model=self.model,
 			contents=contents,
 			config=config,
 		)
+		stream_create_time = time.time() - stream_create_start
+		print(f'[TIMING] astream: Stream created in {stream_create_time:.3f}s')
 
 		# Shared state for coordination
 		shared_state = {
-			'full_response_text': "",
-			'stripped_response': "",
+			'full_response_text': '',
+			'stripped_response': '',
 			'actions_completion': None,
 			'complete_completion': None,
 			'last_chunk': None,
 			'actions_ready': asyncio.Event(),
 			'complete_ready': asyncio.Event(),
+			'first_chunk_ready': asyncio.Event(),
 			'error': None,
-			'stream_processor_task': None
+			'stream_processor_task': None,
 		}
 
 		async def stream_processor():
 			"""Process the stream and populate shared state"""
+			processor_start = time.time()
+			print(f'[TIMING] stream_processor: START at {processor_start - astream_start:.3f}s')
+			chunk_count = 0
+
 			try:
 				async for chunk in stream:
-					if chunk.text:
-						shared_state['full_response_text'] += chunk.text
-						shared_state['stripped_response'] += chunk.text.strip().replace("\n", "").replace(" ", "")
+					chunk_count += 1
+					chunk_time = time.time() - processor_start
 
-						# Check for actions as soon as we detect them - count brackets
-						# After "action":[ we count [ and ] to find when the array closes
+					# Signal that first chunk arrived
+					if not shared_state['first_chunk_ready'].is_set():
+						print(
+							f'[TIMING] stream_processor: First chunk at {chunk_time:.3f}s (chunk #{chunk_count}) chunck {chunk.text}'
+						)
+						shared_state['first_chunk_ready'].set()
+
+					if chunk.text:
+						chunk_text_len = len(chunk.text)
+						print(f'[TIMING] stream_processor: Chunk #{chunk_count} received {chunk_text_len} chars at {chunk_time:.3f}s: {repr(chunk.text[:100])}')
+						shared_state['full_response_text'] += chunk.text
+						shared_state['stripped_response'] += chunk.text.strip().replace('\n', '').replace(' ', '')
+
+						# Check for actions - simplified: just count [ and ] after "action":[
 						if shared_state['actions_completion'] is None:
 							stripped = shared_state['stripped_response']
 
 							# Look for "action":[ to find start of action array
-							action_start_pattern = '"action":['
-							if action_start_pattern in stripped:
-								# Find position after "action":[
-								start_pos = stripped.index(action_start_pattern) + len(action_start_pattern)
+							if '"action":[' in stripped:
+								# Count all [ and ] in the entire response
+								open_brackets = stripped.count('[')
+								close_brackets = stripped.count(']')
 
-								# Count brackets from that point
-								bracket_count = 1  # We've already seen the opening [
-								end_pos = -1
+								print(
+									f'[TIMING] stream_processor: Chunk #{chunk_count} - brackets: [ {open_brackets} ] {close_brackets}'
+								)
 
-								for i in range(start_pos, len(stripped)):
-									if stripped[i] == '[':
-										bracket_count += 1
-									elif stripped[i] == ']':
-										bracket_count -= 1
-										if bracket_count == 0:
-											# Found the closing ] for action array
-											end_pos = i + 1  # Include the ]
-											break
+								# If brackets match, we have complete action array
+								if open_brackets == close_brackets and close_brackets > 0:
+									# Find the last ] position
+									last_bracket_pos = stripped.rfind(']')
 
-								if end_pos > 0:
-									# Extract everything from start to the closing bracket of action array
-									partial_json = stripped[:end_pos]
+									# Extract everything up to and including the last ]
+									partial_json = stripped[: last_bracket_pos + 1] + '}'
 
-									# Add closing brace to make valid JSON
-									test_json = partial_json + "}"
+									print(
+										f'[TIMING] stream_processor: Attempting to parse at {chunk_time:.3f}s (chunk #{chunk_count})'
+									)
+									print(f'[TIMING] stream_processor: JSON snippet: {partial_json[:200]}...')
 
 									try:
 										# Parse and validate actions
-										actions_data = json.loads(test_json)
+										actions_data = json.loads(partial_json)
 										actions_completion = output_format.model_validate(actions_data)
 
 										shared_state['actions_completion'] = ChatInvokeCompletion(
 											completion=actions_completion,
-											usage=ChatInvokeUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+											usage=ChatInvokeUsage(
+												prompt_tokens=0,
+												completion_tokens=0,
+												total_tokens=0,
+												prompt_cached_tokens=None,
+												prompt_cache_creation_tokens=None,
+												prompt_image_tokens=None,
+											),
+										)
+										actions_ready_time = time.time() - processor_start
+										print(
+											f'[TIMING] stream_processor: ✅ ACTIONS READY at {actions_ready_time:.3f}s (chunk #{chunk_count})'
 										)
 										shared_state['actions_ready'].set()
-									except (json.JSONDecodeError, ValueError):
+									except Exception as e:
 										# Not ready yet, continue streaming
-										pass
+										print(
+											f'[TIMING] stream_processor: ❌ Parse failed at {chunk_time:.3f}s: {type(e).__name__}'
+										)
 
 					shared_state['last_chunk'] = chunk
 					# Yield control to allow other tasks to run
@@ -296,21 +331,17 @@ class ChatGoogle(BaseChatModel):
 						parsed_data = json.loads(text)
 						completion = output_format.model_validate(parsed_data)
 
-						usage = self._get_usage(shared_state['last_chunk']) if shared_state['last_chunk'] else ChatInvokeUsage(
-							prompt_tokens=0, completion_tokens=0, total_tokens=0
+						usage = (
+							self._get_usage(shared_state['last_chunk'])
+							if shared_state['last_chunk']
+							else ChatInvokeUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 						)
 
-						shared_state['complete_completion'] = ChatInvokeCompletion(
-							completion=completion,
-							usage=usage
-						)
+						shared_state['complete_completion'] = ChatInvokeCompletion(completion=completion, usage=usage)
 
 						# If actions were never parsed during streaming, use the complete response
 						if shared_state['actions_completion'] is None:
-							shared_state['actions_completion'] = ChatInvokeCompletion(
-								completion=completion,
-								usage=usage
-							)
+							shared_state['actions_completion'] = ChatInvokeCompletion(completion=completion, usage=usage)
 							shared_state['actions_ready'].set()
 
 						shared_state['complete_ready'].set()
@@ -328,6 +359,9 @@ class ChatGoogle(BaseChatModel):
 
 		async def get_actions():
 			"""Task that waits for and returns actions"""
+			get_actions_start = time.time()
+			print(f'[TIMING] get_actions: START waiting at {get_actions_start - astream_start:.3f}s')
+
 			# Ensure stream processor stays alive
 			task = shared_state['stream_processor_task']
 			if task and task.done():
@@ -338,6 +372,10 @@ class ChatGoogle(BaseChatModel):
 					raise e
 
 			await shared_state['actions_ready'].wait()
+			wait_time = time.time() - get_actions_start
+			total_time = time.time() - astream_start
+			print(f'[TIMING] get_actions: ✅ ACTIONS RECEIVED after {wait_time:.3f}s wait (total: {total_time:.3f}s)')
+
 			if shared_state['error']:
 				raise shared_state['error']
 			return shared_state['actions_completion']
@@ -360,10 +398,17 @@ class ChatGoogle(BaseChatModel):
 			return shared_state['complete_completion']
 
 		# Start the stream processor and store the task
+		task_create_time = time.time()
+		print(f'[TIMING] astream: Creating stream processor task at {task_create_time - astream_start:.3f}s')
 		shared_state['stream_processor_task'] = asyncio.create_task(stream_processor())
 
-		# Yield control to let the stream processor start
-		await asyncio.sleep(0)
+		# Wait for first chunk to arrive before returning
+		# This ensures the stream is actually started and we can detect errors early
+		print('[TIMING] astream: Waiting for first chunk...')
+		await shared_state['first_chunk_ready'].wait()
+
+		return_time = time.time() - astream_start
+		print(f'[TIMING] astream: ✅ RETURNING tasks at {return_time:.3f}s')
 
 		# Return the two coroutines - they will complete as soon as their respective events are set
 		return get_actions(), get_complete()

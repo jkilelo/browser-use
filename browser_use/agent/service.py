@@ -796,19 +796,24 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				return
 
 			# Get streaming tasks
+			astream_call_start = asyncio.get_event_loop().time()
 			self.logger.debug(f'🚀 Step {self.state.n_steps}: Calling astream()...')
 			actions_task, complete_task = await self.llm.astream(input_messages, output_format=self.AgentOutput)  # type: ignore
-			self.logger.debug(f'✅ Step {self.state.n_steps}: astream() returned tasks')
+			astream_call_time = asyncio.get_event_loop().time() - astream_call_start
+			self.logger.debug(f'✅ Step {self.state.n_steps}: astream() returned tasks in {astream_call_time:.2f}s')
 
 			# Wait for actions - they arrive as soon as ']' closes the action array
+			await_actions_start = asyncio.get_event_loop().time()
+			self.logger.debug(f'⏳ Step {self.state.n_steps}: Waiting for actions from stream...')
 			actions_completion = await actions_task
+			await_actions_time = asyncio.get_event_loop().time() - await_actions_start
 			actions_time = asyncio.get_event_loop().time() - streaming_start_time
 
 			if not actions_completion:
 				raise ValueError('No actions received from LLM')
 
 			parsed_actions = actions_completion.completion
-			self.logger.info(f'📡 Step {self.state.n_steps}: Got actions at {actions_time:.2f}s')
+			self.logger.info(f'📡 Step {self.state.n_steps}: Got actions at {actions_time:.2f}s (astream: {astream_call_time:.2f}s, await: {await_actions_time:.2f}s)')
 
 			# Process actions
 			if urls_replaced:
