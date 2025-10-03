@@ -822,10 +822,19 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				log_response(parsed_actions, self.tools.registry.registry, self.logger)
 			self._log_next_action_summary(parsed_actions)
 
-			# ULTRA-PARALLEL: Start action execution + next browser state fetch IMMEDIATELY (don't await)
-			# This allows: LLM thinking + action execution + browser state fetch to all run in parallel
-			self.logger.info(f'🚀 Step {self.state.n_steps}: Starting action execution + browser state fetch in parallel')
+			# ULTRA-PARALLEL: Execute actions, THEN fetch browser state, THEN await thinking
+			# 1. Execute actions immediately (runs in parallel with LLM thinking)
+			self.logger.info(f'🚀 Step {self.state.n_steps}: Starting action execution')
 			action_execution_task = asyncio.create_task(self._execute_actions())
+
+			# 2. Await actions to complete
+			action_wait_start = asyncio.get_event_loop().time()
+			await action_execution_task
+			action_time = asyncio.get_event_loop().time() - streaming_start_time
+			self.logger.info(f'✅ Step {self.state.n_steps}: Actions done at {action_time:.2f}s')
+
+			# 3. Start fetching next browser state (actions done, page has changed)
+			self.logger.info(f'🚀 Step {self.state.n_steps}: Fetching next browser state')
 			next_state_task = asyncio.create_task(
 				self.browser_session.get_browser_state_summary(
 					include_screenshot=True,
@@ -833,18 +842,13 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				)
 			)
 
-			# Now await BOTH actions and browser state in parallel
-			action_wait_start = asyncio.get_event_loop().time()
-			await asyncio.gather(action_execution_task, next_state_task)
-			action_total_time = asyncio.get_event_loop().time() - streaming_start_time
-			action_wait_time = asyncio.get_event_loop().time() - action_wait_start
-			self.logger.info(
-				f'✅ Step {self.state.n_steps}: Actions + browser state done at {action_total_time:.2f}s (waited {action_wait_time:.2f}s)'
-			)
+			# 4. Await browser state
+			await next_state_task
+			state_time = asyncio.get_event_loop().time() - streaming_start_time
+			self.logger.info(f'✅ Step {self.state.n_steps}: Browser state done at {state_time:.2f}s')
 
-			# Store pending complete task and the browser state task
+			# 5. Store pending complete task (thinking still streaming in background)
 			self._pending_complete_task = asyncio.create_task(complete_task)
-			# Note: next_state_task is already awaited above, but task object still holds the result
 			self._pending_browser_state_summary = next_state_task
 			self._pending_step_number = self.state.n_steps
 

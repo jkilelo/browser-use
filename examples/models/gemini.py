@@ -19,7 +19,7 @@ llm = ChatGoogle(model='gemini-2.5-flash', api_key=api_key, temperature=0.0)
 
 async def run_search():
 	agent = Agent(
-		task='How many stars does the browser-use repo have?',
+		task='search on amazon for laptop and find the latest review ',
 		llm=llm,
 	)
 
