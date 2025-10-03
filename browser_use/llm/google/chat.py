@@ -234,41 +234,51 @@ class ChatGoogle(BaseChatModel):
 						shared_state['full_response_text'] += chunk.text
 						shared_state['stripped_response'] += chunk.text.strip().replace("\n", "").replace(" ", "")
 
-						# Check for actions as soon as we detect them - look for action array closing
-						# Pattern: ]," or ]} (action array closed, followed by next field or end of object)
-						if shared_state['actions_completion'] is None and ('],"' in shared_state['stripped_response'] or ']}' in shared_state['stripped_response']):
-							# Find where the action array closes
+						# Check for actions as soon as we detect them - count brackets
+						# After "action":[ we count [ and ] to find when the array closes
+						if shared_state['actions_completion'] is None:
 							stripped = shared_state['stripped_response']
 
-							# Try to find the end of the action array
-							end_patterns = ['],"', ']}']
-							end_index = -1
-							for pattern in end_patterns:
-								if pattern in stripped:
-									idx = stripped.index(pattern)
-									if end_index == -1 or idx < end_index:
-										end_index = idx
+							# Look for "action":[ to find start of action array
+							action_start_pattern = '"action":['
+							if action_start_pattern in stripped:
+								# Find position after "action":[
+								start_pos = stripped.index(action_start_pattern) + len(action_start_pattern)
 
-							if end_index > 0:
-								# Extract everything from start to the closing bracket of action array
-								partial_json = stripped[:end_index + 1]  # Include the ]
+								# Count brackets from that point
+								bracket_count = 1  # We've already seen the opening [
+								end_pos = -1
 
-								# Add closing brace to make valid JSON
-								test_json = partial_json + "}"
+								for i in range(start_pos, len(stripped)):
+									if stripped[i] == '[':
+										bracket_count += 1
+									elif stripped[i] == ']':
+										bracket_count -= 1
+										if bracket_count == 0:
+											# Found the closing ] for action array
+											end_pos = i + 1  # Include the ]
+											break
 
-								try:
-									# Parse and validate actions
-									actions_data = json.loads(test_json)
-									actions_completion = output_format.model_validate(actions_data)
+								if end_pos > 0:
+									# Extract everything from start to the closing bracket of action array
+									partial_json = stripped[:end_pos]
 
-									shared_state['actions_completion'] = ChatInvokeCompletion(
-										completion=actions_completion,
-										usage=ChatInvokeUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-									)
-									shared_state['actions_ready'].set()
-								except (json.JSONDecodeError, ValueError):
-									# Not ready yet, continue streaming
-									pass
+									# Add closing brace to make valid JSON
+									test_json = partial_json + "}"
+
+									try:
+										# Parse and validate actions
+										actions_data = json.loads(test_json)
+										actions_completion = output_format.model_validate(actions_data)
+
+										shared_state['actions_completion'] = ChatInvokeCompletion(
+											completion=actions_completion,
+											usage=ChatInvokeUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+										)
+										shared_state['actions_ready'].set()
+									except (json.JSONDecodeError, ValueError):
+										# Not ready yet, continue streaming
+										pass
 
 					shared_state['last_chunk'] = chunk
 					# Yield control to allow other tasks to run

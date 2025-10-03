@@ -78,15 +78,15 @@ from browser_use.utils import (
 logger = logging.getLogger(__name__)
 
 
-def log_response(response: AgentOutput, registry=None, logger=None) -> None:
+def log_response(response: AgentOutput, registry=None, logger=None, skip_thinking: bool = False) -> None:
 	"""Utility function to log the model's response."""
 
 	# Use module logger if no logger provided
 	if logger is None:
 		logger = logging.getLogger(__name__)
 
-	# Only log thinking if it's present
-	if response.current_state.thinking:
+	# Only log thinking if it's present and not skipped
+	if not skip_thinking and response.current_state.thinking:
 		logger.debug(f'💡 Thinking:\n{response.current_state.thinking}')
 
 	# Only log evaluation if it's not empty
@@ -724,6 +724,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				self.state.last_model_output = complete_completion.completion
 				self.logger.info(f'✅ Step {self.state.n_steps}: Got previous step\'s complete response with thinking')
 
+			# Log the complete response (including thinking) from previous step
+			log_response(complete_completion.completion, self.tools.registry.registry, self.logger)
+
 			# Clear pending tasks
 			self._pending_complete_task = None
 			self._pending_browser_state_summary = None
@@ -819,7 +822,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 			# Log actions
 			if not (hasattr(self.state, 'paused') and (self.state.paused or self.state.stopped)):
-				log_response(parsed_actions, self.tools.registry.registry, self.logger)
+				log_response(parsed_actions, self.tools.registry.registry, self.logger, skip_thinking=True)
 			self._log_next_action_summary(parsed_actions)
 
 			# ULTRA-PARALLEL: Execute actions, THEN fetch browser state, THEN await thinking
