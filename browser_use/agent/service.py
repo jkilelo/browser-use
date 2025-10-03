@@ -298,6 +298,12 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Initialize history
 		self.history = AgentHistoryList(history=[], usage=None)
 
+		# Track pending tasks from previous step for ultra-parallel execution
+		self._pending_complete_task: asyncio.Task | None = None
+		self._pending_post_processing_task: asyncio.Task | None = None
+		self._pending_browser_state_summary: BrowserStateSummary | None = None
+		self._pending_step_number: int | None = None
+
 		# Initialize agent directory
 		import time
 
@@ -679,13 +685,48 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
-		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
-		# Always take screenshots for all steps
-		self.logger.debug('📸 Requesting browser state with include_screenshot=True')
-		browser_state_summary = await self.browser_session.get_browser_state_summary(
-			include_screenshot=True,  # always capture even if use_vision=False so that cloud sync is useful (it's fast now anyway)
-			include_recent_events=self.include_recent_events,
-		)
+		# ULTRA-PARALLEL: Await previous step's thinking while getting new browser state
+		if self._pending_post_processing_task:
+			self.logger.info(f'🔄 Step {self.state.n_steps}: Awaiting previous step\'s thinking + getting new browser state in parallel')
+
+			# Start both tasks in parallel
+			browser_state_task = asyncio.create_task(
+				self.browser_session.get_browser_state_summary(
+					include_screenshot=True,
+					include_recent_events=self.include_recent_events,
+				)
+			)
+
+			# Wait for both to complete
+			browser_state_summary, _ = await asyncio.gather(
+				browser_state_task,
+				self._pending_post_processing_task
+			)
+
+			self.logger.info(f'✅ Step {self.state.n_steps}: Previous thinking received + new browser state ready')
+
+			# Update previous step's history with the full thinking
+			if self._pending_step_number is not None and len(self.history.history) > 0:
+				# The previous step's history is the last item (before we create the current step's history)
+				last_history_item = self.history.history[-1]
+				# Update the model_output with the complete version that now includes thinking
+				if last_history_item and self.state.last_model_output:
+					last_history_item.model_output = self.state.last_model_output
+					self.logger.debug(f'📝 Updated step {self._pending_step_number} history with complete thinking')
+
+			# Clear pending tasks
+			self._pending_complete_task = None
+			self._pending_post_processing_task = None
+			self._pending_browser_state_summary = None
+			self._pending_step_number = None
+		else:
+			self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
+			# Always take screenshots for all steps
+			self.logger.debug('📸 Requesting browser state with include_screenshot=True')
+			browser_state_summary = await self.browser_session.get_browser_state_summary(
+				include_screenshot=True,  # always capture even if use_vision=False so that cloud sync is useful (it's fast now anyway)
+				include_recent_events=self.include_recent_events,
+			)
 		if browser_state_summary.screenshot:
 			self.logger.debug(f'📸 Got browser state WITH screenshot, length: {len(browser_state_summary.screenshot)}')
 		else:
@@ -794,22 +835,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			self.logger.info(f'🎯 Step {self.state.n_steps}: Starting action execution with {len(parsed_actions.action)} actions')
 			action_execution_task = asyncio.create_task(self._execute_actions())
 
-			# Wait for complete response with thinking (streaming in parallel with action execution)
-			self.logger.debug(f'⏳ Step {self.state.n_steps}: Waiting for full response with thinking...')
-			complete_completion = await complete_task
-			complete_time = asyncio.get_event_loop().time() - streaming_start_time
-
-			if complete_completion:
-				# Update state with full output including thinking
-				self.state.last_model_output = complete_completion.completion
-				self.logger.info(f'📝 Step {self.state.n_steps}: Got complete response at {complete_time:.2f}s')
-
-				# Start post-processing (needs thinking for callbacks/saving) - don't await
-				post_processing_task = asyncio.create_task(
-					self._handle_post_llm_processing(browser_state_summary, input_messages)
-				)
-			else:
-				post_processing_task = None
+			# DON'T wait for complete response - let it stream in background
+			# We'll await it at the start of the NEXT step instead
+			self.logger.debug(f'⏳ Step {self.state.n_steps}: Complete response will stream in background...')
 
 			# Wait for action execution to complete
 			action_wait_start = asyncio.get_event_loop().time()
@@ -820,15 +848,29 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				f'✅ Step {self.state.n_steps}: Action execution done at {action_total_time:.2f}s (waited {action_wait_time:.2f}s)'
 			)
 
-			# Wait for post-processing if it was started
-			if post_processing_task:
-				post_wait_start = asyncio.get_event_loop().time()
-				await post_processing_task
-				post_wait_time = asyncio.get_event_loop().time() - post_wait_start
-				self.logger.debug(f'✅ Step {self.state.n_steps}: Post-processing done (waited {post_wait_time:.2f}s)')
+			# Store pending tasks for next step to await
+			# Convert coroutine to task so it starts executing immediately
+			self._pending_complete_task = asyncio.create_task(complete_task)
+			self._pending_browser_state_summary = browser_state_summary
+			self._pending_step_number = self.state.n_steps
 
-			total_time = asyncio.get_event_loop().time() - streaming_start_time
-			self.logger.info(f'🏁 Step {self.state.n_steps}: Total time: {total_time:.2f}s')
+			# Create post-processing task that will run after complete_task finishes
+			async def _post_processing_wrapper():
+				"""Wait for thinking, update state, then run post-processing"""
+				complete_completion = await self._pending_complete_task
+				complete_time = asyncio.get_event_loop().time() - streaming_start_time
+
+				if complete_completion:
+					# Update state with full output including thinking
+					self.state.last_model_output = complete_completion.completion
+					self.logger.info(f'📝 Step {self._pending_step_number}: Got complete response at {complete_time:.2f}s')
+
+					# Run post-processing
+					await self._handle_post_llm_processing(browser_state_summary, input_messages)
+
+			self._pending_post_processing_task = asyncio.create_task(_post_processing_wrapper())
+
+			self.logger.info(f'🚀 Step {self.state.n_steps}: Actions done, thinking streaming in background for next step')
 
 		except TimeoutError:
 			streaming_time = asyncio.get_event_loop().time() - streaming_start_time
@@ -936,7 +978,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				step_end_time=step_end_time,
 			)
 
-			# Use _make_history_item like main branch
+			# Create history with current model output (may have actions only, thinking will be added later)
 			await self._make_history_item(self.state.last_model_output, browser_state_summary, self.state.last_result, metadata)
 
 		# Log step completion summary
@@ -1609,6 +1651,23 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				)
 
 				self.logger.info(f'❌ {agent_run_error}')
+
+			# Wait for any pending thinking from the last step
+			if self._pending_post_processing_task:
+				self.logger.info('⏳ Awaiting final step\'s thinking before completing...')
+				await self._pending_post_processing_task
+
+				# Update last history item with complete thinking
+				if self._pending_step_number is not None and len(self.history.history) > 0:
+					last_history_item = self.history.history[-1]
+					if last_history_item and self.state.last_model_output:
+						last_history_item.model_output = self.state.last_model_output
+						self.logger.debug(f'📝 Updated final step {self._pending_step_number} history with complete thinking')
+
+				self._pending_complete_task = None
+				self._pending_post_processing_task = None
+				self._pending_browser_state_summary = None
+				self._pending_step_number = None
 
 			self.logger.debug('📊 Collecting usage summary...')
 			self.history.usage = await self.token_cost_service.get_usage_summary()
