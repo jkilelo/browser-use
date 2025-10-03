@@ -2064,7 +2064,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Update output model with the new actions
 		# by default flash mode -> don't use anything else but memory and action
-		self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
+		# self.AgentOutput = AgentOutput.type_with_custom_actions_flash_mode(self.ActionModel)
 
 		# if self.settings.use_thinking:
 		# 	self.AgentOutput = AgentOutput.type_with_custom_actions(self.ActionModel)
