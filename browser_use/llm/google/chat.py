@@ -206,7 +206,7 @@ class ChatGoogle(BaseChatModel):
 		gemini_schema = self._fix_gemini_schema(optimized_schema)
 		config['response_schema'] = gemini_schema
 
-		# Create streaming request
+		# Create streaming request - must await to get the async iterable
 		stream = await self.get_client().aio.models.generate_content_stream(
 			model=self.model,
 			contents=contents,
@@ -222,7 +222,8 @@ class ChatGoogle(BaseChatModel):
 			'last_chunk': None,
 			'actions_ready': asyncio.Event(),
 			'complete_ready': asyncio.Event(),
-			'error': None
+			'error': None,
+			'stream_processor_task': None
 		}
 
 		async def stream_processor():
@@ -233,24 +234,41 @@ class ChatGoogle(BaseChatModel):
 						shared_state['full_response_text'] += chunk.text
 						shared_state['stripped_response'] += chunk.text.strip().replace("\n", "").replace(" ", "")
 
-						# Check for actions as soon as we detect them
-						if shared_state['actions_completion'] is None and "],\"thinking\":" in shared_state['stripped_response']:
-							end_index = shared_state['stripped_response'].index("\"thinking\":")
-							actions_json = shared_state['stripped_response'][:end_index]
-							actions_json = actions_json.replace("{\"action\":", "")
+						# Check for actions as soon as we detect them - look for action array closing
+						# Pattern: ]," or ]} (action array closed, followed by next field or end of object)
+						if shared_state['actions_completion'] is None and ('],"' in shared_state['stripped_response'] or ']}' in shared_state['stripped_response']):
+							# Find where the action array closes
+							stripped = shared_state['stripped_response']
 
-							try:
-								# Parse and validate actions
-								actions_data = json.loads("{\"action\":" + actions_json + "]}")
-								actions_completion = output_format.model_validate(actions_data)
+							# Try to find the end of the action array
+							end_patterns = ['],"', ']}']
+							end_index = -1
+							for pattern in end_patterns:
+								if pattern in stripped:
+									idx = stripped.index(pattern)
+									if end_index == -1 or idx < end_index:
+										end_index = idx
 
-								shared_state['actions_completion'] = ChatInvokeCompletion(
-									completion=actions_completion,
-									usage=ChatInvokeUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-								)
-								shared_state['actions_ready'].set()
-							except (json.JSONDecodeError, ValueError) as e:
-								pass  # Continue if we can't parse actions yet
+							if end_index > 0:
+								# Extract everything from start to the closing bracket of action array
+								partial_json = stripped[:end_index + 1]  # Include the ]
+
+								# Add closing brace to make valid JSON
+								test_json = partial_json + "}"
+
+								try:
+									# Parse and validate actions
+									actions_data = json.loads(test_json)
+									actions_completion = output_format.model_validate(actions_data)
+
+									shared_state['actions_completion'] = ChatInvokeCompletion(
+										completion=actions_completion,
+										usage=ChatInvokeUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+									)
+									shared_state['actions_ready'].set()
+								except (json.JSONDecodeError, ValueError):
+									# Not ready yet, continue streaming
+									pass
 
 					shared_state['last_chunk'] = chunk
 					# Yield control to allow other tasks to run
@@ -276,6 +294,15 @@ class ChatGoogle(BaseChatModel):
 							completion=completion,
 							usage=usage
 						)
+
+						# If actions were never parsed during streaming, use the complete response
+						if shared_state['actions_completion'] is None:
+							shared_state['actions_completion'] = ChatInvokeCompletion(
+								completion=completion,
+								usage=usage
+							)
+							shared_state['actions_ready'].set()
+
 						shared_state['complete_ready'].set()
 					except (json.JSONDecodeError, ValueError) as e:
 						shared_state['error'] = ModelProviderError(
@@ -291,6 +318,15 @@ class ChatGoogle(BaseChatModel):
 
 		async def get_actions():
 			"""Task that waits for and returns actions"""
+			# Ensure stream processor stays alive
+			task = shared_state['stream_processor_task']
+			if task and task.done():
+				# If processor finished early, check for errors
+				try:
+					await task
+				except Exception as e:
+					raise e
+
 			await shared_state['actions_ready'].wait()
 			if shared_state['error']:
 				raise shared_state['error']
@@ -301,12 +337,25 @@ class ChatGoogle(BaseChatModel):
 			await shared_state['complete_ready'].wait()
 			if shared_state['error']:
 				raise shared_state['error']
+
+			# Ensure stream processor completes
+			task = shared_state['stream_processor_task']
+			if task:
+				try:
+					await task
+				except Exception as e:
+					if not shared_state['error']:
+						raise e
+
 			return shared_state['complete_completion']
 
 		# Start the stream processor and store the task
-		stream_processor_task = asyncio.create_task(stream_processor())
+		shared_state['stream_processor_task'] = asyncio.create_task(stream_processor())
 
-		# Return the two tasks - they will complete as soon as their respective events are set
+		# Yield control to let the stream processor start
+		await asyncio.sleep(0)
+
+		# Return the two coroutines - they will complete as soon as their respective events are set
 		return get_actions(), get_complete()
 
 	@overload
