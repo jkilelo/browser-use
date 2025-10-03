@@ -103,14 +103,14 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 
 class Tools(Generic[Context]):
 	MINIMAL_ACTIONS_EXCLUDE_LIST = [
-		'search_google',
-		'go_back',
-		'wait',
-		'click_element_by_index',
-		'input_text',
-		'upload_file_to_element',
-		'switch_tab',
-		'close_tab',
+		# 'search_google',
+		# 'go_back',
+		# 'wait',
+		# 'click_element_by_index',
+		# 'input_text',
+		# 'upload_file_to_element',
+		# 'switch_tab',
+		# 'close_tab',
 		'extract_structured_data',
 		'scroll',
 		'send_keys',
