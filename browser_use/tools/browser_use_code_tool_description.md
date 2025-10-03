@@ -43,6 +43,9 @@ Execute Browser Actor code using the browser-use actor library.
    - JavaScript uses triple quotes and arrow function format
    - Using correct method names (snake_case: get_element, not getElement)
    - Code is under 500 characters and focused on single action
+
+8. Comment are forbidden, please NEVER comment your code.
+- Instead do all the thinking in the memory.
 </RULES>
 
 ## API Reference
