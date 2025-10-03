@@ -685,40 +685,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
-		# ULTRA-PARALLEL: Await previous step's thinking while getting new browser state
-		if self._pending_post_processing_task:
-			self.logger.info(f'🔄 Step {self.state.n_steps}: Awaiting previous step\'s thinking + getting new browser state in parallel')
+		# ULTRA-PARALLEL: Use browser state fetched at end of previous step
+		# At end of previous step we started: action execution + browser state fetch + thinking
+		# Now we await the browser state (which was fetched in parallel with thinking)
+		if self._pending_browser_state_summary:
+			self.logger.info(f'🔄 Step {self.state.n_steps}: Using browser state fetched during previous step')
+			browser_state_summary = await self._pending_browser_state_summary
+			self.logger.info(f'✅ Step {self.state.n_steps}: Browser state ready')
 
-			# Start both tasks in parallel
-			browser_state_task = asyncio.create_task(
-				self.browser_session.get_browser_state_summary(
-					include_screenshot=True,
-					include_recent_events=self.include_recent_events,
-				)
-			)
-
-			# Wait for both to complete
-			browser_state_summary, _ = await asyncio.gather(
-				browser_state_task,
-				self._pending_post_processing_task
-			)
-
-			self.logger.info(f'✅ Step {self.state.n_steps}: Previous thinking received + new browser state ready')
-
-			# Update previous step's history with the full thinking
-			if self._pending_step_number is not None and len(self.history.history) > 0:
-				# The previous step's history is the last item (before we create the current step's history)
-				last_history_item = self.history.history[-1]
-				# Update the model_output with the complete version that now includes thinking
-				if last_history_item and self.state.last_model_output:
-					last_history_item.model_output = self.state.last_model_output
-					self.logger.debug(f'📝 Updated step {self._pending_step_number} history with complete thinking')
-
-			# Clear pending tasks
-			self._pending_complete_task = None
-			self._pending_post_processing_task = None
-			self._pending_browser_state_summary = None
-			self._pending_step_number = None
+			# Don't clear yet - we'll clear after we await thinking (at end of this step)
 		else:
 			self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
 			# Always take screenshots for all steps
@@ -737,6 +712,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		self._log_step_context(browser_state_summary)
 		await self._raise_if_stopped_or_paused()
+
+		# ULTRA-PARALLEL: Await previous step's thinking before creating messages
+		# This ensures history has complete thinking/memory/next_goal when we create LLM messages
+		if self._pending_complete_task:
+			self.logger.info(f'⏳ Step {self.state.n_steps}: Awaiting previous step\'s complete response with thinking...')
+			complete_completion = await self._pending_complete_task
+
+			if complete_completion:
+				# Update state with full output including thinking/memory/next_goal
+				self.state.last_model_output = complete_completion.completion
+				self.logger.info(f'✅ Step {self.state.n_steps}: Got previous step\'s complete response with thinking')
+
+			# Clear pending tasks
+			self._pending_complete_task = None
+			self._pending_browser_state_summary = None
+			self._pending_step_number = None
 
 		# Update action models with page-specific actions
 		self.logger.debug(f'📝 Step {self.state.n_steps}: Updating action models...')
@@ -848,29 +839,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				f'✅ Step {self.state.n_steps}: Action execution done at {action_total_time:.2f}s (waited {action_wait_time:.2f}s)'
 			)
 
-			# Store pending tasks for next step to await
-			# Convert coroutine to task so it starts executing immediately
+			# ULTRA-PARALLEL: Immediately start fetching NEXT browser state (don't await)
+			# This happens in parallel with thinking streaming
+			self.logger.info(f'🚀 Step {self.state.n_steps}: Starting next browser state fetch in parallel with thinking')
+			next_state_task = asyncio.create_task(
+				self.browser_session.get_browser_state_summary(
+					include_screenshot=True,
+					include_recent_events=self.include_recent_events,
+				)
+			)
+
+			# Store pending tasks for next step
 			self._pending_complete_task = asyncio.create_task(complete_task)
-			self._pending_browser_state_summary = browser_state_summary
+			self._pending_browser_state_summary = next_state_task  # Store as task, not awaited yet
 			self._pending_step_number = self.state.n_steps
 
-			# Create post-processing task that will run after complete_task finishes
-			async def _post_processing_wrapper():
-				"""Wait for thinking, update state, then run post-processing"""
-				complete_completion = await self._pending_complete_task
-				complete_time = asyncio.get_event_loop().time() - streaming_start_time
-
-				if complete_completion:
-					# Update state with full output including thinking
-					self.state.last_model_output = complete_completion.completion
-					self.logger.info(f'📝 Step {self._pending_step_number}: Got complete response at {complete_time:.2f}s')
-
-					# Run post-processing
-					await self._handle_post_llm_processing(browser_state_summary, input_messages)
-
-			self._pending_post_processing_task = asyncio.create_task(_post_processing_wrapper())
-
-			self.logger.info(f'🚀 Step {self.state.n_steps}: Actions done, thinking streaming in background for next step')
+			self.logger.info(f'✅ Step {self.state.n_steps}: Actions done, now fetching next state + waiting for thinking in parallel')
 
 		except TimeoutError:
 			streaming_time = asyncio.get_event_loop().time() - streaming_start_time
