@@ -689,13 +689,36 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		assert self.browser_session is not None, 'BrowserSession is not set up'
 
-		self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
-		# Always take screenshots for all steps
-		self.logger.debug('📸 Requesting browser state with include_screenshot=True')
-		browser_state_summary = await self.browser_session.get_browser_state_summary(
-			include_screenshot=True,  # always capture even if use_vision=False so that cloud sync is useful (it's fast now anyway)
-			include_recent_events=self.include_recent_events,
-		)
+		# In flash mode, resolve pending memory task while getting browser state in parallel
+		if self.settings.flash_mode and hasattr(self.state, 'pending_memory_task') and self.state.pending_memory_task:
+			self.logger.debug(f'⚡ Step {self.state.n_steps}: Getting browser state while waiting for memory from previous step...')
+
+			# Run browser state gathering and memory resolution in parallel
+			browser_state_task = asyncio.create_task(
+				self.browser_session.get_browser_state_summary(
+					include_screenshot=True,
+					include_recent_events=self.include_recent_events,
+				)
+			)
+
+			# Wait for both to complete
+			browser_state_summary, memory_response = await asyncio.gather(browser_state_task, self.state.pending_memory_task)
+
+			# Extract memory from response
+			memory = memory_response.completion.memory or ''
+			self.state.pending_memory = memory
+			self.state.pending_memory_task = None  # Clear the task
+
+			self.logger.debug(f'✅ Got browser state and memory in parallel (memory length: {len(memory)})')
+		else:
+			self.logger.debug(f'🌐 Step {self.state.n_steps}: Getting browser state...')
+			# Always take screenshots for all steps
+			self.logger.debug('📸 Requesting browser state with include_screenshot=True')
+			browser_state_summary = await self.browser_session.get_browser_state_summary(
+				include_screenshot=True,  # always capture even if use_vision=False so that cloud sync is useful (it's fast now anyway)
+				include_recent_events=self.include_recent_events,
+			)
+
 		if browser_state_summary.screenshot:
 			self.logger.debug(f'📸 Got browser state WITH screenshot, length: {len(browser_state_summary.screenshot)}')
 		else:
@@ -726,6 +749,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
 			sensitive_data=self.sensitive_data,
 			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
+			previous_memory=self.state.pending_memory,  # Include memory from previous step (for parallel mode)
 		)
 
 		await self._force_done_after_last_step(step_info)
@@ -741,9 +765,22 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		)
 
 		try:
-			model_output = await asyncio.wait_for(
-				self._get_model_output_with_retry(input_messages), timeout=self.settings.llm_timeout
-			)
+			# Use parallel calls in flash mode for speedup
+			if self.settings.flash_mode:
+				# Start action call immediately, memory call returns a task
+				model_output, memory_task = await asyncio.wait_for(
+					self._get_parallel_model_output_with_task(input_messages), timeout=self.settings.llm_timeout
+				)
+				# Include memory from previous step in this step's model output
+				# This ensures history has the memory that was computed in the previous step
+				if self.state.pending_memory:
+					model_output.memory = self.state.pending_memory
+				# Store memory task for resolution later (after action execution and next state prep)
+				self.state.pending_memory_task = memory_task
+			else:
+				model_output = await asyncio.wait_for(
+					self._get_model_output_with_retry(input_messages), timeout=self.settings.llm_timeout
+				)
 		except TimeoutError:
 
 			@observe(name='_llm_call_timed_out_with_input')
@@ -939,6 +976,75 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				model_output.action = [action_instance]
 
 		return model_output
+
+	async def _get_parallel_model_output_with_task(self, input_messages: list[BaseMessage]) -> tuple[AgentOutput, asyncio.Task]:
+		"""Get action immediately and return memory task for background processing
+
+		Returns:
+			tuple[AgentOutput, asyncio.Task]: (model_output with actions, task computing memory)
+		"""
+		from browser_use.agent.prompts import SystemPrompt
+
+		# Create action-only system prompt
+		action_system_prompt = SystemPrompt(
+			action_description=self.unfiltered_actions,
+			max_actions_per_step=self.settings.max_actions_per_step,
+			override_system_message=self.settings.override_system_message,
+			extend_system_message=self.settings.extend_system_message,
+			use_thinking=False,
+			flash_mode=True,
+			prompt_type='action_only',
+		).get_system_message()
+
+		# Create memory-only system prompt
+		memory_system_prompt = SystemPrompt(
+			action_description=self.unfiltered_actions,
+			max_actions_per_step=self.settings.max_actions_per_step,
+			override_system_message=self.settings.override_system_message,
+			extend_system_message=self.settings.extend_system_message,
+			use_thinking=False,
+			flash_mode=True,
+			prompt_type='memory_only',
+		).get_system_message()
+
+		# Create action-only and memory-only output models
+		ActionOnlyOutput = AgentOutput.type_with_custom_actions_action_only(self.ActionModel)
+		MemoryOnlyOutput = AgentOutput.type_with_custom_actions_memory_only(self.ActionModel)
+
+		# Replace system message for each call
+		action_messages = [action_system_prompt] + input_messages[1:]  # Skip original system message
+		memory_messages = [memory_system_prompt] + input_messages[1:]
+
+		# Run both LLM calls in parallel
+		self.logger.debug(f'⚡ Step {self.state.n_steps}: Starting parallel LLM calls (action + memory)...')
+
+		# Start both tasks
+		action_task = asyncio.create_task(self.llm.ainvoke(action_messages, output_format=ActionOnlyOutput))
+		memory_task = asyncio.create_task(self.llm.ainvoke(memory_messages, output_format=MemoryOnlyOutput))
+
+		# Wait only for action task
+		action_response = await action_task
+
+		# Process action response - this is already an ActionOnlyOutput (AgentOutput subclass)
+		action_output = action_response.completion
+
+		# Set memory and other fields to None for consistency
+		# (action_output already has these as None or missing from schema)
+		action_output.memory = None
+		action_output.evaluation_previous_goal = None
+		action_output.next_goal = None
+		action_output.thinking = None
+
+		# Cut actions to max_actions_per_step if needed
+		if len(action_output.action) > self.settings.max_actions_per_step:
+			action_output.action = action_output.action[: self.settings.max_actions_per_step]
+
+		self.logger.debug(
+			f'✅ Step {self.state.n_steps}: Got action LLM response with {len(action_output.action)} actions '
+			f'(memory call still running in background)'
+		)
+
+		return action_output, memory_task
 
 	async def _handle_post_llm_processing(
 		self,

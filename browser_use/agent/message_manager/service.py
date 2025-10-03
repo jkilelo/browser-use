@@ -289,6 +289,7 @@ class MessageManager:
 		page_filtered_actions: str | None = None,
 		sensitive_data=None,
 		available_file_paths: list[str] | None = None,  # Always pass current available_file_paths
+		previous_memory: str | None = None,  # Memory from previous step (for parallel mode)
 	) -> None:
 		"""Create single state message with all content"""
 
@@ -327,6 +328,7 @@ class MessageManager:
 			vision_detail_level=self.vision_detail_level,
 			include_recent_events=self.include_recent_events,
 			sample_images=self.sample_images,
+			previous_memory=previous_memory,
 		).get_user_message(use_vision)
 
 		# Set the state message with caching enabled
