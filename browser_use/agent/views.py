@@ -225,11 +225,11 @@ class AgentOutput(BaseModel):
 			def model_json_schema(cls, **kwargs):
 				schema = super().model_json_schema(**kwargs)
 				# Remove thinking, evaluation_previous_goal, and next_goal fields
-				del schema['properties']['thinking']
+				# del schema['properties']['thinking']
 				del schema['properties']['evaluation_previous_goal']
 				del schema['properties']['next_goal']
 				# Update required fields to only include remaining properties
-				schema['required'] = ['memory', 'action']
+				schema['required'] = ['memory', 'thinking', 'action']
 				return schema
 
 		model = create_model(

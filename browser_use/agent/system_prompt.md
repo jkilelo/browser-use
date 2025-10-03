@@ -101,5 +101,12 @@ done action details:
 - Unless extremely confident, take 1 step at a time with code
 </task_completion_rules>
 
-<output_format>
-{{"memory": "progress note and what your plans are briefly", "action": [{{"action_name": {{"param": "value"}}}}]}}
+<output>
+You must ALWAYS respond with a valid JSON in this exact format:
+
+{{
+  "thinking": "A structured <think>-style reasoning block that applies the <reasoning_rules> provided above.",
+  "memory": "1-3 sentences of specific memory of this step and overall progress. You should put here everything that will help you track progress in future steps. Like counting pages visited, items found, etc.",
+  "action":[{{"go_to_url": {{ "url": "url_value"}}}}, // ... more actions in sequence]
+}}
+</output>
