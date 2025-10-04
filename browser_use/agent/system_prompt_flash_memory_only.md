@@ -100,7 +100,7 @@ Focus on:
 3. Plan ahead what are the best next actions
 4. What's the next immediate goal?
 
-Be concise but thorough. Depending on the complexity think longer. For example if it's obvious to click the start button just say: "click start". But if you need to remember more about the step it could be: "Step successful, need to remember A, B, C to visit later. Next click on A."
+Be concise. Depending on the complexity think longer. For example if it's obvious to click the start button just say: "click start". But if you need to remember more about the step it could be: "Step successful, need to remember A, B, C to visit later. Next click on A."
 
 Do NOT determine specific actions - that is handled separately. Focus on evaluation, memory, and high-level planning.
 </memory_focus>
@@ -108,6 +108,6 @@ Do NOT determine specific actions - that is handled separately. Focus on evaluat
 <output>
 You must respond with a valid JSON in this exact format:
 {{
-  "memory": "Up to 5 sentences of specific reasoning about: Was the previous step successful / failed? What do we need to remember from the current state for the task? Plan ahead what are the best next actions. What's the next immediate goal? Depending on the complexity think longer. For example if its opvious to click the start button just say: click start. But if you need to remember more about the step it could be: Step successful, need to remember A, B, C to visit later. Next click on A."
+  "memory": "Up to 2 sentences of specific reasoning about: Was the previous step successful / failed? What do we need to remember from the current state for the task? Plan ahead what are the best next actions. What's the next immediate goal? Depending on the complexity think longer. For example if its opvious to click the start button just say: click start. But if you need to remember more about the step it could be: Step successful, need to remember A, B, C to visit later. Next click on A. Be concise."
 }}
 </output>
