@@ -181,6 +181,7 @@ class DOMWatchdog(BaseWatchdog):
 					browser_errors=[],
 					is_pdf_viewer=False,
 					recent_events=self._get_recent_events_str() if event.include_recent_events else None,
+					_deferred_screenshot_event=None,  # No deferred screenshot for empty pages
 				)
 
 			# Execute DOM building and screenshot capture in parallel
@@ -199,10 +200,13 @@ class DOMWatchdog(BaseWatchdog):
 
 				dom_task = asyncio.create_task(self._build_dom_tree_without_highlights(previous_state))
 
-			# Start clean screenshot task if requested (without JS highlights)
+			# Start clean screenshot event if requested - always defer for async behavior
+			screenshot_event = None
 			if event.include_screenshot:
-				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 📸 Starting clean screenshot task...')
-				screenshot_task = asyncio.create_task(self._capture_clean_screenshot())
+				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 📸 Dispatching deferred screenshot event...')
+				# Always dispatch screenshot event but don't await it yet - let consumers await when needed
+				screenshot_event = self.event_bus.dispatch(ScreenshotEvent(full_page=False))
+				screenshot_task = None  # No immediate task
 
 			# Wait for both tasks to complete
 			content = None
@@ -218,34 +222,12 @@ class DOMWatchdog(BaseWatchdog):
 			else:
 				content = SerializedDOMState(_root=None, selector_map={})
 
-			if screenshot_task:
-				try:
-					screenshot_b64 = await screenshot_task
-					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Clean screenshot captured')
-				except Exception as e:
-					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Clean screenshot failed: {e}')
-					screenshot_b64 = None
+			# For deferred screenshots, we don't await now - consumers will await when needed
+			if screenshot_event:
+				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 📸 Deferring screenshot await for later')
+				screenshot_b64 = None
 
-			# Apply Python-based highlighting if both DOM and screenshot are available
-			if screenshot_b64 and content and content.selector_map and self.browser_session.browser_profile.highlight_elements:
-				try:
-					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 🎨 Applying Python-based highlighting...')
-					from browser_use.browser.python_highlights import create_highlighted_screenshot_async
-
-					# Get CDP session for viewport info
-					cdp_session = await self.browser_session.get_or_create_cdp_session()
-					start = time.time()
-					screenshot_b64 = await create_highlighted_screenshot_async(
-						screenshot_b64,
-						content.selector_map,
-						cdp_session,
-						self.browser_session.browser_profile.filter_highlight_ids,
-					)
-					self.logger.debug(
-						f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Applied highlights to {len(content.selector_map)} elements in {time.time() - start:.2f}s'
-					)
-				except Exception as e:
-					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Python highlighting failed: {e}')
+			# Highlighting is now handled automatically in ScreenshotWatchdog when screenshots are awaited
 
 			# Ensure we have valid content
 			if not content:
@@ -311,6 +293,7 @@ class DOMWatchdog(BaseWatchdog):
 				browser_errors=[],
 				is_pdf_viewer=is_pdf_viewer,
 				recent_events=self._get_recent_events_str() if event.include_recent_events else None,
+				_deferred_screenshot_event=screenshot_event,  # Store the deferred event for later await
 			)
 
 			# Cache the state
@@ -346,6 +329,9 @@ class DOMWatchdog(BaseWatchdog):
 				browser_errors=[str(e)],
 				is_pdf_viewer=False,
 				recent_events=None,
+				_deferred_screenshot_event=screenshot_event
+				if 'screenshot_event' in locals()
+				else None,  # Include deferred event if available
 			)
 
 	@time_execution_async('build_dom_tree_without_highlights')

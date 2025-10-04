@@ -85,6 +85,30 @@ class BrowserStateSummary:
 	is_pdf_viewer: bool = False  # Whether the current page is a PDF viewer
 	recent_events: str | None = None  # Text summary of recent browser events
 
+	# New field for deferred screenshot loading in Auto mode
+	_deferred_screenshot_event: BaseEvent[str] | None = field(default=None, repr=False)
+
+	async def get_screenshot(self) -> str | None:
+		"""Get the screenshot, awaiting deferred event if needed."""
+		if self.screenshot is not None:
+			return self.screenshot
+
+		if self._deferred_screenshot_event is not None:
+			try:
+				# Await the deferred screenshot event
+				await self._deferred_screenshot_event
+				screenshot_b64 = await self._deferred_screenshot_event.event_result(raise_if_any=True, raise_if_none=True)
+				# Cache the result for future calls
+				self.screenshot = screenshot_b64
+				self._deferred_screenshot_event = None
+				return screenshot_b64
+			except Exception:
+				# If screenshot fails, return None and clear the event
+				self._deferred_screenshot_event = None
+				return None
+
+		return None
+
 
 @dataclass
 class BrowserStateHistory:

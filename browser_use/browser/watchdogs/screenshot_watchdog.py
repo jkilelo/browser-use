@@ -1,5 +1,6 @@
 """Screenshot watchdog for handling screenshot requests using CDP."""
 
+import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from bubus import BaseEvent
@@ -25,13 +26,13 @@ class ScreenshotWatchdog(BaseWatchdog):
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='screenshot_event_handler')
 	async def on_ScreenshotEvent(self, event: ScreenshotEvent) -> str:
-		"""Handle screenshot request using CDP.
+		"""Handle screenshot request using CDP with automatic highlighting.
 
 		Args:
 			event: ScreenshotEvent with optional full_page and clip parameters
 
 		Returns:
-			Dict with 'screenshot' key containing base64-encoded screenshot or None
+			Base64-encoded screenshot data, with highlights applied if elements are available
 		"""
 		self.logger.debug('[ScreenshotWatchdog] Handler START - on_ScreenshotEvent called')
 		try:
@@ -45,12 +46,40 @@ class ScreenshotWatchdog(BaseWatchdog):
 			self.logger.debug(f'[ScreenshotWatchdog] Taking screenshot with params: {params}')
 			result = await cdp_session.cdp_client.send.Page.captureScreenshot(params=params, session_id=cdp_session.session_id)
 
-			# Return base64-encoded screenshot data
-			if result and 'data' in result:
-				self.logger.debug('[ScreenshotWatchdog] Screenshot captured successfully')
-				return result['data']
+			# Get base64-encoded screenshot data
+			if not result or 'data' not in result:
+				raise BrowserError('[ScreenshotWatchdog] Screenshot result missing data')
 
-			raise BrowserError('[ScreenshotWatchdog] Screenshot result missing data')
+			screenshot_b64 = result['data']
+			self.logger.debug('[ScreenshotWatchdog] Screenshot captured successfully')
+
+			# Apply highlighting if elements are available and highlighting is enabled
+			if (
+				self.browser_session.browser_profile.highlight_elements
+				and self.browser_session._cached_browser_state_summary
+				and self.browser_session._cached_browser_state_summary.dom_state
+				and self.browser_session._cached_browser_state_summary.dom_state.selector_map
+			):
+				try:
+					self.logger.debug('[ScreenshotWatchdog] 🎨 Applying Python-based highlighting...')
+					from browser_use.browser.python_highlights import create_highlighted_screenshot_async
+
+					selector_map = self.browser_session._cached_browser_state_summary.dom_state.selector_map
+					start = time.time()
+					screenshot_b64 = await create_highlighted_screenshot_async(
+						screenshot_b64,
+						selector_map,
+						cdp_session,
+						self.browser_session.browser_profile.filter_highlight_ids,
+					)
+					self.logger.debug(
+						f'[ScreenshotWatchdog] ✅ Applied highlights to {len(selector_map)} elements in {time.time() - start:.2f}s'
+					)
+				except Exception as e:
+					self.logger.warning(f'[ScreenshotWatchdog] Python highlighting failed: {e}')
+
+			return screenshot_b64
+
 		except Exception as e:
 			self.logger.error(f'[ScreenshotWatchdog] Screenshot failed: {e}')
 			raise
