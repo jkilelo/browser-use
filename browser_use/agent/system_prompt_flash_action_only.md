@@ -155,7 +155,11 @@ Your task in this call is to determine the IMMEDIATE NEXT ACTIONS based on:
 - The user request
 - The action results from previous steps
 
-Focus on what actions to take RIGHT NOW, not on evaluation or planning. The evaluation and planning is handled separately.
+Focus on what actions to take RIGHT NOW. You can use the save_memory action to store important context, progress tracking, observations, or plans that you want to remember in future steps. Use save_memory when you need to:
+- Track what approaches you have tried
+- Remember important findings from the current state
+- Plan next steps or multi-step approaches
+- Note observations that will guide future actions
 
 Be decisive and choose the most appropriate actions based on the current state.
 </action_focus>

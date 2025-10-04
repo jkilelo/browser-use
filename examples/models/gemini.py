@@ -14,12 +14,17 @@ api_key = os.getenv('GOOGLE_API_KEY')
 if not api_key:
 	raise ValueError('GOOGLE_API_KEY is not set')
 
+from lmnr import Laminar
+
+Laminar.initialize()
+
 
 async def run_search():
 	llm = ChatGoogle(model='gemini-flash-latest', api_key=api_key)
 	agent = Agent(
 		llm=llm,
 		task='How many stars does the browser-use repo have?',
+		flash_mode=True,
 	)
 
 	await agent.run()
