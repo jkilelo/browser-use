@@ -39,7 +39,8 @@ class ScreenshotWatchdog(BaseWatchdog):
 			cdp_session = await self.browser_session.get_or_create_cdp_session()
 
 			# Prepare screenshot parameters
-			params = CaptureScreenshotParameters(format='png', captureBeyondViewport=False)
+			# Use JPEG quality 60 for ~75% faster screenshots with similar file size to PNG
+			params = CaptureScreenshotParameters(format='jpeg', quality=60, captureBeyondViewport=False)
 
 			# Take screenshot using CDP
 			self.logger.debug(f'[ScreenshotWatchdog] Taking screenshot with params: {params}')

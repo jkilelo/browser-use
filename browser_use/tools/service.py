@@ -845,6 +845,21 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
 				)
 
+		@self.registry.action(
+			'Request to include a screenshot in your next browser state. Use this when you need visual confirmation or when the page contains complex visual information that is hard to understand from the DOM alone.'
+		)
+		async def take_screenshot():
+			"""Request that a screenshot be included in the next observation"""
+			memory = 'Requested screenshot for next observation'
+			msg = f'📸 {memory}'
+			logger.info(msg)
+
+			# Return flag in metadata to signal that screenshot should be included
+			return ActionResult(
+				extracted_content=memory,
+				metadata={'include_screenshot': True},
+			)
+
 		# Dropdown Actions
 
 		@self.registry.action(
