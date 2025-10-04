@@ -22,13 +22,11 @@ class SystemPrompt:
 		extend_system_message: str | None = None,
 		use_thinking: bool = True,
 		flash_mode: bool = False,
-		prompt_type: Literal['default', 'action_only', 'memory_only'] = 'default',
 	):
 		self.default_action_description = action_description
 		self.max_actions_per_step = max_actions_per_step
 		self.use_thinking = use_thinking
 		self.flash_mode = flash_mode
-		self.prompt_type = prompt_type
 		prompt = ''
 		if override_system_message is not None:
 			prompt = override_system_message
@@ -44,12 +42,8 @@ class SystemPrompt:
 	def _load_prompt_template(self) -> None:
 		"""Load the prompt template from the markdown file."""
 		try:
-			# Choose the appropriate template based on prompt_type, flash_mode and use_thinking settings
-			if self.prompt_type == 'action_only':
-				template_filename = 'system_prompt_flash_action_only.md'
-			elif self.prompt_type == 'memory_only':
-				template_filename = 'system_prompt_flash_memory_only.md'
-			elif self.flash_mode:
+			# Choose the appropriate template based on flash_mode and use_thinking settings
+			if self.flash_mode:
 				template_filename = 'system_prompt_flash.md'
 			elif self.use_thinking:
 				template_filename = 'system_prompt.md'
@@ -101,7 +95,6 @@ class AgentMessagePrompt:
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
-		previous_memory: str | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -118,7 +111,6 @@ class AgentMessagePrompt:
 		self.vision_detail_level = vision_detail_level
 		self.include_recent_events = include_recent_events
 		self.sample_images = sample_images or []
-		self.previous_memory = previous_memory
 		assert self.browser_state
 
 	def _extract_page_statistics(self) -> dict[str, int]:
@@ -347,10 +339,6 @@ Available tabs:
 		read_state_description = self.read_state_description.strip('\n').strip() if self.read_state_description else ''
 		if read_state_description:
 			state_description += '<read_state>\n' + read_state_description + '\n</read_state>\n'
-
-		# Add previous memory if available (for parallel mode)
-		if self.previous_memory:
-			state_description += '<previous_memory>\n' + self.previous_memory.strip() + '\n</previous_memory>\n'
 
 		if self.page_filtered_actions:
 			state_description += '<page_specific_actions>\n'

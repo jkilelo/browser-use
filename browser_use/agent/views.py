@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import traceback
@@ -73,10 +72,6 @@ class AgentState(BaseModel):
 	stopped: bool = False
 	session_initialized: bool = False  # Track if session events have been dispatched
 	follow_up_task: bool = False  # Track if the agent is a follow-up task
-
-	# Parallel mode: store memory from previous step to include in next state
-	pending_memory: str | None = None
-	pending_memory_task: asyncio.Task | None = None  # Task computing next memory (running in background)
 
 	message_manager_state: MessageManagerState = Field(default_factory=MessageManagerState)
 	file_system_state: FileSystemState | None = None
@@ -223,18 +218,19 @@ class AgentOutput(BaseModel):
 
 	@staticmethod
 	def type_with_custom_actions_flash_mode(custom_actions: type[ActionModel]) -> type[AgentOutput]:
-		"""Extend actions with custom actions for flash mode - memory and action fields only"""
+		"""Extend actions with custom actions for flash mode - action field only, memory via save_memory tool"""
 
 		class AgentOutputFlashMode(AgentOutput):
 			@classmethod
 			def model_json_schema(cls, **kwargs):
 				schema = super().model_json_schema(**kwargs)
-				# Remove thinking, evaluation_previous_goal, and next_goal fields
+				# Remove thinking, evaluation_previous_goal, next_goal, and memory fields
 				del schema['properties']['thinking']
 				del schema['properties']['evaluation_previous_goal']
 				del schema['properties']['next_goal']
-				# Update required fields to only include remaining properties
-				schema['required'] = ['memory', 'action']
+				del schema['properties']['memory']
+				# Update required fields to only include action
+				schema['required'] = ['action']
 				return schema
 
 		model = create_model(
@@ -247,69 +243,9 @@ class AgentOutput(BaseModel):
 			__module__=AgentOutputFlashMode.__module__,
 		)
 
-		model.__doc__ = 'AgentOutput model with custom actions'
+		model.__doc__ = 'AgentOutput model with action only (memory via save_memory tool)'
 		return model
 
-	@staticmethod
-	def type_with_custom_actions_action_only(custom_actions: type[ActionModel]) -> type[AgentOutput]:
-		"""Extend actions with custom actions for parallel mode - action field only"""
-
-		class AgentOutputActionOnly(AgentOutput):
-			@classmethod
-			def model_json_schema(cls, **kwargs):
-				schema = super().model_json_schema(**kwargs)
-				# Remove all fields except action
-				del schema['properties']['thinking']
-				del schema['properties']['evaluation_previous_goal']
-				del schema['properties']['memory']
-				del schema['properties']['next_goal']
-				# Update required fields to only include action
-				schema['required'] = ['action']
-				return schema
-
-		model = create_model(
-			'AgentOutput',
-			__base__=AgentOutputActionOnly,
-			action=(
-				list[custom_actions],  # type: ignore
-				Field(..., description='List of actions to execute', json_schema_extra={'min_items': 1}),
-			),
-			__module__=AgentOutputActionOnly.__module__,
-		)
-
-		model.__doc__ = 'AgentOutput model with action only'
-		return model
-
-	@staticmethod
-	def type_with_custom_actions_memory_only(custom_actions: type[ActionModel]) -> type[AgentOutput]:
-		"""Extend actions with custom actions for parallel mode - memory field only"""
-
-		class AgentOutputMemoryOnly(AgentOutput):
-			@classmethod
-			def model_json_schema(cls, **kwargs):
-				schema = super().model_json_schema(**kwargs)
-				# Remove all fields except memory
-				del schema['properties']['thinking']
-				del schema['properties']['evaluation_previous_goal']
-				del schema['properties']['next_goal']
-				del schema['properties']['action']
-				# Update required fields to only include memory
-				schema['required'] = ['memory']
-				return schema
-
-		model = create_model(
-			'AgentOutput',
-			__base__=AgentOutputMemoryOnly,
-			# Still need action field for the base model, but it won't be in schema
-			action=(
-				list[custom_actions],  # type: ignore
-				Field(default=[], description='List of actions (not used in memory-only mode)'),
-			),
-			__module__=AgentOutputMemoryOnly.__module__,
-		)
-
-		model.__doc__ = 'AgentOutput model with memory only'
-		return model
 
 
 class AgentHistory(BaseModel):

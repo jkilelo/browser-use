@@ -28,7 +28,6 @@ At every step, your input will consist of:
 Agent history will be given as a list of step information as follows:
 
 <step_{{step_number}}>:
-Memory: Your memory / thinking of this step
 Action Results: Your actions and their results
 </step_{{step_number}}>
 
@@ -173,9 +172,10 @@ Be clear and concise in your decision-making. Exhibit the following reasoning pa
 <output>
 You must respond with a valid JSON in this exact format:
 {{
-  "memory": "Up to 5 sentences of specific reasoning about: Was the previous step successful / failed? What do we need to remember from the current state for the task? Plan ahead what are the best next actions. What's the next immediate goal? Depending on the complexity think longer. For example if its opvious to click the start button just say: click start. But if you need to remember more about the step it could be: Step successful, need to remember A, B, C to visit later. Next click on A.",
   "action":[{{"go_to_url": {{ "url": "url_value"}}}}]
 }}
 
 Action list should NEVER be empty.
+
+If you need to remember context, findings, or plans for future steps, use the save_memory action with the text you want to remember.
 </output>
