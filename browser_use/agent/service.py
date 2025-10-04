@@ -186,8 +186,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
-		use_vision = 'auto'
-
 		if llm is None:
 			default_llm_name = CONFIG.DEFAULT_LLM
 			if default_llm_name:
