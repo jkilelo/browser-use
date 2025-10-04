@@ -113,6 +113,15 @@ class Tools(Generic[Context]):
 
 		self._register_done_action(output_model)
 
+		# Memory Action
+		@self.registry.action(
+			'Save important information, reasoning, or plans to memory. Use this when you need to remember context, track progress, make observations, or plan next steps. The text will be stored and accessible in future steps to help you maintain context across the task. This is particularly useful for: tracking what you have tried, noting important findings, planning multi-step approaches, or remembering key information from the current state.',
+		)
+		async def save_memory(text: str):
+			memory = f'Saved to memory: {text}'
+			logger.info(f'🧠 {memory}')
+			return ActionResult(extracted_content=text, long_term_memory=memory)
+
 		# Basic Navigation Actions
 		@self.registry.action(
 			'Search a query with search engine which defaults to DuckDuckGo. Dont specify search_engine unless user asks for different search engine. Available search engines: duckduckgo, google, bing.',
@@ -843,6 +852,21 @@ Note: For multiple pages (>=1.0), scrolls are performed one page at a time to en
 					extracted_content=msg,
 					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
 				)
+
+		@self.registry.action(
+			'Request to include a screenshot in your next browser state. Use this when you need visual confirmation or when the page contains complex visual information that is hard to understand from the DOM alone.'
+		)
+		async def take_screenshot():
+			"""Request that a screenshot be included in the next observation"""
+			memory = 'Requested screenshot for next observation'
+			msg = f'📸 {memory}'
+			logger.info(msg)
+
+			# Return flag in metadata to signal that screenshot should be included
+			return ActionResult(
+				extracted_content=memory,
+				metadata={'include_screenshot': True},
+			)
 
 		# Dropdown Actions
 
