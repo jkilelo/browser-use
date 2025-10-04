@@ -200,12 +200,14 @@ class DOMWatchdog(BaseWatchdog):
 
 				dom_task = asyncio.create_task(self._build_dom_tree_without_highlights(previous_state))
 
-			# Start clean screenshot event if requested - always defer for async behavior
+			# Start clean screenshot event if requested - parallel with DOM for maximum performance
 			screenshot_event = None
 			if event.include_screenshot:
-				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 📸 Dispatching deferred screenshot event...')
-				# Always dispatch screenshot event but don't await it yet - let consumers await when needed
-				screenshot_event = self.event_bus.dispatch(ScreenshotEvent(full_page=False))
+				self.logger.debug(
+					'🔍 DOMWatchdog.on_BrowserStateRequestEvent: 📸 Dispatching screenshot event in parallel with DOM...'
+				)
+				# Dispatch screenshot event with DOM task - screenshot can await DOM when needed for highlighting
+				screenshot_event = self.event_bus.dispatch(ScreenshotEvent(full_page=False, dom_task=dom_task))
 				screenshot_task = None  # No immediate task
 
 			# Wait for both tasks to complete
@@ -216,6 +218,9 @@ class DOMWatchdog(BaseWatchdog):
 				try:
 					content = await dom_task
 					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ DOM tree build completed')
+
+					# DOM completed - no need for temp state since screenshot can await DOM task directly
+
 				except Exception as e:
 					self.logger.warning(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: DOM build failed: {e}, using minimal state')
 					content = SerializedDOMState(_root=None, selector_map={})
@@ -296,7 +301,7 @@ class DOMWatchdog(BaseWatchdog):
 				_deferred_screenshot_event=screenshot_event,  # Store the deferred event for later await
 			)
 
-			# Cache the state
+			# Cache the complete browser state
 			self.browser_session._cached_browser_state_summary = browser_state
 
 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ COMPLETED - Returning browser state')
