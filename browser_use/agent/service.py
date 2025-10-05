@@ -257,7 +257,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		else:
 			# Exclude take_screenshot tool when use_vision=False
 			exclude_actions = ['take_screenshot'] if use_vision is False else []
-			self.tools = Tools(exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text)
+			self.tools = Tools(
+				exclude_actions=exclude_actions, display_files_in_done_text=display_files_in_done_text, flash_mode=flash_mode
+			)
 
 		# Structured output
 		self.output_model_schema = output_model_schema
@@ -715,7 +717,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		await self._update_action_models_for_page(browser_state_summary.url)
 
 		# Get page-specific filtered actions
-		page_filtered_actions = self.tools.registry.get_prompt_description(browser_state_summary.url, flash_mode=self.settings.flash_mode)
+		page_filtered_actions = self.tools.registry.get_prompt_description(
+			browser_state_summary.url, flash_mode=self.settings.flash_mode
+		)
 
 		# Page-specific actions will be included directly in the browser_state message
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')

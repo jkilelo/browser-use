@@ -58,11 +58,8 @@ class SystemPrompt:
 			with importlib.resources.files('browser_use.agent').joinpath(template_filename).open('r', encoding='utf-8') as f:
 				base_template = f.read()
 
-			# Add action descriptions
-			if self.flash_mode:
-				self.prompt_template = f'{base_template}\n\nActions: {self.default_action_description}'
-			else:
-				self.prompt_template = base_template
+			# Flash mode templates are minimal and don't need action descriptions
+			self.prompt_template = base_template
 		except Exception as e:
 			raise RuntimeError(f'Failed to load system prompt template: {e}')
 
