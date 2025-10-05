@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from browser_use.browser.events import (
 	BrowserErrorEvent,
 	BrowserStateRequestEvent,
-	ScreenshotEvent,
 	TabCreatedEvent,
 )
 from browser_use.browser.watchdog_base import BaseWatchdog
@@ -391,42 +390,6 @@ class DOMWatchdog(BaseWatchdog):
 					message=str(e),
 				)
 			)
-			raise
-
-	@time_execution_async('capture_clean_screenshot')
-	@observe_debug(ignore_input=True, ignore_output=True, name='capture_clean_screenshot')
-	async def _capture_clean_screenshot(self) -> str:
-		"""Capture a clean screenshot without JavaScript highlights."""
-		try:
-			self.logger.debug('🔍 DOMWatchdog._capture_clean_screenshot: Capturing clean screenshot...')
-
-			# Ensure we have a focused CDP session
-			assert self.browser_session.agent_focus is not None, 'No current target ID'
-			await self.browser_session.get_or_create_cdp_session(target_id=self.browser_session.agent_focus.target_id, focus=True)
-
-			# Check if handler is registered
-			handlers = self.event_bus.handlers.get('ScreenshotEvent', [])
-			handler_names = [getattr(h, '__name__', str(h)) for h in handlers]
-			self.logger.debug(f'📸 ScreenshotEvent handlers registered: {len(handlers)} - {handler_names}')
-
-			screenshot_event = self.event_bus.dispatch(ScreenshotEvent(full_page=False))
-			self.logger.debug('📸 Dispatched ScreenshotEvent, waiting for event to complete...')
-
-			# Wait for the event itself to complete (this waits for all handlers)
-			await screenshot_event
-
-			# Get the single handler result
-			screenshot_b64 = await screenshot_event.event_result(raise_if_any=True, raise_if_none=True)
-			if screenshot_b64 is None:
-				raise RuntimeError('Screenshot handler returned None')
-			self.logger.debug('🔍 DOMWatchdog._capture_clean_screenshot: ✅ Clean screenshot captured successfully')
-			return str(screenshot_b64)
-
-		except TimeoutError:
-			self.logger.warning('📸 Clean screenshot timed out after 6 seconds - no handler registered or slow page?')
-			raise
-		except Exception as e:
-			self.logger.warning(f'📸 Clean screenshot failed: {type(e).__name__}: {e}')
 			raise
 
 	@observe_debug(ignore_input=True, ignore_output=True, name='capture_screenshot_with_highlighting')

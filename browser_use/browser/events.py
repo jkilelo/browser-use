@@ -181,7 +181,6 @@ class ScreenshotEvent(BaseEvent[str]):
 
 	full_page: bool = False
 	clip: dict[str, float] | None = None  # {x, y, width, height}
-	dom_task: Any | None = None  # Optional DOM task to await for highlighting
 
 	event_timeout: float | None = _get_timeout('TIMEOUT_ScreenshotEvent', 8.0)  # seconds
 
