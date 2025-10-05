@@ -228,8 +228,9 @@ class AgentOutput(BaseModel):
 				del schema['properties']['thinking']
 				del schema['properties']['evaluation_previous_goal']
 				del schema['properties']['next_goal']
+				del schema['properties']['memory']
 				# Update required fields to only include remaining properties
-				schema['required'] = ['action', 'memory']
+				schema['required'] = ['action']
 				return schema
 
 		model = create_model(
