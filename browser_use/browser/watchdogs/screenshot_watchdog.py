@@ -1,6 +1,5 @@
 """Screenshot watchdog for handling screenshot requests using CDP."""
 
-import time
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from bubus import BaseEvent
@@ -53,32 +52,8 @@ class ScreenshotWatchdog(BaseWatchdog):
 			screenshot_b64 = result['data']
 			self.logger.debug('[ScreenshotWatchdog] Screenshot captured successfully')
 
-			# Apply highlighting if enabled and DOM task available
-			if self.browser_session.browser_profile.highlight_elements and event.dom_task:
-				try:
-					self.logger.debug('[ScreenshotWatchdog] 🚀 Awaiting DOM completion for highlighting...')
-					dom_state = await event.dom_task  # Await DOM completion only when needed for highlighting
-
-					if dom_state and dom_state.selector_map:
-						self.logger.debug(
-							f'[ScreenshotWatchdog] 🎨 Applying highlighting using DOM state with {len(dom_state.selector_map)} elements...'
-						)
-						from browser_use.browser.python_highlights import create_highlighted_screenshot_async
-
-						start = time.time()
-						screenshot_b64 = await create_highlighted_screenshot_async(
-							screenshot_b64,
-							dom_state.selector_map,
-							cdp_session,
-							self.browser_session.browser_profile.filter_highlight_ids,
-						)
-						self.logger.debug(
-							f'[ScreenshotWatchdog] ✅ Applied highlights to {len(dom_state.selector_map)} elements in {time.time() - start:.2f}s'
-						)
-					else:
-						self.logger.debug('[ScreenshotWatchdog] No DOM elements to highlight')
-				except Exception as e:
-					self.logger.warning(f'[ScreenshotWatchdog] Python highlighting failed: {e}')
+			# Highlighting is now handled in the new task-based approach (_capture_screenshot_with_highlighting)
+			# This old event-based highlighting is no longer used
 
 			return screenshot_b64
 
