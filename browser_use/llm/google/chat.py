@@ -51,7 +51,7 @@ class ChatGoogle(BaseChatModel):
 		model: The Gemini model to use
 		temperature: Temperature for response generation
 		config: Additional configuration parameters to pass to generate_content
-			(e.g., tools, safety_settings, etc.).
+			(e.g., tools, safety_settings, etc.). Tools defined here can be cached.
 		api_key: Google API key
 		vertexai: Whether to use Vertex AI
 		credentials: Google credentials object
@@ -60,15 +60,37 @@ class ChatGoogle(BaseChatModel):
 		http_options: HTTP options for the client
 		include_system_in_user: If True, system messages are included in the first user message
 		supports_structured_output: If True, uses native JSON mode; if False, uses prompt-based fallback
+		use_cache: Enable explicit context caching for system instructions and tools (default: True)
+		cache_ttl: Cache time-to-live, e.g., '3600s' for 1 hour (default: '300s' = 5 minutes)
+		cache_name: Reuse existing cache by name instead of creating new one (default: None)
 
-	Example:
+	Context Caching:
+		Gemini 2.5 models automatically use implicit caching for repeated prefixes (min 1024 tokens).
+		Enable explicit caching with use_cache=True to cache system instructions and tools,
+		reducing costs by ~90% for cached content. Explicit caching is useful when:
+		- You have long system instructions (>1024 tokens)
+		- You want guaranteed caching across sessions
+		- You're using tools that should be cached
+
+	Examples:
+		# Basic usage (implicit caching automatic on 2.5 models)
+		llm = ChatGoogle(model='gemini-2.0-flash-exp')
+
+		# With tools (can be cached)
 		from google.genai import types
-
 		llm = ChatGoogle(
 			model='gemini-2.0-flash-exp',
 			config={
 				'tools': [types.Tool(code_execution=types.ToolCodeExecution())]
 			}
+		)
+
+		# Enable explicit caching for system instructions + tools
+		llm = ChatGoogle(
+			model='gemini-2.0-flash-exp',
+			use_cache=True,
+			cache_ttl='3600s',  # 1 hour
+			config={'tools': [...]}
 		)
 	"""
 
@@ -91,8 +113,14 @@ class ChatGoogle(BaseChatModel):
 	location: str | None = None
 	http_options: types.HttpOptions | types.HttpOptionsDict | None = None
 
+	# Caching configuration
+	use_cache: bool = True  # Enable explicit context caching (default: True for cost savings)
+	cache_ttl: str = '300s'  # Cache time-to-live (default 5min)
+	cache_name: str | None = None  # Reuse existing cache by name
+
 	# Internal client cache to prevent connection issues
 	_client: genai.Client | None = None
+	_context_cache: types.CachedContent | None = None  # Explicit context cache
 
 	# Static
 	@property
@@ -138,6 +166,80 @@ class ChatGoogle(BaseChatModel):
 	@property
 	def name(self) -> str:
 		return str(self.model)
+
+	async def _create_or_get_cache(
+		self, system_instruction: str | None, tools: list[types.Tool] | None = None
+	) -> types.CachedContent | None:
+		"""
+		Create or retrieve a context cache for system instructions and tools.
+
+		Args:
+			system_instruction: The system instruction to cache
+			tools: Optional list of tools to cache
+
+		Returns:
+			CachedContent object if caching is enabled and successful, None otherwise
+		"""
+		if not self.use_cache:
+			return None
+
+		# If cache name is provided, try to retrieve existing cache
+		if self.cache_name:
+			try:
+				self.logger.debug(f'🔍 Attempting to retrieve existing cache: {self.cache_name}')
+				cache = await self.get_client().aio.caches.get(name=self.cache_name)
+				self.logger.debug(f'✅ Retrieved existing cache: {cache.name}')
+				return cache
+			except Exception as e:
+				self.logger.warning(f'⚠️ Failed to retrieve cache {self.cache_name}: {e}')
+				# Fall through to create new cache
+
+		# Return existing cache if already created
+		if self._context_cache is not None:
+			self.logger.debug(f'♻️ Reusing existing context cache: {self._context_cache.name}')
+			return self._context_cache
+
+		# Create new cache
+		if not system_instruction:
+			self.logger.debug('⚠️ Cannot create cache without system instruction')
+			return None
+
+		try:
+			self.logger.debug('🔧 Creating new context cache...')
+			cache_config = types.CreateCachedContentConfig(
+				system_instruction=system_instruction,
+				ttl=self.cache_ttl,
+				display_name=f'browser-use-{self.model}',
+			)
+
+			# Add tools to cache if provided
+			if tools:
+				cache_config.tools = tools
+				self.logger.debug(f'📦 Caching {len(tools)} tool(s)')
+
+			cache = await self.get_client().aio.caches.create(
+				model=self.model,
+				config=cache_config,
+			)
+
+			self._context_cache = cache
+			self.logger.debug(f'✅ Created cache: {cache.name}, expires: {cache.expire_time}')
+			return cache
+
+		except Exception as e:
+			self.logger.error(f'❌ Failed to create context cache: {e}')
+			return None
+
+	async def delete_cache(self) -> None:
+		"""Delete the context cache if it exists."""
+		if self._context_cache and self._context_cache.name:
+			try:
+				self.logger.debug(f'🗑️ Deleting cache: {self._context_cache.name}')
+				await self.get_client().aio.caches.delete(name=self._context_cache.name)
+				self._context_cache = None
+				self.logger.debug('✅ Cache deleted')
+			except Exception as e:
+				self.logger.error(f'❌ Failed to delete cache: {e}')
 
 	def _get_usage(self, response: types.GenerateContentResponse) -> ChatInvokeUsage | None:
 		usage: ChatInvokeUsage | None = None
@@ -193,13 +295,31 @@ class ChatGoogle(BaseChatModel):
 		if self.config:
 			config = self.config.copy()
 
+		# Extract tools from config if present (for caching)
+		tools_raw = config.get('tools') if self.config else None
+		tools: list[types.Tool] | None = None
+		if tools_raw and isinstance(tools_raw, list):
+			# Filter to only Tool objects (not dicts or other types)
+			tools = [t for t in tools_raw if isinstance(t, types.Tool)]
+
+		# Create or get context cache if enabled
+		context_cache = await self._create_or_get_cache(system_instruction, tools)
+
 		# Apply model-specific configuration (these can override config)
 		if self.temperature is not None:
 			config['temperature'] = self.temperature
 
-		# Add system instruction if present
-		if system_instruction:
-			config['system_instruction'] = system_instruction
+		# If we have a cache, use it instead of system instruction
+		if context_cache and context_cache.name:
+			config['cached_content'] = context_cache.name
+			# Remove system_instruction and tools from config since they're in the cache
+			config.pop('system_instruction', None)
+			config.pop('tools', None)
+			self.logger.debug(f'📦 Using cached content: {context_cache.name}')
+		else:
+			# Add system instruction if present (no cache)
+			if system_instruction:
+				config['system_instruction'] = system_instruction
 
 		if self.top_p is not None:
 			config['top_p'] = self.top_p
