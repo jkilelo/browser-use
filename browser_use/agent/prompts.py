@@ -32,7 +32,11 @@ class SystemPrompt:
 			prompt = override_system_message
 		else:
 			self._load_prompt_template()
-			prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
+			# Flash mode templates don't use template variables
+			if self.flash_mode:
+				prompt = self.prompt_template
+			else:
+				prompt = self.prompt_template.format(max_actions=self.max_actions_per_step)
 
 		if extend_system_message:
 			prompt += f'\n{extend_system_message}'
@@ -53,7 +57,7 @@ class SystemPrompt:
 			# This works both in development and when installed as a package
 			with importlib.resources.files('browser_use.agent').joinpath(template_filename).open('r', encoding='utf-8') as f:
 				base_template = f.read()
-			
+
 			# Add action descriptions
 			if self.flash_mode:
 				self.prompt_template = f'{base_template}\n\nActions: {self.default_action_description}'
@@ -287,7 +291,11 @@ class AgentMessagePrompt:
 		# Add recent events if available and requested
 		recent_events_text = ''
 		if self.include_recent_events and self.browser_state.recent_events:
-			recent_events_text = f'Recent browser events: {self.browser_state.recent_events}\n' if not self.flash_mode else f'Events: {self.browser_state.recent_events}\n'
+			recent_events_text = (
+				f'Recent browser events: {self.browser_state.recent_events}\n'
+				if not self.flash_mode
+				else f'Events: {self.browser_state.recent_events}\n'
+			)
 
 		if self.flash_mode:
 			# Ultra-minimal format for flash mode
