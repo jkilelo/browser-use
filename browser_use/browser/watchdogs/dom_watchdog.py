@@ -207,6 +207,10 @@ class DOMWatchdog(BaseWatchdog):
 				)
 				# Create screenshot task that runs in parallel with DOM task
 				screenshot_task = asyncio.create_task(self._capture_screenshot_with_highlighting(dom_task))
+			else:
+				self.logger.debug(
+					'🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏭️ Skipping screenshot - not requested (e.g., multiact sync check)'
+				)
 
 			# Wait for DOM task to complete - screenshot runs in parallel
 			content = None
