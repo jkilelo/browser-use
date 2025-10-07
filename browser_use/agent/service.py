@@ -174,7 +174,8 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		task_id: str | None = None,
 		cloud_sync: CloudSync | None = None,
 		calculate_cost: bool = False,
-		display_files_in_done_text: bool = True,
+		is_source_api: bool | None = None,
+		display_files_in_done_text: bool | None = None,
 		include_tool_call_examples: bool = False,
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		llm_timeout: int | None = None,
@@ -228,6 +229,14 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.id = task_id or uuid7str()
 		self.task_id: str = self.id
 		self.session_id: str = uuid7str()
+
+		# Store is_source_api for cloud events
+		self.is_source_api = is_source_api
+
+		# Set display_files_in_done_text default based on source
+		# API: True by default, UI: False by default
+		if display_files_in_done_text is None:
+			display_files_in_done_text = is_source_api if is_source_api is not None else False
 
 		browser_profile = browser_profile or DEFAULT_BROWSER_PROFILE
 

@@ -251,6 +251,7 @@ class CreateAgentSessionEvent(BaseEvent):
 			browser_session_id=agent.browser_session.id,
 			browser_session_live_url='',  # To be filled by cloud handler
 			browser_session_cdp_url='',  # To be filled by cloud handler
+			is_source_api=agent.is_source_api if hasattr(agent, 'is_source_api') else None,
 			browser_state={
 				'viewport': agent.browser_profile.viewport if agent.browser_profile else {'width': 1280, 'height': 720},
 				'user_agent': agent.browser_profile.user_agent if agent.browser_profile else None,
