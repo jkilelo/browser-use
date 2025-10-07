@@ -17,7 +17,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 # Local module imports
-from browser_use import Agent, ChatOpenAI
+from browser_use import Agent, ChatOpenAI, ChatGoogle
 
 
 @dataclass
@@ -58,18 +58,24 @@ def parse_agent_history(history_str: str) -> None:
 async def run_browser_task(
 	task: str,
 	api_key: str,
-	model: str = 'gpt-4.1',
+	model: str = 'o3',
 	headless: bool = True,
 ) -> str:
 	if not api_key.strip():
 		return 'Please provide an API key'
 
-	os.environ['OPENAI_API_KEY'] = api_key
-
 	try:
+		# Create appropriate LLM based on model selection
+		if model.startswith('gemini'):
+			os.environ['GOOGLE_API_KEY'] = api_key
+			llm = ChatGoogle(model=model)
+		else:
+			os.environ['OPENAI_API_KEY'] = api_key
+			llm = ChatOpenAI(model=model)
+		
 		agent = Agent(
 			task=task,
-			llm=ChatOpenAI(model='gpt-4.1-mini'),
+			llm=llm,
 		)
 		result = await agent.run()
 		#  TODO: The result could be parsed better
@@ -84,13 +90,13 @@ def create_ui():
 
 		with gr.Row():
 			with gr.Column():
-				api_key = gr.Textbox(label='OpenAI API Key', placeholder='sk-...', type='password')
+				api_key = gr.Textbox(label='API Key (OpenAI or Google)', placeholder='sk-... or AIza...', type='password')
 				task = gr.Textbox(
 					label='Task Description',
 					placeholder='E.g., Find flights from New York to London for next week',
 					lines=3,
 				)
-				model = gr.Dropdown(choices=['gpt-4.1-mini', 'gpt-5', 'o3', 'gpt-5-mini'], label='Model', value='gpt-4.1-mini')
+				model = gr.Dropdown(choices=['o3', 'gemini-2.5-flash', 'gemini-2.5-flash-lite'], label='Model', value='o3')
 				headless = gr.Checkbox(label='Run Headless', value=False)
 				submit_btn = gr.Button('Run Task')
 
