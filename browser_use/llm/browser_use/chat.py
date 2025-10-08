@@ -414,11 +414,12 @@ class ChatBrowserUse(BaseChatModel):
 	def __init__(
 		self,
 		api_key: Optional[str] = None,
+		g_api_key: Optional[str] = None,
 		fast: bool = False,
 		base_url: Optional[str] = None,
 		pricing_config: Optional[PricingConfig] = None,
 	):
-		self.api_key = os.getenv('GOOGLE_API_KEY')
+		self.api_key = g_api_key or os.getenv('GOOGLE_API_KEY')
 		if not self.api_key:
 			raise ValueError('GOOGLE_API_KEY environment variable must be set')
 
