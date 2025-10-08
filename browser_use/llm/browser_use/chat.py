@@ -1,68 +1,407 @@
-"""
-ChatBrowserUse - Client for browser-use cloud API
+"""ChatBrowserUse - A standalone wrapper around ChatGoogle with GatewayService logic.
 
-This wraps the BaseChatModel protocol and sends requests to the browser-use cloud API
-for optimized browser automation LLM inference.
+This module provides a LangChain-compatible chat model that wraps ChatGoogle with
+the unstructured output parsing and prompt formatting logic from GatewayService,
+but without FastAPI or billing dependencies.
+
+Usage:
+    from chat_browser_use import ChatBrowserUse
+
+    llm = ChatBrowserUse(api_key="your-google-api-key", fast=True)
+
+    # Use like any BaseChatModel
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant"},
+        {"role": "user", "content": "Hello!"}
+    ]
+
+    response = await llm.ainvoke(
+        messages=messages,
+        output_format=schema,  # Optional: for structured output
+        prompt_description="action descriptions"  # Optional: for output format
+    )
 """
 
 import logging
 import os
-from typing import TypeVar, overload
-
-import httpx
-from pydantic import BaseModel
+import re
+from typing import Any, Optional
 
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.messages import BaseMessage
-from browser_use.llm.views import ChatInvokeCompletion
-from browser_use.observability import observe
-
-T = TypeVar('T', bound=BaseModel)
+from browser_use.llm.google.chat import ChatGoogle
+from browser_use.llm.messages import (
+	AssistantMessage,
+	BaseMessage,
+	SystemMessage,
+	UserMessage,
+)
+from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 logger = logging.getLogger(__name__)
 
 
-class ChatBrowserUse(BaseChatModel):
-	"""
-	Client for browser-use cloud API.
-
-	This sends requests to the browser-use cloud API which uses optimized models
-	and prompts for browser automation tasks.
-
-	Usage:
-		agent = Agent(
-			task="Find the number of stars of the browser-use repo",
-			llm=ChatBrowserUse(),
-		)
-	"""
+class PricingConfig:
+	"""Pricing configuration for token cost calculation"""
 
 	def __init__(
 		self,
-		fast: bool = False,
-		api_key: str | None = None,
-		base_url: str | None = None,
-		timeout: float = 120.0,
+		price_input_per_1m: float = 0.50,
+		price_output_per_1m: float = 3.00,
+		price_cached_per_1m: float = 0.10,
+		model_fast: str = 'gemini-flash-lite-latest',
+		model_smart: str = 'gemini-flash-latest',
 	):
-		"""
-		Initialize ChatBrowserUse client.
+		self.price_input_per_1m = price_input_per_1m
+		self.price_output_per_1m = price_output_per_1m
+		self.price_cached_per_1m = price_cached_per_1m
+		self.model_fast = model_fast
+		self.model_smart = model_smart
 
-		Args:
-			fast: If True, uses fast model. If False, uses smart model.
-			api_key: API key for browser-use cloud. Defaults to BROWSER_USE_API_KEY env var.
-			base_url: Base URL for the API. Defaults to BROWSER_USE_LLM_URL env var or production URL.
-			timeout: Request timeout in seconds.
-		"""
-		self.fast = fast
-		self.api_key = api_key or os.getenv('BROWSER_USE_API_KEY')
-		self.base_url = base_url or os.getenv('BROWSER_USE_LLM_URL', 'https://llm.api.browser-use.com')
-		self.timeout = timeout
-		self.model = 'fast' if fast else 'smart'
 
-		if not self.api_key:
-			raise ValueError(
-				'You need to set the BROWSER_USE_API_KEY environment variable. '
-				'Get your key at https://cloud.browser-use.com/dashboard/api'
-			)
+class UnstructuredOutputParser:
+	"""Parser for unstructured plain text output format"""
+
+	@staticmethod
+	def parse_with_schema(text: str, schema: dict[str, Any]) -> dict[str, Any]:
+		"""Parse plain text output using a JSON schema directly."""
+		# Extract memory section (optional - use empty string if not found)
+		memory_match = re.search(r'<memory>(.*?)</memory>', text, re.DOTALL | re.IGNORECASE)
+		if memory_match:
+			memory = memory_match.group(1).strip()
+			# Detect repetitive text (same sentence repeated many times)
+			if len(memory) > 500:
+				sentences = memory.split('. ')
+				if len(sentences) > 10:
+					# Check if most sentences are identical
+					from collections import Counter
+
+					sentence_counts = Counter(sentences)
+					most_common = sentence_counts.most_common(1)[0]
+					if most_common[1] > len(sentences) * 0.5:  # More than 50% identical
+						memory = f'[Repetitive output detected] {most_common[0]}'
+		else:
+			# Allow missing memory section - use empty string
+			memory = ''
+
+		# Extract action section
+		action_match = re.search(r'<action>(.*?)</action>', text, re.DOTALL | re.IGNORECASE)
+		if not action_match:
+			raise ValueError('No <action> section found in output')
+
+		action_text = action_match.group(1).strip()
+
+		# Parse actions using the schema
+		actions, debug_info = UnstructuredOutputParser._parse_actions_from_schema(action_text, schema)
+
+		if not actions:
+			# Provide helpful debug info
+			action_preview = action_text[:200] + ('...' if len(action_text) > 200 else '')
+			error_msg = f'No valid actions parsed from action section. Action text preview: {action_preview}'
+			if debug_info:
+				error_msg += f'. Debug: {debug_info}'
+			raise ValueError(error_msg)
+
+		return {'memory': memory, 'action': actions}
+
+	@staticmethod
+	def _parse_actions_from_schema(action_text: str, schema: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
+		"""Parse action function calls from text using a schema dict."""
+		actions = []
+
+		# Extract action schemas from the schema dict
+		action_schemas = {}
+
+		if '$defs' not in schema:
+			return [], 'No $defs in schema'
+
+		# Extract all actions from ActionModel definitions
+		for def_name, def_schema in schema['$defs'].items():
+			if def_name.endswith('ActionModel') and 'properties' in def_schema:
+				for prop_name, prop_schema in def_schema['properties'].items():
+					# Store the action name and its parameter structure
+					action_schemas[prop_name] = prop_schema
+
+		# Parse function calls
+		actions_parsed = []
+		skipped_actions = []
+		i = 0
+		while i < len(action_text):
+			# Skip whitespace
+			while i < len(action_text) and action_text[i].isspace():
+				i += 1
+			if i >= len(action_text):
+				break
+
+			# Try to match an action name
+			match = re.match(r'(\w+)\s*\(', action_text[i:])
+			if not match:
+				i += 1
+				continue
+
+			action_name = match.group(1)
+			# Check if this is a valid action
+			if action_name not in action_schemas:
+				skipped_actions.append(action_name)
+				i += match.end()
+				continue
+
+			# Find the opening parenthesis position
+			paren_start = i + match.end() - 1
+
+			# Count parentheses to find the matching closing parenthesis
+			depth = 1
+			j = paren_start + 1
+			in_string = False
+			string_char = None
+			escape_next = False
+
+			while j < len(action_text) and depth > 0:
+				char = action_text[j]
+
+				if escape_next:
+					escape_next = False
+					j += 1
+					continue
+
+				if char == '\\':
+					escape_next = True
+					j += 1
+					continue
+
+				if char in ('"', "'") and not in_string:
+					in_string = True
+					string_char = char
+				elif char == string_char and in_string:
+					in_string = False
+					string_char = None
+				elif char == '(' and not in_string:
+					depth += 1
+				elif char == ')' and not in_string:
+					depth -= 1
+
+				j += 1
+
+			if depth == 0:
+				# Found matching closing parenthesis
+				args_str = action_text[paren_start + 1 : j - 1].strip()
+				actions_parsed.append((action_name, args_str))
+				i = j
+			else:
+				i += 1
+
+		# Parse each action into a dict
+		failed_actions = []
+		for action_name, args_str in actions_parsed:
+			try:
+				action_schema = action_schemas[action_name]
+
+				# Parse the arguments
+				if args_str:
+					params = UnstructuredOutputParser._parse_args_for_action(args_str, action_name, action_schema)
+				else:
+					params = {}
+
+				# Create action dict: {action_name: params}
+				actions.append({action_name: params})
+
+			except (ValueError, Exception) as e:
+				failed_actions.append((action_name, str(e)[:100]))
+				continue
+
+		# Build debug info
+		debug_parts = []
+		if skipped_actions:
+			debug_parts.append(f'Skipped (not in schema): {", ".join(set(skipped_actions))}')
+		if failed_actions:
+			debug_parts.append(f'Failed to parse: {", ".join(f"{name}({err})" for name, err in failed_actions[:3])}')
+		debug_info = '; '.join(debug_parts) if debug_parts else ''
+
+		return actions, debug_info
+
+	@staticmethod
+	def _parse_args_for_action(args_str: str, _action_name: str, param_type: Any) -> dict[str, Any] | None:
+		"""Parse function arguments for a specific action."""
+		if not args_str:
+			return None
+
+		# Try to parse as JSON object first
+		if args_str.strip().startswith('{'):
+			try:
+				import json
+
+				return json.loads(args_str)
+			except json.JSONDecodeError:
+				# Try to handle object literal syntax
+				try:
+					import re
+
+					fixed_str = args_str
+					pattern = r'([,{]\s*)([a-zA-Z_]\w*)(\s*:)'
+					fixed_str = re.sub(pattern, r'\1"\2"\3', fixed_str)
+					if not fixed_str.strip().startswith('{'):
+						fixed_str = '{' + fixed_str
+					if not fixed_str.strip().endswith('}'):
+						fixed_str = fixed_str + '}'
+					pattern_start = r'^(\s*)([a-zA-Z_]\w*)(\s*:)'
+					fixed_str = re.sub(pattern_start, r'\1"\2"\3', fixed_str)
+
+					# Convert Python boolean literals to JSON
+					fixed_str = re.sub(r':\s*True\b', ': true', fixed_str)
+					fixed_str = re.sub(r':\s*False\b', ': false', fixed_str)
+					fixed_str = re.sub(r':\s*None\b', ': null', fixed_str)
+
+					return json.loads(fixed_str)
+				except (json.JSONDecodeError, Exception):
+					pass
+
+		# Check if we have named arguments (key=value format)
+		if '=' in args_str:
+			# Parse as key=value pairs
+			params = {}
+			args_list = UnstructuredOutputParser._split_args(args_str)
+			for arg in args_list:
+				if '=' in arg:
+					key, value = arg.split('=', 1)
+					params[key.strip()] = UnstructuredOutputParser._parse_value(value.strip())
+			return params if params else None
+
+		# Otherwise parse as positional args and map to known param names
+		args_list = UnstructuredOutputParser._split_args(args_str)
+
+		# Extract parameter names from the schema
+		param_names: list[str] = []
+		if isinstance(param_type, dict):
+			if 'properties' in param_type:
+				param_names = list(param_type['properties'].keys())
+			elif 'anyOf' in param_type:
+				for option in param_type['anyOf']:
+					if isinstance(option, dict) and 'properties' in option:
+						param_names = list(option['properties'].keys())
+						break
+
+		params: dict[str, Any] = {}
+
+		# Map positional arguments to parameter names
+		for i, arg in enumerate(args_list):
+			if i < len(param_names):
+				param_name = param_names[i]
+				params[param_name] = UnstructuredOutputParser._parse_value(arg.strip())
+			else:
+				# Extra args beyond expected
+				params[f'arg_{i}'] = UnstructuredOutputParser._parse_value(arg.strip())
+
+		return params if params else None
+
+	@staticmethod
+	def _split_args(args_str: str) -> list[str]:
+		"""Split arguments by comma, respecting quotes and nesting."""
+		args = []
+		current = []
+		depth = 0
+		in_quotes = False
+		quote_char = None
+
+		for char in args_str:
+			if char in ('"', "'") and (not in_quotes or char == quote_char):
+				in_quotes = not in_quotes
+				quote_char = char if in_quotes else None
+				current.append(char)
+			elif char in ('(', '[', '{') and not in_quotes:
+				depth += 1
+				current.append(char)
+			elif char in (')', ']', '}') and not in_quotes:
+				depth -= 1
+				current.append(char)
+			elif char == ',' and depth == 0 and not in_quotes:
+				args.append(''.join(current).strip())
+				current = []
+			else:
+				current.append(char)
+
+		if current:
+			args.append(''.join(current).strip())
+
+		return args
+
+	@staticmethod
+	def _parse_value(value_str: str) -> Any:
+		"""Parse a single value from string."""
+		value_str = value_str.strip()
+
+		# Handle arrays [...]
+		if value_str.startswith('[') and value_str.endswith(']'):
+			try:
+				import json
+
+				return json.loads(value_str)
+			except json.JSONDecodeError:
+				# Try parsing as simple list
+				inner = value_str[1:-1].strip()
+				if not inner:
+					return []
+				items = []
+				for item in UnstructuredOutputParser._split_args(inner):
+					items.append(UnstructuredOutputParser._parse_value(item))
+				return items
+
+		# Handle objects {...}
+		if value_str.startswith('{') and value_str.endswith('}'):
+			try:
+				import json
+
+				return json.loads(value_str)
+			except json.JSONDecodeError:
+				return value_str
+
+		# Handle quoted strings
+		if (value_str.startswith('"') and value_str.endswith('"')) or (value_str.startswith("'") and value_str.endswith("'")):
+			return value_str[1:-1]
+
+		# Handle booleans
+		if value_str.lower() in ('true', '1', 'yes'):
+			return True
+		if value_str.lower() in ('false', '0', 'no'):
+			return False
+
+		# Handle None/null
+		if value_str.lower() in ('none', 'null'):
+			return None
+
+		# Try integer
+		try:
+			return int(value_str)
+		except ValueError:
+			pass
+
+		# Try float
+		try:
+			return float(value_str)
+		except ValueError:
+			pass
+
+		# Return as string
+		return value_str
+
+
+class ChatBrowserUse(BaseChatModel):
+	"""
+	A wrapper around ChatGoogle that implements GatewayService logic without billing.
+
+	This class provides the same functionality as GatewayService but as a standalone
+	LangChain-compatible chat model that can be used directly in browser-use without
+	FastAPI dependencies.
+
+	Features:
+	- Unstructured output parsing with <memory> and <action> tags
+	- Automatic prompt formatting for structured outputs
+	- Token usage tracking and cost calculation
+	- Fast/smart model selection
+
+	Args:
+	    api_key: Google API key for Gemini models
+	    fast: If True, use fast model, else smart model
+	    pricing_config: Optional custom pricing configuration
+	"""
 
 	@property
 	def provider(self) -> str:
@@ -72,131 +411,246 @@ class ChatBrowserUse(BaseChatModel):
 	def name(self) -> str:
 		return f'browser-use/{self.model}'
 
-	@overload
-	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: None = None, prompt_description: str | None = None
-	) -> ChatInvokeCompletion[str]: ...
+	def __init__(
+		self,
+		api_key: Optional[str] = None,
+		fast: bool = False,
+		base_url: Optional[str] = None,
+		pricing_config: Optional[PricingConfig] = None,
+	):
+		self.api_key = os.getenv('GOOGLE_API_KEY')
+		if not self.api_key:
+			raise ValueError('GOOGLE_API_KEY environment variable must be set')
 
-	@overload
-	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: type[T], prompt_description: str | None = None
-	) -> ChatInvokeCompletion[T]: ...
+		self.fast = fast
+		self.pricing_config = pricing_config or PricingConfig()
 
-	@observe(name='chat_browser_use_ainvoke')
+		# Select model
+		self.model = self.pricing_config.model_fast if fast else self.pricing_config.model_smart
+
+		# Initialize underlying ChatGoogle instance
+		self._llm = ChatGoogle(model=self.model, api_key=self.api_key)
+
 	async def ainvoke(
-		self, messages: list[BaseMessage], output_format: type[T] | None = None, prompt_description: str | None = None
-	) -> ChatInvokeCompletion[T] | ChatInvokeCompletion[str]:
+		self,
+		messages: list[dict[str, Any]] | list[BaseMessage],
+		output_format: Optional[Any] = None,
+		prompt_description: Optional[str] = None,
+	) -> ChatInvokeCompletion[Any]:
 		"""
-		Send request to browser-use cloud API.
+		Invoke the chat model with optional structured output.
 
 		Args:
-			messages: List of messages to send
-			output_format: Expected output format (Pydantic model)
-			prompt_description: Action descriptions for the prompt (optional)
+		    messages: List of message dicts or BaseMessage objects
+		    output_format: Optional Pydantic model class for structured output
+		    prompt_description: Optional action descriptions for the prompt
 
 		Returns:
-			ChatInvokeCompletion with structured response and usage info
+		    ChatInvokeCompletion object containing:
+		        - completion: Parsed output (dict if output_format provided, else str)
+		        - usage: Token usage information
 		"""
-		# Prepare request payload
-		payload = {
-			'messages': [self._serialize_message(msg) for msg in messages],
-			'fast': self.fast,
-		}
+		# Convert messages to BaseMessage objects if needed
+		converted_messages = self._convert_messages(messages)
 
-		# Add output format schema if provided
+		# Convert output_format to JSON schema if it's a Pydantic model
+		schema = None
 		if output_format is not None:
-			payload['output_format'] = output_format.model_json_schema()
-
-		# Add prompt description if provided
-		logger.debug(
-			f'🔍 ChatBrowserUse received prompt_description: {prompt_description is not None}, length: {len(prompt_description) if prompt_description else 0}'
-		)
-		if prompt_description is not None:
-			payload['prompt_description'] = prompt_description
-			logger.debug('Added prompt_description to payload')
-
-		# Make API request
-		async with httpx.AsyncClient(timeout=self.timeout) as client:
-			try:
-				response = await client.post(
-					f'{self.base_url}/v1/chat/completions',
-					json=payload,
-					headers={
-						'Authorization': f'Bearer {self.api_key}',
-						'Content-Type': 'application/json',
-					},
-				)
-				response.raise_for_status()
-				result = response.json()
-
-			except httpx.HTTPStatusError as e:
-				error_detail = ''
-				try:
-					error_data = e.response.json()
-					error_detail = error_data.get('detail', str(e))
-				except Exception:
-					error_detail = str(e)
-
-				error_msg = ''
-				if e.response.status_code == 401:
-					error_msg = f'Invalid API key. {error_detail}'
-				elif e.response.status_code == 402:
-					error_msg = f'Insufficient credits. {error_detail}'
-				else:
-					error_msg = f'API request failed: {error_detail}'
-
-				raise ValueError(error_msg)
-
-			except httpx.TimeoutException:
-				error_msg = f'Request timed out after {self.timeout}s'
-				raise ValueError(error_msg)
-
-			except Exception as e:
-				error_msg = f'Failed to connect to browser-use API: {e}'
-				raise ValueError(error_msg)
-
-			# Parse response - server returns structured data as dict
-			if output_format is not None:
-				# Server returns structured data as a dict, validate it
-				completion_data = result['completion']
-				logger.debug(
-					f'📥 Got structured data from service: {list(completion_data.keys()) if isinstance(completion_data, dict) else type(completion_data)}'
-				)
-
-				# Convert action dicts to ActionModel instances if needed
-				# llm-use returns dicts to avoid validation with empty ActionModel
-				if isinstance(completion_data, dict) and 'action' in completion_data:
-					actions = completion_data['action']
-					if actions and isinstance(actions[0], dict):
-						from typing import get_args
-
-						# Get ActionModel type from output_format
-						action_model_type = get_args(output_format.model_fields['action'].annotation)[0]
-
-						# Convert dicts to ActionModel instances
-						completion_data['action'] = [action_model_type.model_validate(action_dict) for action_dict in actions]
-
-				completion = output_format.model_validate(completion_data)
+			if hasattr(output_format, 'model_json_schema'):
+				schema = output_format.model_json_schema()
 			else:
-				completion = result['completion']
+				schema = output_format
 
-			# Parse usage info
-			usage = None
-			if 'usage' in result:
-				from browser_use.llm.views import ChatInvokeUsage
+		# Apply unstructured prompt if output_format is provided
+		if schema is not None:
+			converted_messages = self._apply_unstructured_prompt(converted_messages, schema, prompt_description)
 
-				usage = ChatInvokeUsage(**result['usage'])
+		# Call the underlying LLM
+		try:
+			response = await self._llm.ainvoke(messages=converted_messages, output_format=None)
+		except Exception as e:
+			logger.error(f'LLM call failed: {e}', exc_info=True)
+			raise ValueError(f'LLM call failed: {e}')
+
+		# Parse the response if we have schema
+		if schema is not None:
+			raw_text = response.completion
+			try:
+				parsed_dict = UnstructuredOutputParser.parse_with_schema(raw_text, schema)
+				# Create an instance of the output_format model class using the parsed dictionary
+				parsed_output = output_format.model_validate(parsed_dict)
+				logger.info(f'Output parsed successfully: {list(parsed_dict.keys())}')
+			except Exception as e:
+				logger.error(f'Failed to parse output: {e}')
+				raise ValueError(f'Failed to parse output: {e}')
+		else:
+			parsed_output = response.completion
+
+		# Calculate cost using pricing config
+		usage = response.usage or ChatInvokeUsage(
+			prompt_tokens=0,
+			prompt_cached_tokens=None,
+			prompt_cache_creation_tokens=None,
+			prompt_image_tokens=None,
+			completion_tokens=0,
+			total_tokens=0,
+		)
+
+		uncached_input_tokens = usage.prompt_tokens - (usage.prompt_cached_tokens or 0)
+		input_cost_usd = (uncached_input_tokens / 1_000_000) * self.pricing_config.price_input_per_1m
+		output_cost_usd = (usage.completion_tokens / 1_000_000) * self.pricing_config.price_output_per_1m
+		cached_cost_usd = ((usage.prompt_cached_tokens or 0) / 1_000_000) * self.pricing_config.price_cached_per_1m
+
+		total_cost_usd = input_cost_usd + output_cost_usd + cached_cost_usd
+
+		logger.info(
+			f'💰 Tokens: {uncached_input_tokens} input, {usage.completion_tokens} output, '
+			f'{usage.prompt_cached_tokens or 0} cached | Cost: ${total_cost_usd:.4f}'
+		)
 
 		return ChatInvokeCompletion(
-			completion=completion,
+			completion=parsed_output,
 			usage=usage,
 		)
 
-	def _serialize_message(self, message: BaseMessage) -> dict:
-		"""Serialize a message to JSON format."""
-		# Handle Union types by checking the actual message type
-		msg_dict = message.model_dump()
-		return {
-			'role': msg_dict['role'],
-			'content': msg_dict['content'],
-		}
+	def _convert_messages(self, messages: list[dict[str, Any]] | list[BaseMessage]) -> list[BaseMessage]:
+		"""Convert dict messages to BaseMessage objects"""
+		converted = []
+		for msg in messages:
+			if isinstance(msg, dict):
+				role = msg.get('role')
+				content = msg.get('content', '')
+				if role == 'system' and content:
+					converted.append(SystemMessage(content=content))
+				elif role == 'user' and content:
+					converted.append(UserMessage(content=content))
+				elif role == 'assistant' and content:
+					converted.append(AssistantMessage(content=content))
+				else:
+					converted.append(msg)
+			else:
+				converted.append(msg)
+		return converted
+
+	def _apply_unstructured_prompt(
+		self,
+		messages: list[BaseMessage],
+		schema: dict[str, Any],
+		prompt_description: Optional[str] = None,
+	) -> list[BaseMessage]:
+		"""Apply unstructured prompt template to system message"""
+		# Use incoming prompt_description if provided, otherwise generate from schema
+		if prompt_description:
+			action_description = prompt_description
+		else:
+			# Generate action descriptions from schema
+			action_description = self._generate_action_descriptions(schema)
+
+		# Get incoming system prompt and remove <output> section
+		original_system_content = ''
+		for msg in messages:
+			if isinstance(msg, SystemMessage):
+				# Handle both string and list content
+				if isinstance(msg.content, str):
+					original_system_content = msg.content
+				elif isinstance(msg.content, list):
+					# Join text parts if it's a list
+					text_parts = []
+					for part in msg.content:
+						if isinstance(part, dict) and part.get('type') == 'text':
+							text_parts.append(part.get('text', ''))
+						elif isinstance(part, str):
+							text_parts.append(part)
+					original_system_content = '\n'.join(text_parts)
+				break
+
+		# Remove <output>...</output> section from incoming prompt
+		system_without_output = re.sub(r'<output>.*?</output>', '', original_system_content, flags=re.DOTALL).strip()
+
+		# Add unstructured output format and tools
+		optimized_system_prompt = f"""{system_without_output}
+
+<output>
+You must respond in this exact format:
+<memory>
+Up to 5 sentences of specific reasoning about: Was the previous step successful/failed? What do we need to remember from the current state for the task? Plan ahead what are the best next actions. What's the next immediate goal? Depending on the complexity think longer. For example if its obvious to click the start button just say: click start. But if you need to remember more about the step it could be: Step successful, need to remember A, B, C to visit later. Next click on A.
+</memory>
+<action>
+navigate(url="https://example.com")
+click(index=1)
+extract(query="find stars", extract_links=False)
+done(text="Task completed", success=True)
+</action>
+
+IMPORTANT: Use key=value format for all parameters. Examples:
+- navigate(url="https://google.com")
+- click(index=5)
+- input(index=3, text="hello", clear=True)
+- done(text="Finished", success=True)
+- extract(query="get data", extract_links=False)
+</output>
+
+
+<tools>
+{action_description}
+</tools>"""
+
+		# Replace the system message
+		modified_messages = []
+		for msg in messages:
+			if isinstance(msg, SystemMessage):
+				modified_messages.append(SystemMessage(content=optimized_system_prompt))
+			else:
+				modified_messages.append(msg)
+
+		return modified_messages
+
+	def _generate_action_descriptions(self, schema: dict[str, Any]) -> str:
+		"""Generate action descriptions from JSON schema matching prompt_description() format."""
+		if '$defs' not in schema:
+			return ''
+
+		descriptions = []
+
+		# Extract all actions from ActionModel definitions
+		for def_name, def_schema in schema['$defs'].items():
+			if def_name.endswith('ActionModel') and 'properties' in def_schema:
+				for action_name, action_schema in def_schema['properties'].items():
+					# Get action description
+					action_desc = action_schema.get('description', '')
+
+					# Get parameters using same format as prompt_description()
+					params = []
+					if 'anyOf' in action_schema:
+						# Handle Union types
+						for variant in action_schema['anyOf']:
+							if '$ref' in variant:
+								# Reference to another model
+								ref_name = variant['$ref'].split('/')[-1]
+								if ref_name in schema['$defs']:
+									param_schema = schema['$defs'][ref_name]
+									if 'properties' in param_schema:
+										for param_name, param_info in param_schema['properties'].items():
+											# Build parameter description: param_name=type (description)
+											param_desc = param_name
+
+											# Add type information if available
+											if 'type' in param_info:
+												param_type = param_info['type']
+												param_desc += f'={param_type}'
+
+											# Add description as comment if available
+											if 'description' in param_info:
+												param_desc += f' ({param_info["description"]})'
+
+											params.append(param_desc)
+
+					# Format action: action_name(param1, param2, ...): description
+					if params:
+						action_text = f'{action_name}({", ".join(params)}): {action_desc}'
+					else:
+						action_text = f'{action_name}(): {action_desc}'
+
+					descriptions.append(action_text)
+
+		return '\n'.join(descriptions)
