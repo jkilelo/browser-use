@@ -117,7 +117,7 @@ class UnstructuredOutputParser:
 	@staticmethod
 	def _parse_actions_from_schema(action_text: str, schema: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
 		"""Parse action function calls from text using a schema dict."""
-		# Normalize quotes before parsing
+		# Normalize quotes before parsing - defensive measure for LLM-generated fancy quotes
 		action_text = UnstructuredOutputParser._normalize_quotes(action_text)
 
 		actions = []
@@ -594,7 +594,7 @@ class ChatBrowserUse(BaseChatModel):
 Every response MUST include both <memory> and <action> sections in this format:
 
 <memory>
-Up to 5 sentences: Was previous step successful? What to remember from current state? What are the next actions? What's the immediate goal? Keep it concise unless complex reasoning needed.
+Up to 3 sentences: Was previous step successful? What to remember from browser state or last tool call?  What's the next goal? Keep it concise unless complex reasoning needed.
 </memory>
 <action>
 click(index=1)
@@ -606,7 +606,8 @@ REQUIREMENTS:
 - Use straight quotes " not fancy quotes " "
 - Escape inner quotes with backslash: text="She said \\"hello\\""
 - Never invent parameters not in <tools>
-- for interactive indices only use indexes that are explicitly provided in the <browser_state> - dont use None for an index.
+- For interactive indices only use indexes that are explicitly provided in the <browser_state> - dont use None for an index
+- You can output multiple actions in sequence (one per line)
 
 Examples:
 navigate(url="https://google.com")
