@@ -18,7 +18,6 @@ Usage:
     response = await llm.ainvoke(
         messages=messages,
         output_format=schema,  # Optional: for structured output
-        prompt_description="action descriptions"  # Optional: for output format
     )
 """
 
@@ -436,7 +435,6 @@ class ChatBrowserUse(BaseChatModel):
 		self,
 		messages: list[dict[str, Any]] | list[BaseMessage],
 		output_format: Optional[Any] = None,
-		prompt_description: Optional[str] = None,
 	) -> ChatInvokeCompletion[Any]:
 		"""
 		Invoke the chat model with optional structured output.
@@ -444,7 +442,6 @@ class ChatBrowserUse(BaseChatModel):
 		Args:
 		    messages: List of message dicts or BaseMessage objects
 		    output_format: Optional Pydantic model class for structured output
-		    prompt_description: Optional action descriptions for the prompt
 
 		Returns:
 		    ChatInvokeCompletion object containing:
@@ -464,7 +461,7 @@ class ChatBrowserUse(BaseChatModel):
 
 		# Apply unstructured prompt if output_format is provided
 		if schema is not None:
-			converted_messages = self._apply_unstructured_prompt(converted_messages, schema, prompt_description)
+			converted_messages = self._apply_unstructured_prompt(converted_messages, schema)
 
 		# Call the underlying LLM
 		try:
@@ -474,7 +471,7 @@ class ChatBrowserUse(BaseChatModel):
 			raise ValueError(f'LLM call failed: {e}')
 
 		# Parse the response if we have schema
-		if schema is not None:
+		if schema is not None and output_format is not None:
 			raw_text = response.completion
 			try:
 				parsed_dict = UnstructuredOutputParser.parse_with_schema(raw_text, schema)
@@ -537,15 +534,10 @@ class ChatBrowserUse(BaseChatModel):
 		self,
 		messages: list[BaseMessage],
 		schema: dict[str, Any],
-		prompt_description: Optional[str] = None,
 	) -> list[BaseMessage]:
 		"""Apply unstructured prompt template to system message"""
-		# Use incoming prompt_description if provided, otherwise generate from schema
-		if prompt_description:
-			action_description = prompt_description
-		else:
-			# Generate action descriptions from schema
-			action_description = self._generate_action_descriptions(schema)
+
+		action_description = self._generate_action_descriptions(schema)
 
 		# Get incoming system prompt and remove <output> section
 		original_system_content = ''
