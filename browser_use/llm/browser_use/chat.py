@@ -577,18 +577,20 @@ You must respond in this exact format:
 Up to 5 sentences of specific reasoning about: Was the previous step successful/failed? What do we need to remember from the current state for the task? Plan ahead what are the best next actions. What's the next immediate goal? Depending on the complexity think longer. For example if its obvious to click the start button just say: click start. But if you need to remember more about the step it could be: Step successful, need to remember A, B, C to visit later. Next click on A.
 </memory>
 <action>
-navigate(url="https://example.com")
+
 click(index=1)
-extract(query="find stars", extract_links=False)
-done(text="Task completed", success=True)
+input(index=2, text="hello")
 </action>
 
-IMPORTANT: Use key=value format for all parameters. Examples:
+Use key=value format for parameters (e.g., index=5)
+
+
+Common action examples:
 - navigate(url="https://google.com")
 - click(index=5)
 - input(index=3, text="hello", clear=True)
-- done(text="Finished", success=True)
-- extract(query="get data", extract_links=False)
+- switch(tab_id="AB12")
+- done(text="Finished successfully...", success=True)
 </output>
 
 
@@ -607,7 +609,10 @@ IMPORTANT: Use key=value format for all parameters. Examples:
 		return modified_messages
 
 	def _generate_action_descriptions(self, schema: dict[str, Any]) -> str:
-		"""Generate action descriptions from JSON schema matching prompt_description() format."""
+		"""Generate token-optimized action descriptions from AgentOutput schema.
+
+		Extracts tool descriptions and parameter info directly from the schema without hardcoding.
+		"""
 		if '$defs' not in schema:
 			return ''
 
@@ -615,43 +620,66 @@ IMPORTANT: Use key=value format for all parameters. Examples:
 
 		# Extract all actions from ActionModel definitions
 		for def_name, def_schema in schema['$defs'].items():
-			if def_name.endswith('ActionModel') and 'properties' in def_schema:
-				for action_name, action_schema in def_schema['properties'].items():
-					# Get action description
-					action_desc = action_schema.get('description', '')
+			if not def_name.endswith('ActionModel') or 'properties' not in def_schema:
+				continue
 
-					# Get parameters using same format as prompt_description()
-					params = []
-					if 'anyOf' in action_schema:
-						# Handle Union types
-						for variant in action_schema['anyOf']:
-							if '$ref' in variant:
-								# Reference to another model
-								ref_name = variant['$ref'].split('/')[-1]
-								if ref_name in schema['$defs']:
-									param_schema = schema['$defs'][ref_name]
-									if 'properties' in param_schema:
-										for param_name, param_info in param_schema['properties'].items():
-											# Build parameter description: param_name=type (description)
-											param_desc = param_name
+			for action_name, action_schema in def_schema['properties'].items():
+				# Get action description from schema
+				action_desc = action_schema.get('description', '').rstrip('.')
 
-											# Add type information if available
-											if 'type' in param_info:
-												param_type = param_info['type']
-												param_desc += f'={param_type}'
+				# Extract parameter schema reference
+				params = []
+				param_ref = None
 
-											# Add description as comment if available
-											if 'description' in param_info:
-												param_desc += f' ({param_info["description"]})'
+				if '$ref' in action_schema:
+					param_ref = action_schema['$ref'].split('/')[-1]
+				elif 'anyOf' in action_schema:
+					for variant in action_schema['anyOf']:
+						if '$ref' in variant:
+							param_ref = variant['$ref'].split('/')[-1]
+							break
 
-											params.append(param_desc)
+				# Get parameters from referenced schema
+				if param_ref and param_ref in schema['$defs']:
+					param_schema = schema['$defs'][param_ref]
+					if 'properties' in param_schema:
+						required_fields = set(param_schema.get('required', []))
 
-					# Format action: action_name(param1, param2, ...): description
-					if params:
-						action_text = f'{action_name}({", ".join(params)}): {action_desc}'
-					else:
-						action_text = f'{action_name}(): {action_desc}'
+						for param_name, param_info in param_schema['properties'].items():
+							# Get type (handle anyOf for optional params)
+							param_type = param_info.get('type')
+							if not param_type and 'anyOf' in param_info:
+								# Extract non-null type from anyOf
+								for option in param_info['anyOf']:
+									if option.get('type') and option['type'] != 'null':
+										param_type = option['type']
+										break
+							param_type = param_type or 'any'
 
-					descriptions.append(action_text)
+							# Mark optional params with ?
+							if param_name not in required_fields:
+								param_desc = f'{param_name}?={param_type}'
+							else:
+								param_desc = f'{param_name}={param_type}'
+
+							# Add description from schema if present
+							desc = param_info.get('description', '')
+							if desc:
+								param_desc += f' ({desc})'
+
+							params.append(param_desc)
+
+				# Format: action_name(params): description
+				# Or:     action_name(): description (if no params but has description)
+				# Or:     action_name(params) (if has params but no description)
+				# Or:     action_name() (if neither params nor description)
+				params_str = f'({", ".join(params)})' if params else '()'
+
+				if action_desc:
+					action_text = f'{action_name}{params_str}: {action_desc}'
+				else:
+					action_text = f'{action_name}{params_str}'
+
+				descriptions.append(action_text)
 
 		return '\n'.join(descriptions)
