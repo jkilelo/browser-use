@@ -599,7 +599,7 @@ Up to 5 sentences of specific reasoning about: Was the previous step successful/
 click(index=1)
 input(index=2, text="hello")
 </action>
-- Only use tools and parameters from <tools> section
+- Only use tools and parameters from <available_tools> at this step
 - Only use indexes that are explicitly provided in the <browser_state> - dont use None for an index
 
 Use key=value format for parameters (e.g., index=5). You can output multiple actions in sequence (one per line).
@@ -612,9 +612,9 @@ Common action examples:
 - done(text="Finished successfully...", success=True)
 </output>
 
-<tools>
+<available_tools>
 {action_description}
-</tools>"""
+</available_tools>"""
 
 		# Replace the system message
 		modified_messages = []
