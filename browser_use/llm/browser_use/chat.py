@@ -103,8 +103,23 @@ class UnstructuredOutputParser:
 		return {'memory': memory, 'action': actions}
 
 	@staticmethod
+	def _normalize_quotes(text: str) -> str:
+		"""Normalize fancy/smart quotes to straight quotes.
+
+		Converts fancy quotes (" " ' ') to straight quotes (" ').
+		Does NOT auto-escape - LLM should escape quotes properly.
+		"""
+		# Replace all fancy quote variants with straight quotes
+		text = text.replace('"', '"').replace('"', '"')  # Smart double quotes
+		text = text.replace(""", "'").replace(""", "'")  # Smart single quotes
+		return text
+
+	@staticmethod
 	def _parse_actions_from_schema(action_text: str, schema: dict[str, Any]) -> tuple[list[dict[str, Any]], str]:
 		"""Parse action function calls from text using a schema dict."""
+		# Normalize quotes before parsing
+		action_text = UnstructuredOutputParser._normalize_quotes(action_text)
+
 		actions = []
 
 		# Extract action schemas from the schema dict
@@ -293,15 +308,27 @@ class UnstructuredOutputParser:
 
 	@staticmethod
 	def _split_args(args_str: str) -> list[str]:
-		"""Split arguments by comma, respecting quotes and nesting."""
+		"""Split arguments by comma, respecting quotes and nesting.
+
+		Handles escape sequences including backslash-escaped quotes.
+		"""
 		args = []
 		current = []
 		depth = 0
 		in_quotes = False
 		quote_char = None
+		escape_next = False
 
 		for char in args_str:
-			if char in ('"', "'") and (not in_quotes or char == quote_char):
+			if escape_next:
+				# This character is escaped, add it literally
+				current.append(char)
+				escape_next = False
+			elif char == '\\':
+				# Start escape sequence
+				current.append(char)
+				escape_next = True
+			elif char in ('"', "'") and (not in_quotes or char == quote_char):
 				in_quotes = not in_quotes
 				quote_char = char if in_quotes else None
 				current.append(char)
@@ -575,14 +602,17 @@ input(index=2, text="hello")
 </action>
 
 REQUIREMENTS:
-- Use key=value format for parameters: scroll(down=True, pages=1)
-- Never invent parameters not in the <tools> section
+- Use key=value format: done(text="result", success=True)
+- Use straight quotes " not fancy quotes " "
+- Escape inner quotes with backslash: text="She said \\"hello\\""
+- Never invent parameters not in <tools>
 
-Action examples:
+Examples:
 navigate(url="https://google.com")
 click(index=5)
 input(index=3, text="hello", clear=True)
 scroll(down=True, pages=1)
+done(text="Task completed successfully", success=True)
 </output>
 
 
