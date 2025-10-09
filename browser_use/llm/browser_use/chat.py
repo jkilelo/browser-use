@@ -606,6 +606,7 @@ REQUIREMENTS:
 - Use straight quotes " not fancy quotes " "
 - Escape inner quotes with backslash: text="She said \\"hello\\""
 - Never invent parameters not in <tools>
+- for interactive indices only use indexes that are explicitly provided in the <browser_state> - dont use None for an index.
 
 Examples:
 navigate(url="https://google.com")
@@ -724,24 +725,35 @@ done(text="Task completed successfully", success=True)
 
 							# Extract constraints (ge, le, min_length, max_length, etc.)
 							constraints = []
-							if 'minimum' in param_info or 'ge' in param_info:
-								min_val = param_info.get('minimum') or param_info.get('ge')
-								constraints.append(f'≥{min_val}')
-							if 'exclusiveMinimum' in param_info or 'gt' in param_info:
-								min_val = param_info.get('exclusiveMinimum') or param_info.get('gt')
-								constraints.append(f'>{min_val}')
-							if 'maximum' in param_info or 'le' in param_info:
-								max_val = param_info.get('maximum') or param_info.get('le')
-								constraints.append(f'≤{max_val}')
-							if 'exclusiveMaximum' in param_info or 'lt' in param_info:
-								max_val = param_info.get('exclusiveMaximum') or param_info.get('lt')
-								constraints.append(f'<{max_val}')
-							if 'minLength' in param_info or 'min_length' in param_info:
-								min_len = param_info.get('minLength') or param_info.get('min_length')
-								constraints.append(f'len≥{min_len}')
-							if 'maxLength' in param_info or 'max_length' in param_info:
-								max_len = param_info.get('maxLength') or param_info.get('max_length')
-								constraints.append(f'len≤{max_len}')
+							if 'minimum' in param_info:
+								constraints.append(f'≥{param_info["minimum"]}')
+							elif 'ge' in param_info:
+								constraints.append(f'≥{param_info["ge"]}')
+
+							if 'exclusiveMinimum' in param_info:
+								constraints.append(f'>{param_info["exclusiveMinimum"]}')
+							elif 'gt' in param_info:
+								constraints.append(f'>{param_info["gt"]}')
+
+							if 'maximum' in param_info:
+								constraints.append(f'≤{param_info["maximum"]}')
+							elif 'le' in param_info:
+								constraints.append(f'≤{param_info["le"]}')
+
+							if 'exclusiveMaximum' in param_info:
+								constraints.append(f'<{param_info["exclusiveMaximum"]}')
+							elif 'lt' in param_info:
+								constraints.append(f'<{param_info["lt"]}')
+
+							if 'minLength' in param_info:
+								constraints.append(f'len≥{param_info["minLength"]}')
+							elif 'min_length' in param_info:
+								constraints.append(f'len≥{param_info["min_length"]}')
+
+							if 'maxLength' in param_info:
+								constraints.append(f'len≤{param_info["maxLength"]}')
+							elif 'max_length' in param_info:
+								constraints.append(f'len≤{param_info["max_length"]}')
 
 							# Build parameter description
 							if param_name not in required_fields:
