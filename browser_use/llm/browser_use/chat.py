@@ -564,25 +564,25 @@ class ChatBrowserUse(BaseChatModel):
 		optimized_system_prompt = f"""{system_without_output}
 
 <output>
-You must respond in this exact format:
+Every response MUST include both <memory> and <action> sections in this format:
+
 <memory>
-Up to 5 sentences of specific reasoning about: Was the previous step successful/failed? What do we need to remember from the current state for the task? Plan ahead what are the best next actions. What's the next immediate goal? Depending on the complexity think longer. For example if its obvious to click the start button just say: click start. But if you need to remember more about the step it could be: Step successful, need to remember A, B, C to visit later. Next click on A.
+Up to 5 sentences: Was previous step successful? What to remember from current state? What are the next actions? What's the immediate goal? Keep it concise unless complex reasoning needed.
 </memory>
 <action>
-
 click(index=1)
 input(index=2, text="hello")
 </action>
 
-Use key=value format for parameters (e.g., index=5)
+REQUIREMENTS:
+- Use key=value format for parameters: scroll(down=True, pages=1)
+- Never invent parameters not in the <tools> section
 
-
-Common action examples:
-- navigate(url="https://google.com")
-- click(index=5)
-- input(index=3, text="hello", clear=True)
-- switch(tab_id="AB12")
-- done(text="Finished successfully...", success=True)
+Action examples:
+navigate(url="https://google.com")
+click(index=5)
+input(index=3, text="hello", clear=True)
+scroll(down=True, pages=1)
 </output>
 
 
