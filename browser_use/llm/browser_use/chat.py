@@ -591,32 +591,26 @@ class ChatBrowserUse(BaseChatModel):
 		optimized_system_prompt = f"""{system_without_output}
 
 <output>
-Every response MUST include both <memory> and <action> sections in this format:
-
+You must respond in this exact format:
 <memory>
-Up to 3 sentences: Was previous step successful? What to remember from browser state or last tool call?  What's the next goal? Keep it concise unless complex reasoning needed.
+Up to 5 sentences of specific reasoning about: Was the previous step successful/failed? What do we need to remember from the current state for the task? Plan ahead what are the best next actions. What's the next immediate goal? Depending on the complexity think longer. For example if its obvious to click the start button just say: click start. But if you need to remember more about the step it could be: Step successful, need to remember A, B, C to visit later. Next click on A. 
 </memory>
 <action>
 click(index=1)
 input(index=2, text="hello")
 </action>
+- Only use tools and parameters from <tools> section
+- Only use indexes that are explicitly provided in the <browser_state> - dont use None for an index
 
-REQUIREMENTS:
-- Use key=value format: done(text="result", success=True)
-- Use straight quotes " not fancy quotes " "
-- Escape inner quotes with backslash: text="She said \\"hello\\""
-- Never invent parameters not in <tools>
-- For interactive indices only use indexes that are explicitly provided in the <browser_state> - dont use None for an index
-- You can output multiple actions in sequence (one per line)
+Use key=value format for parameters (e.g., index=5). You can output multiple actions in sequence (one per line).
 
-Examples:
-navigate(url="https://google.com")
-click(index=5)
-input(index=3, text="hello", clear=True)
-scroll(down=True, pages=1)
-done(text="Task completed successfully", success=True)
+Common action examples:
+- navigate(url="https://google.com")
+- click(index=5)
+- input(index=3, text="hello", clear=True)
+- switch(tab_id="AB12")
+- done(text="Finished successfully...", success=True)
 </output>
-
 
 <tools>
 {action_description}
