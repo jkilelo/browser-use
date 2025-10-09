@@ -638,6 +638,50 @@ Common action examples:
 						required_fields = set(param_schema.get('required', []))
 
 						for param_name, param_info in param_schema['properties'].items():
+							# Check if this parameter is a nested object reference
+							nested_ref = None
+							if '$ref' in param_info:
+								nested_ref = param_info['$ref'].split('/')[-1]
+
+							# If it's a nested object, expand it as JSON structure
+							if nested_ref and nested_ref in schema['$defs']:
+								nested_schema = schema['$defs'][nested_ref]
+								if 'properties' in nested_schema:
+									# Build JSON-like structure for nested object
+									nested_fields = []
+									nested_required = set(nested_schema.get('required', []))
+									for nested_name, nested_info in nested_schema['properties'].items():
+										# Get type (handle anyOf for optional params)
+										nested_type = nested_info.get('type')
+										if not nested_type and 'anyOf' in nested_info:
+											# Extract non-null type from anyOf
+											for option in nested_info['anyOf']:
+												if option.get('type') and option['type'] != 'null':
+													nested_type = option['type']
+													break
+										nested_type = nested_type or 'any'
+
+										nested_desc = nested_info.get('description', '')
+										is_required = nested_name in nested_required
+
+										# Format: name=type or name=type (description) or name?=type
+										if is_required:
+											if nested_desc:
+												nested_fields.append(f'{nested_name}={nested_type} ({nested_desc})')
+											else:
+												nested_fields.append(f'{nested_name}={nested_type}')
+										else:
+											if nested_desc:
+												nested_fields.append(f'{nested_name}?={nested_type} ({nested_desc})')
+											else:
+												nested_fields.append(f'{nested_name}?={nested_type}')
+
+									# Format as JSON object
+									param_desc = f'{param_name}={{{", ".join(nested_fields)}}}'
+									params.append(param_desc)
+									continue
+
+							# Regular parameter (not nested object)
 							# Get type (handle anyOf for optional params)
 							param_type = param_info.get('type')
 							if not param_type and 'anyOf' in param_info:
