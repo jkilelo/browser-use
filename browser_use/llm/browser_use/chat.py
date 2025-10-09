@@ -722,11 +722,36 @@ done(text="Task completed successfully", success=True)
 										break
 							param_type = param_type or 'any'
 
-							# Mark optional params with ?
+							# Extract constraints (ge, le, min_length, max_length, etc.)
+							constraints = []
+							if 'minimum' in param_info or 'ge' in param_info:
+								min_val = param_info.get('minimum') or param_info.get('ge')
+								constraints.append(f'≥{min_val}')
+							if 'exclusiveMinimum' in param_info or 'gt' in param_info:
+								min_val = param_info.get('exclusiveMinimum') or param_info.get('gt')
+								constraints.append(f'>{min_val}')
+							if 'maximum' in param_info or 'le' in param_info:
+								max_val = param_info.get('maximum') or param_info.get('le')
+								constraints.append(f'≤{max_val}')
+							if 'exclusiveMaximum' in param_info or 'lt' in param_info:
+								max_val = param_info.get('exclusiveMaximum') or param_info.get('lt')
+								constraints.append(f'<{max_val}')
+							if 'minLength' in param_info or 'min_length' in param_info:
+								min_len = param_info.get('minLength') or param_info.get('min_length')
+								constraints.append(f'len≥{min_len}')
+							if 'maxLength' in param_info or 'max_length' in param_info:
+								max_len = param_info.get('maxLength') or param_info.get('max_length')
+								constraints.append(f'len≤{max_len}')
+
+							# Build parameter description
 							if param_name not in required_fields:
 								param_desc = f'{param_name}?={param_type}'
 							else:
 								param_desc = f'{param_name}={param_type}'
+
+							# Add constraints if present
+							if constraints:
+								param_desc += f' [{",".join(constraints)}]'
 
 							# Add description from schema if present
 							desc = param_info.get('description', '')
