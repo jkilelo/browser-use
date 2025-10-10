@@ -5,6 +5,7 @@ from browser_use.logging_config import setup_logging
 
 try:
 	from importlib.metadata import version
+
 	__version__ = version('browser-use')
 except Exception:
 	__version__ = '> 0.8.0'
