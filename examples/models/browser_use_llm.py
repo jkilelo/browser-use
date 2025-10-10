@@ -22,7 +22,8 @@ if not os.getenv('BROWSER_USE_API_KEY'):
 
 async def main():
 	agent = Agent(
-		task="Go to the New York Times Wordle game and play today's puzzle. Try to solve it in as few guesses as possible.",
+		# task="Go to the New York Times Wordle game and play today's puzzle. Try to solve it in as few guesses as possible.",
+		task='Go to google flights and find the cheapest flight from London to Paris on 2025-10-15',
 		llm=ChatBrowserUse(),
 	)
 

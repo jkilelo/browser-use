@@ -4,7 +4,13 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from cdp_use.cdp.network import LoadingFailedEvent, LoadingFinishedEvent, RequestWillBeSentEvent, ResponseReceivedEvent
+from cdp_use.cdp.network import (
+	LoadingFailedEvent,
+	LoadingFinishedEvent,
+	RequestWillBeSentEvent,
+	ResponseReceivedEvent,
+	SetBlockedURLsParameters,
+)
 from cdp_use.cdp.target import SessionID, TargetID
 from pydantic import PrivateAttr
 
@@ -27,13 +33,20 @@ if TYPE_CHECKING:
 RequestInfo = dict[str, str | float]
 
 
-def _load_easylist_patterns() -> set[str]:
-	"""Load URL patterns from EasyList blocklist - called once per TrafficWatchdog instance."""
-	patterns = set()
+def _load_easylist_patterns() -> tuple[set[str], list[str]]:
+	"""Load URL patterns from EasyList blocklist - called once per TrafficWatchdog instance.
+
+	Returns:
+		Tuple of (domain_set_for_tracking, url_patterns_for_cdp_blocking)
+		- domain_set: Set of domains for O(1) tracking filter
+		- url_patterns: List of URL patterns for CDP Network.setBlockedURLs()
+	"""
+	domains = set()
+	url_patterns = []
 	easylist_path = Path(__file__).parent / 'easylist'
 
 	if not easylist_path.exists():
-		return patterns
+		return domains, url_patterns
 
 	try:
 		with open(easylist_path, encoding='utf-8') as f:
@@ -46,11 +59,13 @@ def _load_easylist_patterns() -> set[str]:
 				if line.startswith('||'):
 					pattern = line[2:].split('^')[0].split('$')[0].split('/')[0].lower()
 					if pattern:
-						patterns.add(pattern)
+						domains.add(pattern)
+						# Convert to CDP URL pattern: *domain.com* matches any URL containing domain
+						url_patterns.append(f'*{pattern}*')
 	except Exception:
 		pass  # Silently fail if file doesn't exist or can't be read
 
-	return patterns
+	return domains, url_patterns
 
 
 class TrafficWatchdog(BaseWatchdog):
@@ -76,6 +91,7 @@ class TrafficWatchdog(BaseWatchdog):
 	_network_enabled_sessions: set[SessionID] = PrivateAttr(default_factory=set)
 	_cdp_handlers_registered: bool = PrivateAttr(default=False)
 	_easylist_patterns: set[str] = PrivateAttr(default_factory=set)
+	_blocked_url_patterns: list[str] = PrivateAttr(default_factory=list)
 
 	# Filtering patterns - only track essential resources for page functionality
 	RELEVANT_RESOURCE_TYPES: ClassVar[set[str]] = {
@@ -139,8 +155,11 @@ class TrafficWatchdog(BaseWatchdog):
 		"""Initialize traffic monitoring on browser launch."""
 		# Load EasyList patterns once at startup
 		if not self._easylist_patterns:
-			self._easylist_patterns = _load_easylist_patterns()
-			self.logger.debug(f'[TrafficWatchdog] Loaded {len(self._easylist_patterns)} EasyList patterns')
+			self._easylist_patterns, self._blocked_url_patterns = _load_easylist_patterns()
+			self.logger.debug(
+				f'[TrafficWatchdog] Loaded {len(self._easylist_patterns)} EasyList domain patterns, '
+				f'converted to {len(self._blocked_url_patterns)} CDP URL patterns for blocking'
+			)
 
 		self.logger.debug('[TrafficWatchdog] Browser launched, ready to monitor traffic')
 		self._pending_requests.clear()
@@ -159,7 +178,7 @@ class TrafficWatchdog(BaseWatchdog):
 		self._cdp_handlers_registered = False
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
-		"""Enable Network domain for new tabs."""
+		"""Enable Network domain for new tabs and set up URL blocking."""
 		try:
 			# Get or create CDP session for this target
 			cdp_session = await self.browser_session.get_or_create_cdp_session(event.target_id, focus=False)
@@ -178,6 +197,18 @@ class TrafficWatchdog(BaseWatchdog):
 				await cdp_session.cdp_client.send.Network.enable(session_id=cdp_session.session_id)
 				self._network_enabled_sessions.add(cdp_session.session_id)
 				self.logger.debug(f'[TrafficWatchdog] Enabled Network domain for tab {event.target_id[-4:]}')
+
+				# Set blocked URLs using EasyList patterns (CDP-level blocking)
+				if self._blocked_url_patterns:
+					try:
+						await cdp_session.cdp_client.send.Network.setBlockedURLs(
+							params=SetBlockedURLsParameters(urls=self._blocked_url_patterns), session_id=cdp_session.session_id
+						)
+						self.logger.debug(
+							f'[TrafficWatchdog] Enabled CDP URL blocking for {len(self._blocked_url_patterns)} patterns on tab {event.target_id[-4:]}'
+						)
+					except Exception as e:
+						self.logger.warning(f'[TrafficWatchdog] Failed to set blocked URLs for tab {event.target_id[-4:]}: {e}')
 
 			# Register CDP handlers (only once globally)
 			if not self._cdp_handlers_registered:
