@@ -80,9 +80,9 @@ async def test_cdp_blocking_integration():
 		# Verify patterns were loaded during browser launch
 		assert len(traffic_watchdog._easylist_patterns) > 0, 'EasyList patterns should be loaded'
 		assert len(traffic_watchdog._blocked_url_patterns) > 0, 'CDP URL patterns should be generated'
-		assert len(traffic_watchdog._blocked_url_patterns) >= len(
-			traffic_watchdog._easylist_patterns
-		), 'Should have at least as many URL patterns as domains'
+		assert len(traffic_watchdog._blocked_url_patterns) >= len(traffic_watchdog._easylist_patterns), (
+			'Should have at least as many URL patterns as domains'
+		)
 
 		# Wait a moment for browser to fully initialize
 		await asyncio.sleep(1.0)
