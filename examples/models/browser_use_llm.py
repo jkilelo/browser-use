@@ -22,7 +22,7 @@ if not os.getenv('BROWSER_USE_API_KEY'):
 
 async def main():
 	agent = Agent(
-		task='Find the number of stars of the browser-use repo',
+		task="Go to the New York Times Wordle game and play today's puzzle. Try to solve it in as few guesses as possible.",
 		llm=ChatBrowserUse(),
 	)
 

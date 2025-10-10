@@ -452,23 +452,39 @@ class DOMWatchdog(BaseWatchdog):
 			raise
 
 	async def _wait_for_stable_network(self):
-		"""Wait for page stability - simplified for CDP-only branch."""
-		start_time = time.time()
+		"""Wait for page stability using TrafficWatchdog."""
+		# Get TrafficWatchdog from browser session
+		traffic_watchdog = self.browser_session._traffic_watchdog
 
-		# Apply minimum wait time first (let page settle)
-		min_wait = self.browser_session.browser_profile.minimum_wait_page_load_time
-		if min_wait > 0:
-			self.logger.debug(f'⏳ Minimum wait: {min_wait}s')
-			await asyncio.sleep(min_wait)
+		# Use TrafficWatchdog's network monitoring
+		try:
+			# Apply minimum wait first to let page settle
+			min_wait = self.browser_session.browser_profile.minimum_wait_page_load_time
+			if min_wait > 0:
+				self.logger.debug(f'⏳ Minimum wait: {min_wait}s (before network monitoring)')
+				await asyncio.sleep(min_wait)
 
-		# Apply network idle wait time (for dynamic content like iframes)
-		network_idle_wait = self.browser_session.browser_profile.wait_for_network_idle_page_load_time
-		if network_idle_wait > 0:
-			self.logger.debug(f'⏳ Network idle wait: {network_idle_wait}s')
-			await asyncio.sleep(network_idle_wait)
+			# Check if we have a target to monitor
+			if not self.browser_session.agent_focus:
+				self.logger.debug('⚠️ No agent focus, skipping network monitoring')
+				return
 
-		elapsed = time.time() - start_time
-		self.logger.debug(f'✅ Page stability wait completed in {elapsed:.2f}s')
+			target_id = self.browser_session.agent_focus.target_id
+
+			# Now wait for network to stabilize
+			network_event = await traffic_watchdog.wait_for_stable_network(target_id=target_id)
+
+			if network_event.timed_out:
+				self.logger.debug(
+					f'⏰ Network monitoring timed out after {network_event.elapsed_time:.2f}s '
+					f'with {network_event.pending_requests} pending requests'
+				)
+			else:
+				self.logger.debug(f'✅ Network stabilized after {network_event.elapsed_time:.2f}s')
+
+		except Exception as e:
+			self.logger.warning(f'TrafficWatchdog failed: {e}, continuing anyway')
+			# Don't raise, just continue - page load is not critical
 
 	async def _get_page_info(self) -> 'PageInfo':
 		"""Get comprehensive page information using a single CDP call.

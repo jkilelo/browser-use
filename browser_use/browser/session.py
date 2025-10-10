@@ -1174,6 +1174,7 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.watchdogs.screenshot_watchdog import ScreenshotWatchdog
 		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
 		from browser_use.browser.watchdogs.storage_state_watchdog import StorageStateWatchdog
+		from browser_use.browser.watchdogs.traffic_watchdog import TrafficWatchdog
 
 		# Initialize CrashWatchdog
 		# CrashWatchdog.model_rebuild()
@@ -1181,6 +1182,12 @@ class BrowserSession(BaseModel):
 		# self.event_bus.on(BrowserConnectedEvent, self._crash_watchdog.on_BrowserConnectedEvent)
 		# self.event_bus.on(BrowserStoppedEvent, self._crash_watchdog.on_BrowserStoppedEvent)
 		# self._crash_watchdog.attach_to_session()
+
+		# Initialize TrafficWatchdog (monitors network requests for stability detection)
+		TrafficWatchdog.model_rebuild()
+		self._traffic_watchdog = TrafficWatchdog(event_bus=self.event_bus, browser_session=self)
+		self._traffic_watchdog.attach_to_session()
+		self.logger.debug('🌐 TrafficWatchdog initialized for network monitoring')
 
 		# Initialize DownloadsWatchdog
 		DownloadsWatchdog.model_rebuild()

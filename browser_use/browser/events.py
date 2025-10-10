@@ -548,6 +548,22 @@ class DialogOpenedEvent(BaseEvent):
 	# target_id: TargetID   # TODO: add this to avoid needing target_id_from_frame() later
 
 
+# ============================================================================
+# Network Traffic Events
+# ============================================================================
+
+
+class NetworkStabilizedEvent(BaseEvent):
+	"""Network has stabilized (no relevant pending requests for idle_time seconds)."""
+
+	target_id: TargetID
+	pending_requests: int  # How many requests were still pending when we stopped waiting
+	elapsed_time: float  # How long we waited total
+	timed_out: bool  # Did we hit max_wait timeout before network stabilized?
+
+	event_timeout: float | None = _get_timeout('TIMEOUT_NetworkStabilizedEvent', 10.0)  # seconds
+
+
 # Note: Model rebuilding for forward references is handled in the importing modules
 # Events with 'EnhancedDOMTreeNode' forward references (ClickElementEvent, TypeTextEvent,
 # ScrollEvent, UploadFileEvent) need model_rebuild() called after imports are complete
