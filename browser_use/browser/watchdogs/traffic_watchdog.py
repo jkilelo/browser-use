@@ -384,7 +384,7 @@ class TrafficWatchdog(BaseWatchdog):
 		"""
 		# Use browser profile defaults if not specified
 		idle_time = idle_time or self.browser_session.browser_profile.wait_for_network_idle_page_load_time
-		max_wait = max_wait or 5.0  # Default max wait of 5 seconds
+		max_wait = max_wait or 1.0  # Default max wait of 5 seconds
 
 		# Initialize target state if it doesn't exist
 		if target_id not in self._pending_requests:
