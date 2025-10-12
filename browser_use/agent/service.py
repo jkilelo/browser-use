@@ -1646,7 +1646,56 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			cached_selector_map = {}
 			cached_element_hashes = set()
 
+		# Separate subagent actions from other actions for parallel execution
+		subagent_actions = []
+		other_actions = []
+
 		for i, action in enumerate(actions):
+			action_data = action.model_dump(exclude_unset=True)
+			if 'subagent' in action_data:
+				subagent_actions.append((i, action))
+			else:
+				other_actions.append((i, action))
+
+		# Execute subagent actions in parallel if any exist
+		if subagent_actions:
+			self.logger.info(f'🔄 Executing {len(subagent_actions)} subagent actions in parallel')
+
+			# Create parallel tasks for subagent actions
+			subagent_tasks = []
+			for i, action in subagent_actions:
+				action_data = action.model_dump(exclude_unset=True)
+				action_name = 'subagent'
+
+				# Log action before execution
+				self._log_action(action, action_name, i + 1, total_actions)
+
+				task = self._execute_single_action(action, i, total_actions)
+				subagent_tasks.append(task)
+
+			# Wait for all subagent actions to complete
+			subagent_results = await asyncio.gather(*subagent_tasks, return_exceptions=True)
+
+			# Process subagent results
+			for result in subagent_results:
+				if isinstance(result, Exception):
+					self.logger.error(f'❌ Subagent action failed: {result}')
+					action_result = ActionResult(error=str(result))
+					results.append(action_result)
+				elif isinstance(result, ActionResult):
+					results.append(result)
+				else:
+					# Fallback for unexpected result types
+					self.logger.warning(f'Unexpected result type from subagent: {type(result)}')
+					action_result = ActionResult(error=f'Unexpected result type: {type(result)}')
+					results.append(action_result)
+
+				# Break if any subagent action resulted in done or error
+				if results[-1].is_done or results[-1].error:
+					return results
+
+		# Execute other actions sequentially
+		for i, action in other_actions:
 			if i > 0:
 				# ONLY ALLOW TO CALL `done` IF IT IS A SINGLE ACTION
 				if action.model_dump(exclude_unset=True).get('done') is not None:
@@ -1654,36 +1703,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 					self.logger.debug(msg)
 					break
 
-			# wait between actions (only after first action)
-			if i > 0:
+			# wait between actions (only after first action or after subagent actions)
+			if len(results) > 0 or i > 0:
 				await asyncio.sleep(self.browser_profile.wait_between_actions)
 
 			try:
-				await self._check_stop_or_pause()
-				# Get action name from the action model
-				action_data = action.model_dump(exclude_unset=True)
-				action_name = next(iter(action_data.keys())) if action_data else 'unknown'
-
-				# Log action before execution
-				self._log_action(action, action_name, i + 1, total_actions)
-
-				time_start = time.time()
-
-				result = await self.tools.act(
-					action=action,
-					browser_session=self.browser_session,
-					file_system=self.file_system,
-					page_extraction_llm=self.settings.page_extraction_llm,
-					sensitive_data=self.sensitive_data,
-					available_file_paths=self.available_file_paths,
-				)
-
-				time_end = time.time()
-				time_elapsed = time_end - time_start
-
+				result = await self._execute_single_action(action, i, total_actions)
 				results.append(result)
 
-				if results[-1].is_done or results[-1].error or i == total_actions - 1:
+				if results[-1].is_done or results[-1].error:
 					break
 
 			except Exception as e:
@@ -1692,6 +1720,34 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				raise e
 
 		return results
+
+	async def _execute_single_action(self, action: ActionModel, action_index: int, total_actions: int) -> ActionResult:
+		"""Execute a single action and return its result"""
+		await self._check_stop_or_pause()
+
+		# Get action name from the action model
+		action_data = action.model_dump(exclude_unset=True)
+		action_name = next(iter(action_data.keys())) if action_data else 'unknown'
+
+		# Log action before execution (only if not already logged)
+		if action_name != 'subagent':  # subagent actions are logged in multi_act
+			self._log_action(action, action_name, action_index + 1, total_actions)
+
+		time_start = time.time()
+
+		result = await self.tools.act(
+			action=action,
+			browser_session=self.browser_session,
+			file_system=self.file_system,
+			page_extraction_llm=self.settings.page_extraction_llm,
+			sensitive_data=self.sensitive_data,
+			available_file_paths=self.available_file_paths,
+		)
+
+		time_end = time.time()
+		time_elapsed = time_end - time_start
+
+		return result
 
 	def _log_action(self, action, action_name: str, action_num: int, total_actions: int) -> None:
 		"""Log the action before execution with colored formatting"""

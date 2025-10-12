@@ -233,7 +233,9 @@ class Tools(Generic[Context]):
 
 		# Element Interaction Actions
 
-		@self.registry.action('start subagent to delegate a task to be more efficient')
+		@self.registry.action(
+			'start subagent to delegate a task to be more efficient. you can output multiple of these and they will be run in parallel'
+		)
 		async def subagent(task: str, page_extraction_llm: BaseChatModel):
 			from browser_use import Agent
 
