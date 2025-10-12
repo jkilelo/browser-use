@@ -392,16 +392,18 @@ class FileSystem:
 
 			# Handle empty files
 			if not content:
-				description += f'<file>\n{file_obj.full_name} - [empty file]\n</file>\n'
+				description += f'<file>{file_obj.full_name} empty\n</file>\n'
 				continue
 
 			lines = content.splitlines()
 			line_count = len(lines)
 
+			if 'extracted_content' in file_obj.full_name:
+				description += f'<file>{file_obj.full_name} {line_count} lines</file>\n'
+				continue
+
 			# For small files, display the entire content
-			whole_file_description = (
-				f'<file>\n{file_obj.full_name} - {line_count} lines\n<content>\n{content}\n</content>\n</file>\n'
-			)
+			whole_file_description = f'<file>{file_obj.full_name} {line_count} lines\n{content}</file>\n'
 			if len(content) < int(1.5 * DISPLAY_CHARS):
 				description += whole_file_description
 				continue
@@ -442,12 +444,9 @@ class FileSystem:
 
 			# Format output
 			if not (start_preview or end_preview):
-				description += f'<file>\n{file_obj.full_name} - {line_count} lines\n<content>\n{middle_line_count} lines...\n</content>\n</file>\n'
+				description += f'<file>{file_obj.full_name} {line_count} lines\n{middle_line_count} lines...\n</file>\n'
 			else:
-				description += f'<file>\n{file_obj.full_name} - {line_count} lines\n<content>\n{start_preview}\n'
-				description += f'... {middle_line_count} more lines ...\n'
-				description += f'{end_preview}\n'
-				description += '</content>\n</file>\n'
+				description += f'<file>{file_obj.full_name} {line_count} lines\n{start_preview}\n... {middle_line_count} more lines ...\n{end_preview}\n</file>\n'
 
 		return description.strip('\n')
 
