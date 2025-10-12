@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from browser_use import Agent, Browser, ChatGoogle
+from browser_use import Agent, Browser
+from private_example.chat import ChatBrowserUse
 
 # Connect to your existing Chrome browser
 browser = Browser(
@@ -18,15 +19,42 @@ browser = Browser(
 )
 
 
+task = """Go to https://www.linkedin.com/mynetwork/invitation-manager/received/PEOPLE_WITH_MUTUAL_CONNECTION/ and accept / ignore invitations.
+only decide based on the short text you see in the list. 
+
+Accept:
+- if we have >10 mutual connections
+
+Else reject.
+
+I have 1500. - finish all.
+
+
+
+If you dont see any - wait / refresh / scroll until you finished all
+
+
+Keep the responses as short as possible.
+
+dont not accept marketing people who try to offer me something like recuritng etc.
+use multiaction with click action
+
+
+"""
+
+from lmnr import Laminar
+
+Laminar.initialize()
+
+
 async def main():
-	# save storage state
 	agent = Agent(
-		llm=ChatGoogle(model='gemini-flash-latest'),
-		# Google blocks this approach, so we use a different search engine
-		task='go to amazon.com and buy pens to draw on the whiteboard',
+		task=task,
+		llm=ChatBrowserUse(),
 		browser=browser,
+		use_vision=True,
 	)
-	await agent.run()
+	await agent.run(max_steps=1000)
 
 
 if __name__ == '__main__':
