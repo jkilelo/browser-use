@@ -741,7 +741,7 @@ class DOMTreeSerializer:
 			return '\n'.join(formatted_text)
 
 		formatted_text = []
-		depth_str = depth * '\t'
+		depth_str = ''  # before: depth * '\t'
 		next_depth = depth
 
 		if node.original_node.node_type == NodeType.ELEMENT_NODE:
