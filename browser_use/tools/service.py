@@ -233,6 +233,18 @@ class Tools(Generic[Context]):
 
 		# Element Interaction Actions
 
+		@self.registry.action('start subagent to delegate a task to be more efficient')
+		async def subagent(task: str, page_extraction_llm: BaseChatModel):
+			from browser_use import Agent
+
+			agent = Agent(
+				task=task,
+				llm=page_extraction_llm,
+				flash_mode=True,
+			)
+			history = await agent.run(max_steps=20)
+			return history.final_result()
+
 		@self.registry.action(
 			'',
 			param_model=ClickElementAction,
