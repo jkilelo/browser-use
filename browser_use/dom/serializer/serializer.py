@@ -876,7 +876,7 @@ class DOMTreeSerializer:
 				and len(node.original_node.node_value.strip()) > 1
 			):
 				clean_text = node.original_node.node_value.strip()
-				formatted_text.append(f'{depth_str}{clean_text}')
+				formatted_text.append(f'{clean_text}')
 
 		# Process children (for non-shadow elements)
 		if node.original_node.node_type != NodeType.DOCUMENT_FRAGMENT_NODE:
