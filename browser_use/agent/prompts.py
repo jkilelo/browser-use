@@ -287,9 +287,6 @@ Available tabs:
 			_todo_contents = '[empty todo.md, fill it when applicable]'
 
 		agent_state = f"""
-<user_request>
-{self.task}
-</user_request>
 <file_system>
 {self.file_system.describe() if self.file_system else 'No file system available'}
 </file_system>
@@ -319,22 +316,22 @@ Available tabs:
 			use_vision = False
 
 		# Build complete state description
-		state_description = (
-			'<agent_history>\n'
+		state_description = f'<user_request>{self.task}</user_request>\n'
+
+		state_description += (
+			'<agent_history>'
 			+ (self.agent_history_description.strip('\n') if self.agent_history_description else '')
-			+ '\n</agent_history>\n\n'
+			+ '</agent_history>\n'
 		)
-		state_description += '<agent_state>\n' + self._get_agent_state_description().strip('\n') + '\n</agent_state>\n'
-		state_description += '<browser_state>\n' + self._get_browser_state_description().strip('\n') + '\n</browser_state>\n'
+		state_description += '<agent_state>' + self._get_agent_state_description().strip('\n') + '</agent_state>\n'
+		state_description += '<browser_state>' + self._get_browser_state_description().strip('\n') + '</browser_state>\n'
 		# Only add read_state if it has content
 		read_state_description = self.read_state_description.strip('\n').strip() if self.read_state_description else ''
 		if read_state_description:
-			state_description += '<read_state>\n' + read_state_description + '\n</read_state>\n'
+			state_description += '<read_state>' + read_state_description + '</read_state>\n'
 
 		if self.page_filtered_actions:
-			state_description += '<page_specific_actions>\n'
-			state_description += self.page_filtered_actions + '\n'
-			state_description += '</page_specific_actions>\n'
+			state_description += '<page_specific_actions>' + self.page_filtered_actions + '</page_specific_actions>\n'
 
 		if use_vision is True and self.screenshots:
 			# Start with text description
