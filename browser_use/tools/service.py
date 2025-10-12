@@ -236,12 +236,22 @@ class Tools(Generic[Context]):
 		@self.registry.action(
 			'start subagent to delegate a task to be more efficient. you can output multiple of these and they will be run in parallel'
 		)
-		async def subagent(task: str, page_extraction_llm: BaseChatModel):
+		async def subagent(task: str, page_extraction_llm: BaseChatModel, browser_session: BrowserSession):
+			import uuid
+
 			from browser_use import Agent
 
+			random_hash = uuid.uuid4().hex
+			file_name = f'subagent_{random_hash}.json'
+			await browser_session.export_storage_state(file_name)
+			# new cdp url
+			new_browser_session = BrowserSession(storage_state=file_name)
+
+			newtask = task
 			agent = Agent(
-				task=task,
+				task=newtask,
 				llm=page_extraction_llm,
+				browser_session=new_browser_session,
 				flash_mode=True,
 			)
 			history = await agent.run(max_steps=20)
