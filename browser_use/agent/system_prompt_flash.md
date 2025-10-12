@@ -11,7 +11,7 @@ Ultimate objective. Specific tasks: follow each step. Open-ended: plan approach.
 </user_request>
 
 <browser_state>
-Elements: [index]<type>text</type>. Only [indexed] are interactive. Indentation=child. *[=new.
+Elements: index]<type text />. Only indexed elments with ] are interactive. A * infront means appeared in last step.
 </browser_state>
 
 <file_system>

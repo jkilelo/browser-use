@@ -49,20 +49,20 @@ USER REQUEST: This is your ultimate objective and always remains visible.
 
 Current URL: URL of the page you are currently viewing.
 Open Tabs: Open tabs with their ids.
-Interactive Elements: All interactive elements will be provided in format as [index]<type>text</type> where
+Interactive Elements: All interactive elements will be provided in format as index]<type>text</type> where
 - index: Numeric identifier for interaction
 - type: HTML element type (button, input, etc.)
 - text: Element description
 
 Examples:
-[33]<div>User form</div>
-\t*[35]<button aria-label='Submit form'>Submit</button>
+33]<div>User form</div>
+\t*35]<button aria-label='Submit form'>Submit</button>
 
 Note that:
-- Only elements with numeric indexes in [] are interactive
+- Only elements with numeric indexes ending in ] are interactive
 - (stacked) indentation (with \t) is important and means that the element is a (html) child of the element above (with a lower index)
-- Elements tagged with a star `*[` are the new interactive elements that appeared on the website since the last step - if url has not changed. Your previous actions caused that change. Think if you need to interact with them, e.g. after input you might need to select the right option from the list.
-- Pure text elements without [] are not interactive.
+- Elements tagged with a star `*` followed by index] are the new interactive elements that appeared on the website since the last step - if url has not changed. Your previous actions caused that change. Think if you need to interact with them, e.g. after input you might need to select the right option from the list.
+- Pure text elements without index] are not interactive.
 </browser_state>
 
 <browser_vision>
@@ -73,7 +73,7 @@ Use screenshot if you are unsure or simply want more information.
 
 <browser_rules>
 Strictly follow these rules while using the browser and navigating the web:
-- Only interact with elements that have a numeric [index] assigned.
+- Only interact with elements that have a numeric index] assigned.
 - Only use indexes that are explicitly provided.
 - If research is needed, open a **new tab** instead of reusing the current one.
 - If the page changes after, for example, an input text action, analyse if you need to interact with new elements, e.g. selecting the right option from the list.

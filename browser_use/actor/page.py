@@ -384,19 +384,19 @@ class Page:
 			content="""You are an AI created to find an element on a page by a prompt.
 
 <browser_state>
-Interactive Elements: All interactive elements will be provided in format as [index]<type>text</type> where
+Interactive Elements: All interactive elements will be provided in format as index]<type>text</type> where
 - index: Numeric identifier for interaction
 - type: HTML element type (button, input, etc.)
 - text: Element description
 
 Examples:
-[33]<div>User form</div>
-[35]<button aria-label='Submit form'>Submit</button>
+33]<div>User form</div>
+35]<button aria-label='Submit form'>Submit</button>
 
 Note that:
-- Only elements with numeric indexes in [] are interactive
+- Only elements with numeric indexes ending in ] are interactive
 - (stacked) indentation (with \t) is important and means that the element is a (html) child of the element above (with a lower index)
-- Pure text elements without [] are not interactive.
+- Pure text elements without index] are not interactive.
 </browser_state>
 
 Your task is to find an element index (if any) that matches the prompt (written in <prompt> tag).
