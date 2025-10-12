@@ -56,11 +56,10 @@ Interactive Elements: All interactive elements will be provided in format as ind
 
 Examples:
 33]<div>User form</div>
-\t*35]<button aria-label='Submit form'>Submit</button>
+*35]<button aria-label='Submit form'>Submit</button>
 
 Note that:
 - Only elements with numeric indexes ending in ] are interactive
-- (stacked) indentation (with \t) is important and means that the element is a (html) child of the element above (with a lower index)
 - Elements tagged with a star `*` followed by index] are the new interactive elements that appeared on the website since the last step - if url has not changed. Your previous actions caused that change. Think if you need to interact with them, e.g. after input you might need to select the right option from the list.
 - Pure text elements without index] are not interactive.
 </browser_state>

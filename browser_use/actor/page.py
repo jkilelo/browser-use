@@ -395,7 +395,6 @@ Examples:
 
 Note that:
 - Only elements with numeric indexes ending in ] are interactive
-- (stacked) indentation (with \t) is important and means that the element is a (html) child of the element above (with a lower index)
 - Pure text elements without index] are not interactive.
 </browser_state>
 
