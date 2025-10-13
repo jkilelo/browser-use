@@ -895,8 +895,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		"""Summarize the agent's conversation history to prevent context overflow"""
 		from browser_use.llm.messages import SystemMessage, UserMessage
 
-		self.logger.info(f'📝 Summarizing conversation history (summary #{self._summary_count + 1})...')
-
 		# Get the current agent history items
 		history_items = self._message_manager.state.agent_history_items
 
@@ -906,7 +904,6 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 		# Find where the last summary ends (or start from index 1 to skip initialization)
 		# We only want to summarize the new items since the last summary
-		start_idx = 1  # Skip initialization item
 		items_to_summarize = []
 
 		# Separate already-summarized items from new items to be summarized
@@ -939,7 +936,7 @@ Here is the recent conversation history (last {len(items_to_summarize)} steps):
 		try:
 			messages = [
 				SystemMessage(
-					content="You are summarizing an agent's conversation history. Be extremely concise and focus on key accomplishments and facts important for the task. Keep everyting that is important to accomplish the task."
+					content="You are summarizing an agent's conversation history. Be extremely concise and only include key facts important for the task. Keep what's important to accomplish the task. This summary will replace the previous history to compact the history."
 				),
 				UserMessage(content=summarization_prompt),
 			]
