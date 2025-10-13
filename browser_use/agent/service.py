@@ -179,7 +179,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		final_response_after_failure: bool = True,
-		summarize_every_n_steps: int | None = 15,
+		summarize_every_n_steps: int | None = 30,
 		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
@@ -936,7 +936,7 @@ Here is the recent conversation history (last {len(items_to_summarize)} steps):
 		try:
 			messages = [
 				SystemMessage(
-					content="You are summarizing an agent's conversation history. Be extremely concise and only include key facts important for the task. Keep what's important to accomplish the task. This summary will replace the previous history to compact the history."
+					content="You are summarizing an agent's conversation history. Be extremely concise and only include key facts important for the task. Keep what's important to accomplish the task. This summary will replace the previous history steps to compact the history. The last <step> and the <user_request> will stay in memory."
 				),
 				UserMessage(content=summarization_prompt),
 			]
