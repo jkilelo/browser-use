@@ -933,18 +933,15 @@ Here is the recent conversation history (last {len(items_to_summarize)} steps):
 
 {history_text}
 
-Please provide a concise summary of:
-1. What has been accomplished in these steps
-2. Key information discovered or learned
-3. Current progress and what still needs to be done
-
-Keep the summary focused and under 500 words."""
+"""
 
 		# Call LLM to get summary
 		try:
 			messages = [
-				SystemMessage(content='You are summarizing an agent\'s conversation history. Be concise and focus on key accomplishments and learnings.'),
-				UserMessage(content=summarization_prompt)
+				SystemMessage(
+					content="You are summarizing an agent's conversation history. Be extremely concise and focus on key accomplishments and facts important for the task. Keep everyting that is important to accomplish the task."
+				),
+				UserMessage(content=summarization_prompt),
 			]
 
 			response = await self.llm.ainvoke(messages)
@@ -958,7 +955,9 @@ Keep the summary focused and under 500 words."""
 			# Replace history with: initialization + all previous summaries + new summary
 			self._message_manager.state.agent_history_items = already_summarized + [summary_item]
 
-			self.logger.info(f'✅ History summarized: {len(items_to_summarize)} items condensed into summary block #{self._summary_count + 1}')
+			self.logger.info(
+				f'✅ History summarized: {len(items_to_summarize)} items condensed into summary block #{self._summary_count + 1}'
+			)
 
 		except Exception as e:
 			self.logger.error(f'Failed to summarize history: {e}')
