@@ -85,6 +85,72 @@ class DOMWatchdog(BaseWatchdog):
 
 		return json.dumps([])  # Return empty JSON array on error
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='ensure_visible_tab')
+	async def _ensure_visible_tab(self) -> None:
+		"""Check if our current tab is visible, if not switch to the visible tab."""
+		if not self.browser_session.agent_focus:
+			return
+
+		try:
+			current_focus_id = self.browser_session.agent_focus.target_id
+
+			# Check if the current tab is visible
+			result = await self.browser_session.agent_focus.cdp_client.send.Runtime.evaluate(
+				params={'expression': 'document.visibilityState'},
+				session_id=self.browser_session.agent_focus.session_id,
+			)
+
+			visibility = result.get('result', {}).get('value')
+			self.logger.debug(f'🔍 Current tab {current_focus_id[-4:]} visibility: {visibility}')
+
+			# If current tab is not visible, find and switch to the visible tab
+			if visibility != 'visible':
+				self.logger.debug(
+					f'🔄 Current tab {current_focus_id[-4:]} is not visible (state: {visibility}), finding visible tab...'
+				)
+				from browser_use.browser.events import SwitchTabEvent
+
+				# Get all pages and check each one for visibility
+				all_pages = await self.browser_session._cdp_get_all_pages()
+				visible_target_id = None
+
+				for page in all_pages:
+					page_target_id = page['targetId']
+					if page_target_id == current_focus_id:
+						continue  # Skip current tab, we already know it's not visible
+
+					try:
+						# Get or create CDP session for this tab
+						test_session = await self.browser_session.get_or_create_cdp_session(target_id=page_target_id)
+
+						# Check visibility of this tab
+						vis_result = await test_session.cdp_client.send.Runtime.evaluate(
+							params={'expression': 'document.visibilityState'},
+							session_id=test_session.session_id,
+						)
+
+						tab_visibility = vis_result.get('result', {}).get('value')
+						self.logger.debug(f'  Tab {page_target_id[-4:]} visibility: {tab_visibility}')
+
+						if tab_visibility == 'visible':
+							visible_target_id = page_target_id
+							break
+					except Exception as e:
+						self.logger.debug(f'  Failed to check visibility for tab {page_target_id[-4:]}: {e}')
+						continue
+
+				# Switch to the visible tab if found
+				if visible_target_id:
+					self.logger.debug(f'🔄 Switching to visible tab: {visible_target_id[-4:]}')
+					switch_event = self.event_bus.dispatch(SwitchTabEvent(target_id=visible_target_id))
+					await switch_event
+					new_focus_id = self.browser_session.agent_focus.target_id
+					self.logger.debug(f'🔄 Switched to tab: {new_focus_id[-4:]}')
+				else:
+					self.logger.debug('🔄 Could not find any visible tab to switch to')
+		except Exception as e:
+			self.logger.warning(f'Failed to check visibility or switch tabs: {e}')
+
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_state_request_event')
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> 'BrowserStateSummary':
 		"""Handle browser state request by coordinating DOM building and screenshot capture.
@@ -102,66 +168,7 @@ class DOMWatchdog(BaseWatchdog):
 		self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: STARTING browser state request')
 
 		# Check if our current tab is visible, if not switch to the visible tab
-		if self.browser_session.agent_focus:
-			try:
-				current_focus_id = self.browser_session.agent_focus.target_id
-
-				# Check if the current tab is visible
-				result = await self.browser_session.agent_focus.cdp_client.send.Runtime.evaluate(
-					params={'expression': 'document.visibilityState'},
-					session_id=self.browser_session.agent_focus.session_id,
-				)
-
-				visibility = result.get('result', {}).get('value')
-				self.logger.debug(f'🔍 Current tab {current_focus_id[-4:]} visibility: {visibility}')
-
-				# If current tab is not visible, find and switch to the visible tab
-				if visibility != 'visible':
-					self.logger.debug(
-						f'🔄 Current tab {current_focus_id[-4:]} is not visible (state: {visibility}), finding visible tab...'
-					)
-					from browser_use.browser.events import SwitchTabEvent
-
-					# Get all pages and check each one for visibility
-					all_pages = await self.browser_session._cdp_get_all_pages()
-					visible_target_id = None
-
-					for page in all_pages:
-						page_target_id = page['targetId']
-						if page_target_id == current_focus_id:
-							continue  # Skip current tab, we already know it's not visible
-
-						try:
-							# Get or create CDP session for this tab
-							test_session = await self.browser_session.get_or_create_cdp_session(target_id=page_target_id)
-
-							# Check visibility of this tab
-							vis_result = await test_session.cdp_client.send.Runtime.evaluate(
-								params={'expression': 'document.visibilityState'},
-								session_id=test_session.session_id,
-							)
-
-							tab_visibility = vis_result.get('result', {}).get('value')
-							self.logger.debug(f'  Tab {page_target_id[-4:]} visibility: {tab_visibility}')
-
-							if tab_visibility == 'visible':
-								visible_target_id = page_target_id
-								break
-						except Exception as e:
-							self.logger.debug(f'  Failed to check visibility for tab {page_target_id[-4:]}: {e}')
-							continue
-
-					# Switch to the visible tab if found
-					if visible_target_id:
-						self.logger.debug(f'🔄 Switching to visible tab: {visible_target_id[-4:]}')
-						switch_event = self.event_bus.dispatch(SwitchTabEvent(target_id=visible_target_id))
-						await switch_event
-						new_focus_id = self.browser_session.agent_focus.target_id
-						self.logger.debug(f'🔄 Switched to tab: {new_focus_id[-4:]}')
-					else:
-						self.logger.debug('🔄 Could not find any visible tab to switch to')
-			except Exception as e:
-				self.logger.warning(f'Failed to check visibility or switch tabs: {e}')
+		await self._ensure_visible_tab()
 
 		# Get tabs info for the browser state summary
 		self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Getting tabs info...')
