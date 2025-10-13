@@ -1741,6 +1741,7 @@ Here is the recent conversation history (last {len(items_to_summarize)} steps):
 
 			# wait between actions (only after first action)
 			if i > 0:
+				self.logger.debug(f'Waiting {self.browser_profile.wait_between_actions} seconds between actions')
 				await asyncio.sleep(self.browser_profile.wait_between_actions)
 
 			try:
