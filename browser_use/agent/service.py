@@ -179,7 +179,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		final_response_after_failure: bool = True,
-		summarize_every_n_steps: int | None = 10,
+		summarize_every_n_steps: int | None = 15,
 		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
