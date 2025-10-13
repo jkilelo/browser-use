@@ -100,6 +100,76 @@ class DOMWatchdog(BaseWatchdog):
 		from browser_use.browser.views import BrowserStateSummary, PageInfo
 
 		self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: STARTING browser state request')
+
+		# Check if our current tab is visible, if not switch to the visible tab
+		if self.browser_session.agent_focus:
+			try:
+				current_focus_id = self.browser_session.agent_focus.target_id
+
+				# Check if the current tab is visible
+				result = await self.browser_session.agent_focus.cdp_client.send.Runtime.evaluate(
+					params={'expression': 'document.visibilityState'},
+					session_id=self.browser_session.agent_focus.session_id,
+				)
+
+				visibility = result.get('result', {}).get('value')
+				self.logger.debug(f'🔍 Current tab {current_focus_id[-4:]} visibility: {visibility}')
+
+				# If current tab is not visible, find and switch to the visible tab
+				if visibility != 'visible':
+					self.logger.debug(
+						f'🔄 Current tab {current_focus_id[-4:]} is not visible (state: {visibility}), finding visible tab...'
+					)
+					from browser_use.browser.events import SwitchTabEvent
+
+					# Get all pages and check each one for visibility
+					all_pages = await self.browser_session._cdp_get_all_pages()
+					visible_target_id = None
+
+					for page in all_pages:
+						page_target_id = page['targetId']
+						if page_target_id == current_focus_id:
+							continue  # Skip current tab, we already know it's not visible
+
+						try:
+							# Get or create CDP session for this tab
+							test_session = await self.browser_session.get_or_create_cdp_session(target_id=page_target_id)
+
+							# Check visibility of this tab
+							vis_result = await test_session.cdp_client.send.Runtime.evaluate(
+								params={'expression': 'document.visibilityState'},
+								session_id=test_session.session_id,
+							)
+
+							tab_visibility = vis_result.get('result', {}).get('value')
+							self.logger.debug(f'  Tab {page_target_id[-4:]} visibility: {tab_visibility}')
+
+							if tab_visibility == 'visible':
+								visible_target_id = page_target_id
+								break
+						except Exception as e:
+							self.logger.debug(f'  Failed to check visibility for tab {page_target_id[-4:]}: {e}')
+							continue
+
+					# Switch to the visible tab if found
+					if visible_target_id:
+						self.logger.debug(f'🔄 Switching to visible tab: {visible_target_id[-4:]}')
+						switch_event = self.event_bus.dispatch(SwitchTabEvent(target_id=visible_target_id))
+						await switch_event
+						new_focus_id = self.browser_session.agent_focus.target_id
+						self.logger.debug(f'🔄 Switched to tab: {new_focus_id[-4:]}')
+					else:
+						self.logger.debug('🔄 Could not find any visible tab to switch to')
+			except Exception as e:
+				self.logger.warning(f'Failed to check visibility or switch tabs: {e}')
+
+		# Get tabs info for the browser state summary
+		self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Getting tabs info...')
+		tabs_info = await self.browser_session.get_tabs()
+		self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Got {len(tabs_info)} tabs')
+		self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Tabs info: {tabs_info}')
+
+		# NOW get the page URL after potentially switching tabs
 		page_url = await self.browser_session.get_current_page_url()
 		self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Got page URL: {page_url}')
 		if self.browser_session.agent_focus:
@@ -122,12 +192,6 @@ class DOMWatchdog(BaseWatchdog):
 				self.logger.warning(
 					f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Network waiting failed: {e}, continuing anyway...'
 				)
-
-		# Get tabs info once at the beginning for all paths
-		self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Getting tabs info...')
-		tabs_info = await self.browser_session.get_tabs()
-		self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Got {len(tabs_info)} tabs')
-		self.logger.debug(f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Tabs info: {tabs_info}')
 
 		# Get viewport / scroll position info, remember changing scroll position should invalidate selector_map cache because it only includes visible elements
 		# cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
