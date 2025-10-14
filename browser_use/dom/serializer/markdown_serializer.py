@@ -1,6 +1,5 @@
 # @file purpose: Serializes enhanced DOM trees to clean markdown format for content extraction
 
-import hashlib
 import logging
 
 from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
@@ -65,11 +64,14 @@ class MarkdownSerializer:
 	# Inline elements that should not add extra spacing
 	INLINE_ELEMENTS = {'span', 'a', 'strong', 'em', 'b', 'i', 'u', 'code', 'small', 'sub', 'sup', 'mark'}
 
-	def __init__(self, extract_links: bool = False):
+	def __init__(self, extract_links: bool = False, deduplicate_threshold: int = 3):
 		self.extract_links = extract_links
+		self.deduplicate_threshold = deduplicate_threshold  # How many times to allow same text before deduplicating
 		self._output_lines: list[str] = []
 		self._link_counter = 0
 		self._links: dict[int, str] = {}
+		self._text_counts: dict[str, int] = {}  # Track how many times we've seen each text
+		self._text_content_cache: dict[int, str] = {}  # Cache extracted text content by node_id
 
 	def serialize(self, root_node: EnhancedDOMTreeNode) -> str:
 		"""Serialize the entire DOM tree to markdown.
@@ -83,6 +85,8 @@ class MarkdownSerializer:
 		self._output_lines = []
 		self._link_counter = 0
 		self._links = {}
+		self._text_counts = {}  # Reset deduplication tracking
+		self._text_content_cache = {}  # Reset text content cache
 
 		# Start serialization from root
 		self._serialize_node(root_node, depth=0)
@@ -96,32 +100,60 @@ class MarkdownSerializer:
 
 		return markdown.strip()
 
-	def _serialize_node(self, node: EnhancedDOMTreeNode, depth: int) -> None:
+	def _should_include_text(self, text: str) -> bool:
+		"""Check if text should be included based on deduplication threshold.
+
+		Args:
+			text: Text to check
+
+		Returns:
+			True if text should be included, False if it exceeds threshold
+		"""
+		if not text or self.deduplicate_threshold <= 0:
+			return True
+
+		# Normalize text for deduplication (strip whitespace, lowercase)
+		normalized = text.strip().lower()
+		if not normalized:
+			return True
+
+		# Track count
+		current_count = self._text_counts.get(normalized, 0)
+		self._text_counts[normalized] = current_count + 1
+
+		# Allow if under threshold
+		return current_count < self.deduplicate_threshold
+
+	def _serialize_node(self, node: EnhancedDOMTreeNode, depth: int, max_depth: int = 50) -> None:
 		"""Recursively serialize a node and its children.
 
 		Args:
 			node: Current node to serialize
 			depth: Current depth in the tree (for debugging)
+			max_depth: Maximum depth to prevent infinite recursion
 		"""
+		# Safety check to prevent infinite recursion
+		if depth > max_depth:
+			return
 
 		# Handle different node types
 		if node.node_type == NodeType.DOCUMENT_NODE:
 			# Process document's children
 			for child in node.children:
-				self._serialize_node(child, depth)
+				self._serialize_node(child, depth, max_depth)
 			return
 
 		if node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
 			# Shadow DOM - process children directly
 			for child in node.children:
-				self._serialize_node(child, depth)
+				self._serialize_node(child, depth, max_depth)
 			return
 
 		if node.node_type == NodeType.TEXT_NODE:
 			# Only include visible text
 			if node.is_visible and node.node_value:
 				text = node.node_value.strip()
-				if text and len(text) > 1:
+				if text and len(text) > 1 and self._should_include_text(text):
 					self._output_lines.append(text)
 			return
 
@@ -139,7 +171,7 @@ class MarkdownSerializer:
 					self._output_lines.append('---')
 					self._output_lines.append('**[Iframe Content Start]**')
 					self._output_lines.append('')
-					self._serialize_node(node.content_document, depth + 1)
+					self._serialize_node(node.content_document, depth + 1, max_depth)
 					self._output_lines.append('')
 					self._output_lines.append('**[Iframe Content End]**')
 					self._output_lines.append('---')
@@ -155,7 +187,7 @@ class MarkdownSerializer:
 				# Headings
 				level = int(tag_name[1])
 				text = self._get_text_content(node)
-				if text:
+				if text and self._should_include_text(text):
 					self._output_lines.append('')
 					self._output_lines.append(f'{"#" * level} {text}')
 					self._output_lines.append('')
@@ -164,7 +196,7 @@ class MarkdownSerializer:
 			if tag_name == 'a':
 				# Links
 				text = self._get_text_content(node)
-				if text:
+				if text and self._should_include_text(text):
 					if self.extract_links and node.attributes and 'href' in node.attributes:
 						href = node.attributes['href']
 						self._link_counter += 1
@@ -177,28 +209,28 @@ class MarkdownSerializer:
 			if tag_name in ('strong', 'b'):
 				# Bold
 				text = self._get_text_content(node)
-				if text:
+				if text and self._should_include_text(text):
 					self._output_lines.append(f'**{text}**')
 				return
 
 			if tag_name in ('em', 'i'):
 				# Italic
 				text = self._get_text_content(node)
-				if text:
+				if text and self._should_include_text(text):
 					self._output_lines.append(f'*{text}*')
 				return
 
 			if tag_name == 'code':
 				# Inline code
 				text = self._get_text_content(node)
-				if text:
+				if text and self._should_include_text(text):
 					self._output_lines.append(f'`{text}`')
 				return
 
 			if tag_name == 'pre':
 				# Code block
 				text = self._get_text_content(node)
-				if text:
+				if text and self._should_include_text(text):
 					self._output_lines.append('')
 					self._output_lines.append('```')
 					self._output_lines.append(text)
@@ -212,7 +244,7 @@ class MarkdownSerializer:
 				for child in node.children:
 					# Process children, then prefix with >
 					child_start_idx = len(self._output_lines)
-					self._serialize_node(child, depth + 1)
+					self._serialize_node(child, depth + 1, max_depth)
 					# Prefix all lines added by children with >
 					for i in range(child_start_idx, len(self._output_lines)):
 						if self._output_lines[i]:
@@ -228,11 +260,11 @@ class MarkdownSerializer:
 					if child.tag_name.lower() == 'li':
 						prefix = f'{counter}. ' if tag_name == 'ol' else '- '
 						text = self._get_text_content(child)
-						if text:
+						if text and self._should_include_text(text):
 							self._output_lines.append(f'{prefix}{text}')
 							counter += 1
 					else:
-						self._serialize_node(child, depth + 1)
+						self._serialize_node(child, depth + 1, max_depth)
 				self._output_lines.append('')
 				return
 
@@ -267,15 +299,19 @@ class MarkdownSerializer:
 
 				if input_type in ('text', 'email', 'password', 'search', 'tel', 'url', 'number'):
 					label = placeholder or value or f'{input_type} input'
-					self._output_lines.append(f'[{label}]')
+					if self._should_include_text(label):
+						self._output_lines.append(f'[{label}]')
 				elif input_type in ('checkbox', 'radio'):
 					checked = 'checked' in node.attributes if node.attributes else False
 					state = '[x]' if checked else '[ ]'
 					label = node.attributes.get('aria-label', value or input_type) if node.attributes else input_type
-					self._output_lines.append(f'{state} {label}')
+					full_text = f'{state} {label}'
+					if self._should_include_text(full_text):
+						self._output_lines.append(full_text)
 				elif input_type == 'button' or input_type == 'submit':
 					label = value or 'button'
-					self._output_lines.append(f'[{label}]')
+					if self._should_include_text(label):
+						self._output_lines.append(f'[{label}]')
 				return
 
 			# Textarea - include value
@@ -283,52 +319,57 @@ class MarkdownSerializer:
 				value = node.attributes.get('value', '') if node.attributes else ''
 				placeholder = node.attributes.get('placeholder', '') if node.attributes else ''
 				label = placeholder or value or 'text area'
-				self._output_lines.append(f'[{label}]')
+				if self._should_include_text(label):
+					self._output_lines.append(f'[{label}]')
 				return
 
 			# Select - show all options
 			if tag_name == 'select':
-				self._output_lines.append('')
-				self._output_lines.append('[Dropdown]')
+				dropdown_label = '[Dropdown]'
+				if self._should_include_text(dropdown_label):
+					self._output_lines.append('')
+					self._output_lines.append(dropdown_label)
 
-				# Collect all options
-				options = []
+					# Collect all options
+					options = []
 
-				def collect_options(n: EnhancedDOMTreeNode) -> None:
-					"""Recursively collect option elements from select and optgroups."""
-					for child in n.children:
-						if child.tag_name.lower() == 'option':
-							text = self._get_text_content(child)
-							is_selected = child.attributes and 'selected' in child.attributes
-							if text:
-								options.append((text, is_selected))
-						elif child.tag_name.lower() == 'optgroup':
-							# Process optgroup children
-							label = child.attributes.get('label', '') if child.attributes else ''
-							if label:
-								options.append((f'--- {label} ---', False))
-							collect_options(child)
+					def collect_options(n: EnhancedDOMTreeNode) -> None:
+						"""Recursively collect option elements from select and optgroups."""
+						for child in n.children:
+							if child.tag_name.lower() == 'option':
+								text = self._get_text_content(child)
+								is_selected = child.attributes and 'selected' in child.attributes
+								if text:
+									options.append((text, is_selected))
+							elif child.tag_name.lower() == 'optgroup':
+								# Process optgroup children
+								label = child.attributes.get('label', '') if child.attributes else ''
+								if label:
+									options.append((f'--- {label} ---', False))
+								collect_options(child)
 
-				collect_options(node)
+					collect_options(node)
 
-				for text, is_selected in options:
-					prefix = '  [x] ' if is_selected else '  [ ] '
-					self._output_lines.append(f'{prefix}{text}')
+					for text, is_selected in options:
+						prefix = '  [x] ' if is_selected else '  [ ] '
+						full_text = f'{prefix}{text}'
+						if self._should_include_text(full_text):
+							self._output_lines.append(full_text)
 
-				self._output_lines.append('')
+					self._output_lines.append('')
 				return
 
 			# Button
 			if tag_name == 'button':
 				text = self._get_text_content(node)
-				if text:
+				if text and self._should_include_text(text):
 					self._output_lines.append(f'[{text}]')
 				return
 
 			# Label
 			if tag_name == 'label':
 				text = self._get_text_content(node)
-				if text:
+				if text and self._should_include_text(text):
 					self._output_lines.append(f'{text}:')
 				return
 
@@ -340,7 +381,7 @@ class MarkdownSerializer:
 
 				# Process children
 				for child in node.children:
-					self._serialize_node(child, depth + 1)
+					self._serialize_node(child, depth + 1, max_depth)
 
 				# Add blank line after block element if needed
 				if self._output_lines and self._output_lines[-1].strip():
@@ -349,7 +390,7 @@ class MarkdownSerializer:
 
 			# For all other elements (including inline), just process children
 			for child in node.children_and_shadow_roots:
-				self._serialize_node(child, depth + 1)
+				self._serialize_node(child, depth + 1, max_depth)
 
 	def _get_text_content(self, node: EnhancedDOMTreeNode, max_depth: int = 10) -> str:
 		"""Extract all text content from a node and its descendants.
@@ -361,6 +402,10 @@ class MarkdownSerializer:
 		Returns:
 			Concatenated text content
 		"""
+		# Check cache first
+		if node.node_id in self._text_content_cache:
+			return self._text_content_cache[node.node_id]
+
 		if max_depth <= 0:
 			return ''
 
@@ -391,7 +436,10 @@ class MarkdownSerializer:
 				if child_text:
 					parts.append(child_text)
 
-		return ' '.join(parts)
+		result = ' '.join(parts)
+		# Cache the result
+		self._text_content_cache[node.node_id] = result
+		return result
 
 	def _serialize_table(self, table_node: EnhancedDOMTreeNode) -> None:
 		"""Serialize a table to markdown format.

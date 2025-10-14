@@ -1061,8 +1061,12 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		dom_watchdog: DOMWatchdog | None = browser_session._dom_watchdog
 		assert dom_watchdog is not None
 		# Get or build the enhanced DOM tree
+		await dom_watchdog._build_dom_tree_without_highlights()
 		enhanced_dom_tree = dom_watchdog.enhanced_dom_tree
 		assert enhanced_dom_tree is not None
+		# import json
+		# with open('enhanced_dom_tree.json', 'w') as f:
+		# 	json.dump(enhanced_dom_tree.__json__(), f, indent=4)
 
 		# Use the new markdown serializer with the enhanced DOM tree
 		from browser_use.dom.serializer.markdown_serializer import MarkdownSerializer
