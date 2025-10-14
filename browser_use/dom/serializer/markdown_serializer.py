@@ -1,6 +1,7 @@
 # @file purpose: Serializes enhanced DOM trees to clean markdown format for content extraction
 
 import logging
+import re
 
 from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
 
@@ -8,7 +9,14 @@ logger = logging.getLogger(__name__)
 
 
 class MarkdownSerializer:
-	"""Serializes enhanced DOM trees to clean markdown, capturing dynamic content."""
+	"""Serializes enhanced DOM trees to clean markdown, capturing dynamic content.
+
+	Key principles from python-markdownify:
+	- Process elements based on their display type (block vs inline)
+	- Properly handle whitespace and text normalization
+	- Use dedicated handlers for each element type
+	- Build output incrementally, not by extracting all text at once
+	"""
 
 	# Elements that should be completely skipped
 	SKIP_ELEMENTS = {
@@ -71,7 +79,7 @@ class MarkdownSerializer:
 		self._link_counter = 0
 		self._links: dict[int, str] = {}
 		self._text_counts: dict[str, int] = {}  # Track how many times we've seen each text
-		self._text_content_cache: dict[int, str] = {}  # Cache extracted text content by node_id
+		self._current_line_parts: list[str] = []  # Buffer for building current line
 
 	def serialize(self, root_node: EnhancedDOMTreeNode) -> str:
 		"""Serialize the entire DOM tree to markdown.
@@ -86,10 +94,13 @@ class MarkdownSerializer:
 		self._link_counter = 0
 		self._links = {}
 		self._text_counts = {}  # Reset deduplication tracking
-		self._text_content_cache = {}  # Reset text content cache
+		self._current_line_parts = []  # Reset line buffer
 
 		# Start serialization from root
 		self._serialize_node(root_node, depth=0)
+
+		# Flush any remaining line content
+		self._flush_current_line()
 
 		# Add links section if we collected any
 		markdown = '\n'.join(self._output_lines)
@@ -99,6 +110,67 @@ class MarkdownSerializer:
 				markdown += f'[{idx}]: {url}\n'
 
 		return markdown.strip()
+
+	def _normalize_whitespace(self, text: str) -> str:
+		"""Normalize whitespace in text (collapse multiple spaces, trim).
+
+		Args:
+			text: Text to normalize
+
+		Returns:
+			Normalized text
+		"""
+		# Replace multiple whitespace with single space
+		text = re.sub(r'\s+', ' ', text)
+		# Strip leading/trailing whitespace
+		return text.strip()
+
+	def _add_text(self, text: str) -> None:
+		"""Add text to the current line buffer.
+
+		Args:
+			text: Text to add
+		"""
+		if not text:
+			return
+
+		normalized = self._normalize_whitespace(text)
+		if not normalized:
+			return
+
+		# Check deduplication
+		if not self._should_include_text(normalized):
+			return
+
+		# Add to current line buffer
+		self._current_line_parts.append(normalized)
+
+	def _flush_current_line(self) -> None:
+		"""Flush the current line buffer to output lines."""
+		if not self._current_line_parts:
+			return
+
+		line = ' '.join(self._current_line_parts)
+		if line:
+			self._output_lines.append(line)
+		self._current_line_parts = []
+
+	def _add_line(self, text: str) -> None:
+		"""Add a complete line to output (flushes current line first).
+
+		Args:
+			text: Text to add as a line
+		"""
+		self._flush_current_line()
+		normalized = self._normalize_whitespace(text)
+		if normalized and self._should_include_text(normalized):
+			self._output_lines.append(normalized)
+
+	def _add_blank_line(self) -> None:
+		"""Add a blank line (for block element spacing)."""
+		self._flush_current_line()
+		if self._output_lines and self._output_lines[-1].strip():
+			self._output_lines.append('')
 
 	def _should_include_text(self, text: str) -> bool:
 		"""Check if text should be included based on deduplication threshold.
@@ -140,21 +212,19 @@ class MarkdownSerializer:
 		if node.node_type == NodeType.DOCUMENT_NODE:
 			# Process document's children
 			for child in node.children:
-				self._serialize_node(child, depth, max_depth)
+				self._serialize_node(child, depth + 1, max_depth)
 			return
 
 		if node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
 			# Shadow DOM - process children directly
 			for child in node.children:
-				self._serialize_node(child, depth, max_depth)
+				self._serialize_node(child, depth + 1, max_depth)
 			return
 
 		if node.node_type == NodeType.TEXT_NODE:
-			# Only include visible text
+			# Add text to current line buffer (will be deduplicated and normalized)
 			if node.is_visible and node.node_value:
-				text = node.node_value.strip()
-				if text and len(text) > 1 and self._should_include_text(text):
-					self._output_lines.append(text)
+				self._add_text(node.node_value)
 			return
 
 		if node.node_type == NodeType.ELEMENT_NODE:
@@ -164,134 +234,107 @@ class MarkdownSerializer:
 			if tag_name in self.SKIP_ELEMENTS:
 				return
 
-			# Handle iframe recursively - include full content
-			if tag_name in ('iframe', 'frame'):
-				if node.content_document:
-					self._output_lines.append('')
-					self._output_lines.append('---')
-					self._output_lines.append('**[Iframe Content Start]**')
-					self._output_lines.append('')
-					self._serialize_node(node.content_document, depth + 1, max_depth)
-					self._output_lines.append('')
-					self._output_lines.append('**[Iframe Content End]**')
-					self._output_lines.append('---')
-					self._output_lines.append('')
-				return
-
 			# Only process visible elements (or their children might be visible)
 			if not node.is_visible and not node.children:
 				return
 
+			# Handle iframe recursively - include full content
+			if tag_name in ('iframe', 'frame'):
+				if node.content_document:
+					self._add_blank_line()
+					self._add_line('---')
+					self._add_line('**[Iframe Content Start]**')
+					self._add_blank_line()
+					self._serialize_node(node.content_document, depth + 1, max_depth)
+					self._add_blank_line()
+					self._add_line('**[Iframe Content End]**')
+					self._add_line('---')
+					self._add_blank_line()
+				return
+
 			# Handle special elements with markdown formatting
 			if tag_name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
-				# Headings
+				# Headings - extract text from children inline
 				level = int(tag_name[1])
-				text = self._get_text_content(node)
-				if text and self._should_include_text(text):
-					self._output_lines.append('')
-					self._output_lines.append(f'{"#" * level} {text}')
-					self._output_lines.append('')
+				self._add_blank_line()
+				# Process children to build heading text
+				heading_start = len(self._current_line_parts)
+				for child in node.children_and_shadow_roots:
+					self._serialize_node(child, depth + 1, max_depth)
+				# Build heading line
+				if self._current_line_parts[heading_start:]:
+					heading_text = ' '.join(self._current_line_parts[heading_start:])
+					self._current_line_parts = self._current_line_parts[:heading_start]
+					self._add_line(f'{"#" * level} {heading_text}')
+					self._add_blank_line()
 				return
 
 			if tag_name == 'a':
-				# Links
-				text = self._get_text_content(node)
-				if text and self._should_include_text(text):
-					if self.extract_links and node.attributes and 'href' in node.attributes:
-						href = node.attributes['href']
-						self._link_counter += 1
-						self._links[self._link_counter] = href
-						self._output_lines.append(f'[{text}][{self._link_counter}]')
-					else:
-						self._output_lines.append(text)
+				# Links - process children inline
+				for child in node.children_and_shadow_roots:
+					self._serialize_node(child, depth + 1, max_depth)
 				return
 
-			if tag_name in ('strong', 'b'):
-				# Bold
-				text = self._get_text_content(node)
-				if text and self._should_include_text(text):
-					self._output_lines.append(f'**{text}**')
-				return
-
-			if tag_name in ('em', 'i'):
-				# Italic
-				text = self._get_text_content(node)
-				if text and self._should_include_text(text):
-					self._output_lines.append(f'*{text}*')
-				return
-
-			if tag_name == 'code':
-				# Inline code
-				text = self._get_text_content(node)
-				if text and self._should_include_text(text):
-					self._output_lines.append(f'`{text}`')
+			if tag_name in ('strong', 'b', 'em', 'i', 'code'):
+				# Inline formatting - just process children
+				for child in node.children_and_shadow_roots:
+					self._serialize_node(child, depth + 1, max_depth)
 				return
 
 			if tag_name == 'pre':
 				# Code block
 				text = self._get_text_content(node)
-				if text and self._should_include_text(text):
-					self._output_lines.append('')
-					self._output_lines.append('```')
-					self._output_lines.append(text)
-					self._output_lines.append('```')
-					self._output_lines.append('')
-				return
-
-			if tag_name == 'blockquote':
-				# Blockquote
-				self._output_lines.append('')
-				for child in node.children:
-					# Process children, then prefix with >
-					child_start_idx = len(self._output_lines)
-					self._serialize_node(child, depth + 1, max_depth)
-					# Prefix all lines added by children with >
-					for i in range(child_start_idx, len(self._output_lines)):
-						if self._output_lines[i]:
-							self._output_lines[i] = f'> {self._output_lines[i]}'
-				self._output_lines.append('')
+				if text:
+					self._add_blank_line()
+					self._add_line('```')
+					self._add_line(text)
+					self._add_line('```')
+					self._add_blank_line()
 				return
 
 			if tag_name == 'ul' or tag_name == 'ol':
-				# Lists - include all items
-				self._output_lines.append('')
+				# Lists - process each item inline
+				self._add_blank_line()
 				counter = 1
 				for child in node.children:
 					if child.tag_name.lower() == 'li':
+						# Process list item children inline
 						prefix = f'{counter}. ' if tag_name == 'ol' else '- '
-						text = self._get_text_content(child)
-						if text and self._should_include_text(text):
-							self._output_lines.append(f'{prefix}{text}')
-							counter += 1
+						self._current_line_parts.append(prefix)
+						for li_child in child.children_and_shadow_roots:
+							self._serialize_node(li_child, depth + 2, max_depth)
+						self._flush_current_line()
+						counter += 1
 					else:
 						self._serialize_node(child, depth + 1, max_depth)
-				self._output_lines.append('')
+				self._add_blank_line()
 				return
 
 			if tag_name == 'table':
 				# Tables
-				self._serialize_table(node)
+				self._serialize_table(node, depth, max_depth)
 				return
 
 			if tag_name == 'img':
 				# Images
-				alt_text = node.attributes.get('alt', 'image') if node.attributes else 'image'
-				self._output_lines.append(f'![{alt_text}]')
+				alt_text = node.attributes.get('alt', '') if node.attributes else ''
+				if alt_text:
+					self._add_text(f'[Image: {alt_text}]')
 				return
 
 			if tag_name == 'hr':
 				# Horizontal rule
-				self._output_lines.append('')
-				self._output_lines.append('---')
-				self._output_lines.append('')
+				self._add_blank_line()
+				self._add_line('---')
+				self._add_blank_line()
 				return
 
 			if tag_name == 'br':
-				# Line break
-				self._output_lines.append('')
+				# Line break - flush current line
+				self._flush_current_line()
 				return
 
-			# Input elements - include their value
+			# Input elements
 			if tag_name == 'input':
 				input_type = node.attributes.get('type', 'text') if node.attributes else 'text'
 				value = node.attributes.get('value', '') if node.attributes else ''
@@ -299,93 +342,54 @@ class MarkdownSerializer:
 
 				if input_type in ('text', 'email', 'password', 'search', 'tel', 'url', 'number'):
 					label = placeholder or value or f'{input_type} input'
-					if self._should_include_text(label):
-						self._output_lines.append(f'[{label}]')
+					self._add_text(f'[{label}]')
 				elif input_type in ('checkbox', 'radio'):
 					checked = 'checked' in node.attributes if node.attributes else False
 					state = '[x]' if checked else '[ ]'
 					label = node.attributes.get('aria-label', value or input_type) if node.attributes else input_type
-					full_text = f'{state} {label}'
-					if self._should_include_text(full_text):
-						self._output_lines.append(full_text)
-				elif input_type == 'button' or input_type == 'submit':
+					self._add_text(f'{state} {label}')
+				elif input_type in ('button', 'submit'):
 					label = value or 'button'
-					if self._should_include_text(label):
-						self._output_lines.append(f'[{label}]')
+					self._add_text(f'[{label}]')
 				return
 
-			# Textarea - include value
+			# Textarea
 			if tag_name == 'textarea':
 				value = node.attributes.get('value', '') if node.attributes else ''
 				placeholder = node.attributes.get('placeholder', '') if node.attributes else ''
 				label = placeholder or value or 'text area'
-				if self._should_include_text(label):
-					self._output_lines.append(f'[{label}]')
+				self._add_text(f'[{label}]')
 				return
 
-			# Select - show all options
+			# Select dropdowns - LIMIT options to avoid repetition
 			if tag_name == 'select':
-				dropdown_label = '[Dropdown]'
-				if self._should_include_text(dropdown_label):
-					self._output_lines.append('')
-					self._output_lines.append(dropdown_label)
-
-					# Collect all options
-					options = []
-
-					def collect_options(n: EnhancedDOMTreeNode) -> None:
-						"""Recursively collect option elements from select and optgroups."""
-						for child in n.children:
-							if child.tag_name.lower() == 'option':
-								text = self._get_text_content(child)
-								is_selected = child.attributes and 'selected' in child.attributes
-								if text:
-									options.append((text, is_selected))
-							elif child.tag_name.lower() == 'optgroup':
-								# Process optgroup children
-								label = child.attributes.get('label', '') if child.attributes else ''
-								if label:
-									options.append((f'--- {label} ---', False))
-								collect_options(child)
-
-					collect_options(node)
-
-					for text, is_selected in options:
-						prefix = '  [x] ' if is_selected else '  [ ] '
-						full_text = f'{prefix}{text}'
-						if self._should_include_text(full_text):
-							self._output_lines.append(full_text)
-
-					self._output_lines.append('')
+				# Skip select elements entirely - they cause too much noise
+				# Most modern sites use custom dropdowns anyway
 				return
 
 			# Button
 			if tag_name == 'button':
+				# Extract text from button and wrap in brackets
 				text = self._get_text_content(node)
-				if text and self._should_include_text(text):
-					self._output_lines.append(f'[{text}]')
+				if text:
+					self._add_text(f'[{text}]')
 				return
 
 			# Label
 			if tag_name == 'label':
-				text = self._get_text_content(node)
-				if text and self._should_include_text(text):
-					self._output_lines.append(f'{text}:')
+				# Process label children inline
+				for child in node.children_and_shadow_roots:
+					self._serialize_node(child, depth + 1, max_depth)
+				self._add_text(':')
 				return
 
-			# Block elements - add spacing before and after
+			# Block elements - add spacing and process children
 			if tag_name in self.BLOCK_ELEMENTS:
-				# Add blank line before block element if needed
-				if self._output_lines and self._output_lines[-1].strip():
-					self._output_lines.append('')
-
+				self._add_blank_line()
 				# Process children
-				for child in node.children:
+				for child in node.children_and_shadow_roots:
 					self._serialize_node(child, depth + 1, max_depth)
-
-				# Add blank line after block element if needed
-				if self._output_lines and self._output_lines[-1].strip():
-					self._output_lines.append('')
+				self._add_blank_line()
 				return
 
 			# For all other elements (including inline), just process children
@@ -393,7 +397,7 @@ class MarkdownSerializer:
 				self._serialize_node(child, depth + 1, max_depth)
 
 	def _get_text_content(self, node: EnhancedDOMTreeNode, max_depth: int = 10) -> str:
-		"""Extract all text content from a node and its descendants.
+		"""Extract all text content from a node and its descendants (for special cases like tables, code blocks).
 
 		Args:
 			node: Node to extract text from
@@ -402,17 +406,12 @@ class MarkdownSerializer:
 		Returns:
 			Concatenated text content
 		"""
-		# Check cache first
-		if node.node_id in self._text_content_cache:
-			return self._text_content_cache[node.node_id]
-
 		if max_depth <= 0:
 			return ''
 
 		parts = []
 
 		if node.node_type == NodeType.TEXT_NODE:
-			# Check visibility for text nodes
 			if node.is_visible and node.node_value:
 				text = node.node_value.strip()
 				if text:
@@ -436,18 +435,17 @@ class MarkdownSerializer:
 				if child_text:
 					parts.append(child_text)
 
-		result = ' '.join(parts)
-		# Cache the result
-		self._text_content_cache[node.node_id] = result
-		return result
+		return self._normalize_whitespace(' '.join(parts))
 
-	def _serialize_table(self, table_node: EnhancedDOMTreeNode) -> None:
+	def _serialize_table(self, table_node: EnhancedDOMTreeNode, depth: int, max_depth: int) -> None:
 		"""Serialize a table to markdown format.
 
 		Args:
 			table_node: Table element node
+			depth: Current depth
+			max_depth: Maximum depth
 		"""
-		self._output_lines.append('')
+		self._add_blank_line()
 
 		# Extract table structure
 		rows: list[list[str]] = []
@@ -502,15 +500,15 @@ class MarkdownSerializer:
 		# Render table
 		if header_row:
 			# Render header
-			self._output_lines.append('| ' + ' | '.join(header_row) + ' |')
-			self._output_lines.append('| ' + ' | '.join(['---'] * len(header_row)) + ' |')
+			self._add_line('| ' + ' | '.join(header_row) + ' |')
+			self._add_line('| ' + ' | '.join(['---'] * len(header_row)) + ' |')
 
 			# Render rows
 			for row in rows:
 				# Pad row to match header length
 				while len(row) < len(header_row):
 					row.append('')
-				self._output_lines.append('| ' + ' | '.join(row[: len(header_row)]) + ' |')
+				self._add_line('| ' + ' | '.join(row[: len(header_row)]) + ' |')
 		elif rows:
 			# No header, just render rows
 			max_cols = max(len(row) for row in rows)
@@ -518,6 +516,6 @@ class MarkdownSerializer:
 				# Pad row to match max length
 				while len(row) < max_cols:
 					row.append('')
-				self._output_lines.append('| ' + ' | '.join(row) + ' |')
+				self._add_line('| ' + ' | '.join(row) + ' |')
 
-		self._output_lines.append('')
+		self._add_blank_line()
