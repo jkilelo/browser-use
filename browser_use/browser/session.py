@@ -630,8 +630,6 @@ class BrowserSession(BaseModel):
 						self.logger.debug(f'Created new tab #{target_id[-4:]}')
 						# Dispatch TabCreatedEvent for new tab
 						await self.event_bus.dispatch(TabCreatedEvent(target_id=target_id, url='about:blank'))
-						# Default wait after new tab creation to allow tab to initialize
-						await asyncio.sleep(0.5)
 					except Exception as e:
 						self.logger.error(f'[on_NavigateToUrlEvent] Failed to create new tab: {type(e).__name__}: {e}')
 						# Fall back to using current tab
@@ -1166,7 +1164,7 @@ class BrowserSession(BaseModel):
 		current_url = result.url
 		if self._last_url is not None and self._last_url != current_url:
 			self.logger.debug(f'URL changed from {self._last_url} to {current_url}, waiting 1s for page stability')
-			await asyncio.sleep(1.0)
+			await asyncio.sleep(0.5)
 
 		# Update last URL for next comparison
 		self._last_url = current_url
