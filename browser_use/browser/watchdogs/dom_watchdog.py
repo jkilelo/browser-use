@@ -116,7 +116,7 @@ class DOMWatchdog(BaseWatchdog):
 		if not not_a_meaningful_website:
 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for page stability...')
 			try:
-				await self._wait_for_stable_network()
+				# await self._wait_for_stable_network()
 				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Page stability complete')
 			except Exception as e:
 				self.logger.warning(
