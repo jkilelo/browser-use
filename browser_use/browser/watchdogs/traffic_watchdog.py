@@ -105,6 +105,11 @@ class TrafficWatchdog(BaseWatchdog):
 		'adsystem',
 		'adserver',
 		'advertising',
+		# Anti-bot and captcha
+		'recaptcha',  # Google reCAPTCHA
+		'gstatic.com/recaptcha',  # reCAPTCHA assets
+		'hcaptcha',  # hCaptcha
+		'challenges.cloudflare.com',  # Cloudflare challenges
 		# Social media widgets and embeds
 		'facebook.com/plugins',
 		'platform.twitter',
