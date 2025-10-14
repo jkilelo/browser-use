@@ -1,5 +1,6 @@
 # @file purpose: Serializes enhanced DOM trees to clean markdown format for content extraction
 
+import hashlib
 import logging
 
 from browser_use.dom.views import EnhancedDOMTreeNode, NodeType
@@ -131,12 +132,18 @@ class MarkdownSerializer:
 			if tag_name in self.SKIP_ELEMENTS:
 				return
 
-			# Handle iframe recursively
+			# Handle iframe recursively - include full content
 			if tag_name in ('iframe', 'frame'):
 				if node.content_document:
-					self._output_lines.append('\n[iframe content]:')
+					self._output_lines.append('')
+					self._output_lines.append('---')
+					self._output_lines.append('**[Iframe Content Start]**')
+					self._output_lines.append('')
 					self._serialize_node(node.content_document, depth + 1)
-					self._output_lines.append('[end iframe]\n')
+					self._output_lines.append('')
+					self._output_lines.append('**[Iframe Content End]**')
+					self._output_lines.append('---')
+					self._output_lines.append('')
 				return
 
 			# Only process visible elements (or their children might be visible)
@@ -214,7 +221,7 @@ class MarkdownSerializer:
 				return
 
 			if tag_name == 'ul' or tag_name == 'ol':
-				# Lists
+				# Lists - include all items
 				self._output_lines.append('')
 				counter = 1
 				for child in node.children:
@@ -279,23 +286,36 @@ class MarkdownSerializer:
 				self._output_lines.append(f'[{label}]')
 				return
 
-			# Select - show selected option
+			# Select - show all options
 			if tag_name == 'select':
-				selected_text = ''
-				for child in node.children:
-					if child.tag_name.lower() == 'option':
-						if child.attributes and 'selected' in child.attributes:
-							selected_text = self._get_text_content(child)
-							break
-				if not selected_text:
-					# Get first option if no selection
-					for child in node.children:
-						if child.tag_name.lower() == 'option':
-							selected_text = self._get_text_content(child)
-							break
+				self._output_lines.append('')
+				self._output_lines.append('[Dropdown]')
 
-				label = selected_text or 'dropdown'
-				self._output_lines.append(f'[{label} ▼]')
+				# Collect all options
+				options = []
+
+				def collect_options(n: EnhancedDOMTreeNode) -> None:
+					"""Recursively collect option elements from select and optgroups."""
+					for child in n.children:
+						if child.tag_name.lower() == 'option':
+							text = self._get_text_content(child)
+							is_selected = child.attributes and 'selected' in child.attributes
+							if text:
+								options.append((text, is_selected))
+						elif child.tag_name.lower() == 'optgroup':
+							# Process optgroup children
+							label = child.attributes.get('label', '') if child.attributes else ''
+							if label:
+								options.append((f'--- {label} ---', False))
+							collect_options(child)
+
+				collect_options(node)
+
+				for text, is_selected in options:
+					prefix = '  [x] ' if is_selected else '  [ ] '
+					self._output_lines.append(f'{prefix}{text}')
+
+				self._output_lines.append('')
 				return
 
 			# Button
@@ -347,7 +367,8 @@ class MarkdownSerializer:
 		parts = []
 
 		if node.node_type == NodeType.TEXT_NODE:
-			if node.node_value:
+			# Check visibility for text nodes
+			if node.is_visible and node.node_value:
 				text = node.node_value.strip()
 				if text:
 					parts.append(text)
@@ -357,8 +378,15 @@ class MarkdownSerializer:
 			if node.tag_name.lower() in self.SKIP_ELEMENTS:
 				return ''
 
-			# Get text from children
+			# Get text from children (recursively)
 			for child in node.children_and_shadow_roots:
+				child_text = self._get_text_content(child, max_depth - 1)
+				if child_text:
+					parts.append(child_text)
+
+		elif node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
+			# Handle shadow DOM fragments
+			for child in node.children:
 				child_text = self._get_text_content(child, max_depth - 1)
 				if child_text:
 					parts.append(child_text)
