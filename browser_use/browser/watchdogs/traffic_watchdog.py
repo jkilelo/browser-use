@@ -78,7 +78,9 @@ class TrafficWatchdog(BaseWatchdog):
 	_cdp_handlers_registered: bool = PrivateAttr(default=False)
 	_easylist_patterns: set[str] = PrivateAttr(default_factory=set)
 	# Track document/frame loading state per target
-	_frame_loading_state: dict[TargetID, dict[str, bool]] = PrivateAttr(default_factory=dict)  # {target_id: {frame_id: is_loading}}
+	_frame_loading_state: dict[TargetID, dict[str, bool]] = PrivateAttr(
+		default_factory=dict
+	)  # {target_id: {frame_id: is_loading}}
 	_document_loaded: dict[TargetID, bool] = PrivateAttr(default_factory=dict)  # Has DOMContentLoaded fired?
 	_page_loaded: dict[TargetID, bool] = PrivateAttr(default_factory=dict)  # Has window.onload fired?
 
@@ -463,7 +465,7 @@ class TrafficWatchdog(BaseWatchdog):
 		"""
 		# Use browser profile defaults if not specified
 		idle_time = idle_time or self.browser_session.browser_profile.wait_for_network_idle_page_load_time
-		max_wait = max_wait or 3.0  # Default max wait of 5 seconds
+		max_wait = max_wait or 2.0  # Default max wait of 5 seconds
 
 		# Initialize target state if it doesn't exist
 		if target_id not in self._pending_requests:
