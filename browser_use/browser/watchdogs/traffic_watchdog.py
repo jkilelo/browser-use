@@ -74,8 +74,13 @@ class TrafficWatchdog(BaseWatchdog):
 	_last_activity: dict[TargetID, float] = PrivateAttr(default_factory=dict)
 	_session_to_target: dict[SessionID, TargetID] = PrivateAttr(default_factory=dict)
 	_network_enabled_sessions: set[SessionID] = PrivateAttr(default_factory=set)
+	_page_enabled_sessions: set[SessionID] = PrivateAttr(default_factory=set)
 	_cdp_handlers_registered: bool = PrivateAttr(default=False)
 	_easylist_patterns: set[str] = PrivateAttr(default_factory=set)
+	# Track document/frame loading state per target
+	_frame_loading_state: dict[TargetID, dict[str, bool]] = PrivateAttr(default_factory=dict)  # {target_id: {frame_id: is_loading}}
+	_document_loaded: dict[TargetID, bool] = PrivateAttr(default_factory=dict)  # Has DOMContentLoaded fired?
+	_page_loaded: dict[TargetID, bool] = PrivateAttr(default_factory=dict)  # Has window.onload fired?
 
 	# Filtering patterns - only track essential resources for page functionality
 	RELEVANT_RESOURCE_TYPES: ClassVar[set[str]] = {
@@ -147,6 +152,10 @@ class TrafficWatchdog(BaseWatchdog):
 		self._last_activity.clear()
 		self._session_to_target.clear()
 		self._network_enabled_sessions.clear()
+		self._page_enabled_sessions.clear()
+		self._frame_loading_state.clear()
+		self._document_loaded.clear()
+		self._page_loaded.clear()
 		self._cdp_handlers_registered = False
 
 	async def on_BrowserStoppedEvent(self, event: BrowserStoppedEvent) -> None:
@@ -156,10 +165,14 @@ class TrafficWatchdog(BaseWatchdog):
 		self._last_activity.clear()
 		self._session_to_target.clear()
 		self._network_enabled_sessions.clear()
+		self._page_enabled_sessions.clear()
+		self._frame_loading_state.clear()
+		self._document_loaded.clear()
+		self._page_loaded.clear()
 		self._cdp_handlers_registered = False
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
-		"""Enable Network domain for new tabs."""
+		"""Enable Network and Page domains for new tabs."""
 		try:
 			# Get or create CDP session for this target
 			cdp_session = await self.browser_session.get_or_create_cdp_session(event.target_id, focus=False)
@@ -172,6 +185,12 @@ class TrafficWatchdog(BaseWatchdog):
 				self._pending_requests[event.target_id] = {}
 			if event.target_id not in self._last_activity:
 				self._last_activity[event.target_id] = asyncio.get_event_loop().time()
+			if event.target_id not in self._frame_loading_state:
+				self._frame_loading_state[event.target_id] = {}
+			if event.target_id not in self._document_loaded:
+				self._document_loaded[event.target_id] = False
+			if event.target_id not in self._page_loaded:
+				self._page_loaded[event.target_id] = False
 
 			# Enable Network domain if not already enabled
 			if cdp_session.session_id not in self._network_enabled_sessions:
@@ -179,14 +198,20 @@ class TrafficWatchdog(BaseWatchdog):
 				self._network_enabled_sessions.add(cdp_session.session_id)
 				self.logger.debug(f'[TrafficWatchdog] Enabled Network domain for tab {event.target_id[-4:]}')
 
+			# Enable Page domain if not already enabled (for load events and frame tracking)
+			if cdp_session.session_id not in self._page_enabled_sessions:
+				await cdp_session.cdp_client.send.Page.enable(session_id=cdp_session.session_id)
+				self._page_enabled_sessions.add(cdp_session.session_id)
+				self.logger.debug(f'[TrafficWatchdog] Enabled Page domain for tab {event.target_id[-4:]}')
+
 			# Register CDP handlers (only once globally)
 			if not self._cdp_handlers_registered:
 				self._register_cdp_handlers()
 				self._cdp_handlers_registered = True
-				self.logger.debug('[TrafficWatchdog] Registered CDP Network event handlers')
+				self.logger.debug('[TrafficWatchdog] Registered CDP Network and Page event handlers')
 
 		except Exception as e:
-			self.logger.warning(f'[TrafficWatchdog] Failed to enable Network domain for tab {event.target_id[-4:]}: {e}')
+			self.logger.warning(f'[TrafficWatchdog] Failed to enable domains for tab {event.target_id[-4:]}: {e}')
 
 	async def on_TabClosedEvent(self, event: TabClosedEvent) -> None:
 		"""Clean up pending requests for closed tab."""
@@ -200,7 +225,7 @@ class TrafficWatchdog(BaseWatchdog):
 				del self._session_to_target[session_id]
 
 	async def on_NavigationStartedEvent(self, event: NavigationStartedEvent) -> None:
-		"""Reset pending requests on navigation start."""
+		"""Reset pending requests and loading states on navigation start."""
 		target_id = event.target_id
 		if target_id in self._pending_requests:
 			self.logger.debug(
@@ -209,6 +234,11 @@ class TrafficWatchdog(BaseWatchdog):
 			self._pending_requests[target_id].clear()
 		else:
 			self._pending_requests[target_id] = {}
+
+		# Reset loading states
+		self._frame_loading_state[target_id] = {}
+		self._document_loaded[target_id] = False
+		self._page_loaded[target_id] = False
 		self._last_activity[target_id] = asyncio.get_event_loop().time()
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
@@ -220,14 +250,19 @@ class TrafficWatchdog(BaseWatchdog):
 		)
 
 	def _register_cdp_handlers(self) -> None:
-		"""Register CDP Network domain event handlers."""
+		"""Register CDP Network and Page domain event handlers."""
 		cdp_client = self.browser_session.cdp_client
 
-		# Register handlers using cdp-use's register API
+		# Register Network event handlers using cdp-use's register API
 		cdp_client.register.Network.requestWillBeSent(self._on_request_will_be_sent)  # type: ignore
 		cdp_client.register.Network.responseReceived(self._on_response_received)  # type: ignore
 		cdp_client.register.Network.loadingFinished(self._on_loading_finished)  # type: ignore
 		cdp_client.register.Network.loadingFailed(self._on_loading_failed)  # type: ignore
+
+		# Register Page event handlers for document/iframe loading states
+		cdp_client.register.Page.domContentEventFired(self._on_dom_content_loaded)  # type: ignore
+		cdp_client.register.Page.loadEventFired(self._on_page_load_complete)  # type: ignore
+		cdp_client.register.Page.frameStoppedLoading(self._on_frame_stopped_loading)  # type: ignore
 
 	async def _on_request_will_be_sent(self, event: RequestWillBeSentEvent, session_id: SessionID | None) -> None:
 		"""Handle CDP Network.requestWillBeSent event."""
@@ -366,6 +401,50 @@ class TrafficWatchdog(BaseWatchdog):
 
 		return True
 
+	async def _on_dom_content_loaded(self, event: dict, session_id: SessionID | None) -> None:
+		"""Handle CDP Page.domContentEventFired - DOM parsing complete."""
+		try:
+			if not session_id or session_id not in self._session_to_target:
+				return
+			target_id = self._session_to_target[session_id]
+
+			self._document_loaded[target_id] = True
+			self._last_activity[target_id] = asyncio.get_event_loop().time()
+			self.logger.debug(f'[TrafficWatchdog] DOMContentLoaded fired for target {target_id[-4:]}')
+
+		except Exception as e:
+			self.logger.debug(f'[TrafficWatchdog] Error in _on_dom_content_loaded: {e}')
+
+	async def _on_page_load_complete(self, event: dict, session_id: SessionID | None) -> None:
+		"""Handle CDP Page.loadEventFired - window.onload complete."""
+		try:
+			if not session_id or session_id not in self._session_to_target:
+				return
+			target_id = self._session_to_target[session_id]
+
+			self._page_loaded[target_id] = True
+			self._last_activity[target_id] = asyncio.get_event_loop().time()
+			self.logger.debug(f'[TrafficWatchdog] Page load complete for target {target_id[-4:]}')
+
+		except Exception as e:
+			self.logger.debug(f'[TrafficWatchdog] Error in _on_page_load_complete: {e}')
+
+	async def _on_frame_stopped_loading(self, event: dict, session_id: SessionID | None) -> None:
+		"""Handle CDP Page.frameStoppedLoading - iframe finished loading."""
+		try:
+			if not session_id or session_id not in self._session_to_target:
+				return
+			target_id = self._session_to_target[session_id]
+
+			frame_id = event.get('frameId', '')
+			if frame_id and target_id in self._frame_loading_state:
+				self._frame_loading_state[target_id][frame_id] = False
+				self._last_activity[target_id] = asyncio.get_event_loop().time()
+				# self.logger.debug(f'[TrafficWatchdog] Frame {frame_id[-8:]} stopped loading on target {target_id[-4:]}')
+
+		except Exception as e:
+			self.logger.debug(f'[TrafficWatchdog] Error in _on_frame_stopped_loading: {e}')
+
 	async def wait_for_stable_network(
 		self,
 		target_id: TargetID,
@@ -408,11 +487,28 @@ class TrafficWatchdog(BaseWatchdog):
 				target_pending = self._pending_requests.get(target_id, {})
 				target_last_activity = self._last_activity.get(target_id, start_time)
 
-				# Check if network is idle
-				if len(target_pending) == 0 and (now - target_last_activity) >= idle_time:
+				# Check document/page loading state
+				doc_loaded = self._document_loaded.get(target_id, True)  # Assume loaded if not tracked
+				page_loaded = self._page_loaded.get(target_id, True)  # Assume loaded if not tracked
+
+				# Check if any frames are still loading
+				frames_loading = self._frame_loading_state.get(target_id, {})
+				any_frame_loading = any(is_loading for is_loading in frames_loading.values())
+
+				# Network is stable when:
+				# 1. No pending requests
+				# 2. No network activity for idle_time
+				# 3. Document is loaded (DOMContentLoaded fired)
+				# 4. Page is loaded (window.onload fired)
+				# 5. No iframes are still loading
+				network_idle = len(target_pending) == 0
+				time_idle = (now - target_last_activity) >= idle_time
+				all_loading_complete = doc_loaded and page_loaded and not any_frame_loading
+
+				if network_idle and time_idle and all_loading_complete:
 					self.logger.debug(
 						f'[TrafficWatchdog] Network stabilized for target {target_id[-4:]} after {now - start_time:.2f}s '
-						f'(idle for {now - target_last_activity:.2f}s)'
+						f'(idle for {now - target_last_activity:.2f}s, doc_loaded={doc_loaded}, page_loaded={page_loaded}, frames_loading={len([f for f in frames_loading.values() if f])})'
 					)
 					break
 
@@ -426,8 +522,9 @@ class TrafficWatchdog(BaseWatchdog):
 							pending_urls.append(url)
 
 					self.logger.debug(
-						f'[TrafficWatchdog] Network timeout for target {target_id[-4:]} after {max_wait}s with {len(target_pending)} '
-						f'pending requests: {pending_urls}'
+						f'[TrafficWatchdog] Network timeout for target {target_id[-4:]} after {max_wait}s: '
+						f'{len(target_pending)} pending requests, doc_loaded={doc_loaded}, page_loaded={page_loaded}, '
+						f'frames_loading={len([f for f in frames_loading.values() if f])}, requests={pending_urls}'
 					)
 					timed_out = True
 					break
