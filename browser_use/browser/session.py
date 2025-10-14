@@ -347,6 +347,7 @@ class BrowserSession(BaseModel):
 	_cached_browser_state_summary: Any = PrivateAttr(default=None)
 	_cached_selector_map: dict[int, EnhancedDOMTreeNode] = PrivateAttr(default_factory=dict)
 	_downloaded_files: list[str] = PrivateAttr(default_factory=list)  # Track files downloaded during this session
+	_last_url: str | None = PrivateAttr(default=None)  # Track last URL for change detection
 
 	# Watchdogs
 	_crash_watchdog: Any | None = PrivateAttr(default=None)
@@ -629,6 +630,8 @@ class BrowserSession(BaseModel):
 						self.logger.debug(f'Created new tab #{target_id[-4:]}')
 						# Dispatch TabCreatedEvent for new tab
 						await self.event_bus.dispatch(TabCreatedEvent(target_id=target_id, url='about:blank'))
+						# Default wait after new tab creation to allow tab to initialize
+						await asyncio.sleep(0.5)
 					except Exception as e:
 						self.logger.error(f'[on_NavigateToUrlEvent] Failed to create new tab: {type(e).__name__}: {e}')
 						# Fall back to using current tab
@@ -667,8 +670,8 @@ class BrowserSession(BaseModel):
 				session_id=self.agent_focus.session_id,
 			)
 
-			# # Wait a bit to ensure page starts loading
-			# await asyncio.sleep(0.5)
+			# Default wait after navigation to allow page to start loading
+			await asyncio.sleep(0.5)
 
 			# Close any extension options pages that might have opened
 			await self._close_extension_options_pages()
@@ -1158,6 +1161,16 @@ class BrowserSession(BaseModel):
 		# The handler returns the BrowserStateSummary directly
 		result = await event.event_result(raise_if_none=True, raise_if_any=True)
 		assert result is not None and result.dom_state is not None
+
+		# Check for URL changes and add wait if URL changed
+		current_url = result.url
+		if self._last_url is not None and self._last_url != current_url:
+			self.logger.debug(f'URL changed from {self._last_url} to {current_url}, waiting 1s for page stability')
+			await asyncio.sleep(1.0)
+
+		# Update last URL for next comparison
+		self._last_url = current_url
+
 		return result
 
 	async def attach_all_watchdogs(self) -> None:

@@ -84,28 +84,30 @@ class CrashWatchdog(BaseWatchdog):
 				return
 
 			# Set up network event handlers
-			# def on_request_will_be_sent(event):
-			# 	# Create and track the task
-			# 	task = asyncio.create_task(self._on_request_cdp(event))
-			# 	self._cdp_event_tasks.add(task)
-			# 	# Remove from set when done
-			# 	task.add_done_callback(lambda t: self._cdp_event_tasks.discard(t))
+			def on_request_will_be_sent(event, session_id=None):
+				# Create and track the task
+				task = asyncio.create_task(self._on_request_cdp(event))
+				self._cdp_event_tasks.add(task)
+				# Remove from set when done
+				task.add_done_callback(lambda t: self._cdp_event_tasks.discard(t))
 
-			# def on_response_received(event):
-			# 	self._on_response_cdp(event)
+			def on_response_received(event, session_id=None):
+				self._on_response_cdp(event)
 
-			# def on_loading_failed(event):
-			# 	self._on_request_failed_cdp(event)
+			def on_loading_failed(event, session_id=None):
+				self._on_request_failed_cdp(event)
 
-			# def on_loading_finished(event):
-			# 	self._on_request_finished_cdp(event)
+			def on_loading_finished(event, session_id=None):
+				self._on_request_finished_cdp(event)
 
-			# Register event handlers
-			# TEMPORARILY DISABLED: Network events causing too much logging
-			# cdp_client.on('Network.requestWillBeSent', on_request_will_be_sent, session_id=session_id)
-			# cdp_client.on('Network.responseReceived', on_response_received, session_id=session_id)
-			# cdp_client.on('Network.loadingFailed', on_loading_failed, session_id=session_id)
-			# cdp_client.on('Network.loadingFinished', on_loading_finished, session_id=session_id)
+			# Register event handlers - enable network tracking for pending request count
+			cdp_session.cdp_client.register.Network.requestWillBeSent(on_request_will_be_sent)
+			cdp_session.cdp_client.register.Network.responseReceived(on_response_received)
+			cdp_session.cdp_client.register.Network.loadingFailed(on_loading_failed)
+			cdp_session.cdp_client.register.Network.loadingFinished(on_loading_finished)
+
+			# Enable network domain for this session
+			await cdp_session.cdp_client.send.Network.enable(session_id=cdp_session.session_id)
 
 			def on_target_crashed(event: TargetCrashedEvent, session_id: SessionID | None = None):
 				# Create and track the task
@@ -140,7 +142,8 @@ class CrashWatchdog(BaseWatchdog):
 			method=request.get('method', ''),
 			resource_type=event.get('type'),
 		)
-		# logger.debug(f'[CrashWatchdog] Tracking request: {request.get("method", "")} {request.get("url", "")[:50]}...')
+		# Reduced logging noise - only log for debugging
+		# self.logger.debug(f'[CrashWatchdog] Tracking request: {request.get("method", "")} {request.get("url", "")[:50]}...')
 
 	def _on_response_cdp(self, event: dict) -> None:
 		"""Remove request from tracking on response."""
@@ -355,6 +358,10 @@ class CrashWatchdog(BaseWatchdog):
 					return
 			except Exception:
 				pass  # psutil not available or process doesn't exist
+
+	def get_pending_network_requests_count(self) -> int:
+		"""Get the number of pending network requests."""
+		return len(self._active_requests)
 
 	@staticmethod
 	def _is_new_tab_page(url: str) -> bool:

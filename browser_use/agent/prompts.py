@@ -187,6 +187,11 @@ class AgentMessagePrompt:
 		if page_stats['images'] > 0:
 			stats_text += f', {page_stats["images"]} images'
 		stats_text += f', {page_stats["total_elements"]} total elements'
+
+		# Add pending network requests info
+		if self.browser_state.pending_network_requests > 0:
+			stats_text += f', {self.browser_state.pending_network_requests} pending network requests'
+
 		stats_text += '</page_stats>\n'
 
 		elements_text = self.browser_state.dom_state.llm_representation(include_attributes=self.include_attributes)
