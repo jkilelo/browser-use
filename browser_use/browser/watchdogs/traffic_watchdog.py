@@ -83,6 +83,7 @@ class TrafficWatchdog(BaseWatchdog):
 	)  # {target_id: {frame_id: is_loading}}
 	_document_loaded: dict[TargetID, bool] = PrivateAttr(default_factory=dict)  # Has DOMContentLoaded fired?
 	_page_loaded: dict[TargetID, bool] = PrivateAttr(default_factory=dict)  # Has window.onload fired?
+	_mutation_observer_injected: dict[TargetID, bool] = PrivateAttr(default_factory=dict)  # Mutation observer active?
 
 	# Filtering patterns - only track essential resources for page functionality
 	RELEVANT_RESOURCE_TYPES: ClassVar[set[str]] = {
@@ -104,10 +105,15 @@ class TrafficWatchdog(BaseWatchdog):
 		'adsystem',
 		'adserver',
 		'advertising',
-		# Social media widgets
+		# Social media widgets and embeds
 		'facebook.com/plugins',
 		'platform.twitter',
 		'linkedin.com/embed',
+		'/embeds/',  # Generic embeds (LinkedIn native-document, etc)
+		# Video and media streaming
+		'dms.licdn.com/playlist',  # LinkedIn video playlists
+		'/playlist/vid/',  # Video playlist endpoints
+		'media.licdn.com/dms',  # LinkedIn media delivery
 		# Live chat and support
 		'livechat',
 		'zendesk',
@@ -158,6 +164,7 @@ class TrafficWatchdog(BaseWatchdog):
 		self._frame_loading_state.clear()
 		self._document_loaded.clear()
 		self._page_loaded.clear()
+		self._mutation_observer_injected.clear()
 		self._cdp_handlers_registered = False
 
 	async def on_BrowserStoppedEvent(self, event: BrowserStoppedEvent) -> None:
@@ -171,6 +178,7 @@ class TrafficWatchdog(BaseWatchdog):
 		self._frame_loading_state.clear()
 		self._document_loaded.clear()
 		self._page_loaded.clear()
+		self._mutation_observer_injected.clear()
 		self._cdp_handlers_registered = False
 
 	async def on_TabCreatedEvent(self, event: TabCreatedEvent) -> None:
@@ -241,6 +249,7 @@ class TrafficWatchdog(BaseWatchdog):
 		self._frame_loading_state[target_id] = {}
 		self._document_loaded[target_id] = False
 		self._page_loaded[target_id] = False
+		self._mutation_observer_injected[target_id] = False  # Need to re-inject on new page
 		self._last_activity[target_id] = asyncio.get_event_loop().time()
 
 	async def on_NavigationCompleteEvent(self, event: NavigationCompleteEvent) -> None:
@@ -447,25 +456,161 @@ class TrafficWatchdog(BaseWatchdog):
 		except Exception as e:
 			self.logger.debug(f'[TrafficWatchdog] Error in _on_frame_stopped_loading: {e}')
 
+	async def _inject_mutation_observer(self, target_id: TargetID) -> bool:
+		"""Inject DOM mutation observer to track when page stops updating.
+
+		This is THE critical check - catches client-side rendering that happens
+		after all network requests complete (React/Vue/etc).
+
+		Returns:
+			True if injection successful, False otherwise
+		"""
+		try:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+
+			# Inject mutation observer that tracks last DOM change time
+			injection_script = """
+			(function() {
+				if (window.__browser_use_mutation_observer) return; // Already injected
+
+				window.__browser_use_last_mutation = Date.now();
+				window.__browser_use_mutation_observer = new MutationObserver(() => {
+					window.__browser_use_last_mutation = Date.now();
+				});
+
+				// Observe all DOM changes
+				window.__browser_use_mutation_observer.observe(document.body || document.documentElement, {
+					childList: true,
+					subtree: true,
+					attributes: true,
+					characterData: true,
+					attributeOldValue: false,
+					characterDataOldValue: false
+				});
+			})();
+			"""
+
+			await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': injection_script, 'awaitPromise': False}, session_id=cdp_session.session_id
+			)
+
+			self._mutation_observer_injected[target_id] = True
+			self.logger.debug(f'[TrafficWatchdog] Injected mutation observer for target {target_id[-4:]}')
+			return True
+
+		except Exception as e:
+			self.logger.debug(f'[TrafficWatchdog] Failed to inject mutation observer: {e}')
+			return False
+
+	async def _check_dom_stable(self, target_id: TargetID, stable_threshold_ms: float = 200) -> bool:
+		"""Check if DOM has been stable (no mutations) for threshold duration.
+
+		Args:
+			target_id: Target to check
+			stable_threshold_ms: Milliseconds without mutations to consider stable
+
+		Returns:
+			True if DOM stable, False if still mutating or check failed
+		"""
+		try:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+
+			# Check time since last mutation
+			check_script = f"""
+			(function() {{
+				if (!window.__browser_use_last_mutation) return true; // No observer, assume stable
+				const elapsed = Date.now() - window.__browser_use_last_mutation;
+				return elapsed > {stable_threshold_ms};
+			}})();
+			"""
+
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': check_script, 'returnByValue': True}, session_id=cdp_session.session_id
+			)
+
+			is_stable = result.get('result', {}).get('value', False)
+			return bool(is_stable)
+
+		except Exception as e:
+			self.logger.debug(f'[TrafficWatchdog] DOM stable check failed: {e}')
+			return True  # Assume stable if check fails (don't block)
+
+	async def _check_loading_indicators(self, target_id: TargetID) -> bool:
+		"""Check if page has visible loading indicators (spinners, skeletons, etc).
+
+		Returns:
+			True if NO loading indicators found (ready), False if still loading
+		"""
+		try:
+			cdp_session = await self.browser_session.get_or_create_cdp_session(target_id, focus=False)
+
+			# Check for common loading patterns
+			check_script = """
+			(function() {
+				// Check for ARIA busy states
+				if (document.querySelector('[aria-busy="true"]')) return true;
+
+				// Check for common loading class/id patterns
+				const loadingSelectors = [
+					'[class*="loading"]',
+					'[class*="spinner"]',
+					'[class*="skeleton"]',
+					'[id*="loading"]',
+					'[data-loading="true"]'
+				];
+
+				for (const selector of loadingSelectors) {
+					const el = document.querySelector(selector);
+					if (el && window.getComputedStyle(el).display !== 'none') {
+						return true; // Found visible loading indicator
+					}
+				}
+
+				// Check for loading text in body (case-insensitive)
+				const bodyText = document.body?.textContent || '';
+				if (/loading|please wait|cargando|chargement/i.test(bodyText.slice(0, 500))) {
+					return true; // Found loading text
+				}
+
+				return false; // No loading indicators
+			})();
+			"""
+
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': check_script, 'returnByValue': True}, session_id=cdp_session.session_id
+			)
+
+			has_loaders = result.get('result', {}).get('value', False)
+			return not has_loaders  # Return True if NO loaders (ready)
+
+		except Exception as e:
+			self.logger.debug(f'[TrafficWatchdog] Loading indicator check failed: {e}')
+			return True  # Assume no loaders if check fails (don't block)
+
 	async def wait_for_stable_network(
 		self,
 		target_id: TargetID,
 		idle_time: float | None = None,
-		max_wait: float | None = None,
+		safety_timeout: float = 3.0,  # Quick safety timeout - trust network/browser signals
 	) -> NetworkStabilizedEvent:
-		"""Wait for network to stabilize (no relevant pending requests for idle_time seconds).
+		"""Wait for page to be fully stable and ready for interaction.
+
+		Speed-optimized approach:
+		- Phase 1 (required): Network idle + browser lifecycle complete
+		- Phase 2 (optional): DOM stability + loading indicators (with aggressive timeout)
+
+		Returns immediately when Phase 1 is satisfied, with Phase 2 as best-effort.
 
 		Args:
-			target_id: Target ID to wait for network stability (required)
-			idle_time: Seconds of no activity to consider network stable
-			max_wait: Maximum seconds to wait before giving up
+			target_id: Target ID to wait for stability (required)
+			idle_time: Seconds of no network activity to consider stable
+			safety_timeout: Quick timeout for extra checks (default 3s)
 
 		Returns:
 			NetworkStabilizedEvent with stability status
 		"""
 		# Use browser profile defaults if not specified
 		idle_time = idle_time or self.browser_session.browser_profile.wait_for_network_idle_page_load_time
-		max_wait = max_wait or 2.0  # Default max wait of 5 seconds
 
 		# Initialize target state if it doesn't exist
 		if target_id not in self._pending_requests:
@@ -476,63 +621,86 @@ class TrafficWatchdog(BaseWatchdog):
 		start_time = asyncio.get_event_loop().time()
 		timed_out = False
 
-		self.logger.debug(
-			f'[TrafficWatchdog] Waiting for network stability on target {target_id[-4:]} (idle: {idle_time}s, max: {max_wait}s)'
-		)
+		# Inject mutation observer once (idempotent)
+		if not self._mutation_observer_injected.get(target_id):
+			await self._inject_mutation_observer(target_id)
+
+		self.logger.debug(f'[TrafficWatchdog] Waiting for page stability on target {target_id[-4:]} (idle_time={idle_time}s)')
+
+		# Track when Phase 1 was satisfied
+		phase1_satisfied_at: float | None = None
+		phase2_timeout = 1.5  # Max 1.5s to wait for Phase 2 after Phase 1 is satisfied
 
 		try:
 			while True:
-				await asyncio.sleep(0.1)
+				await asyncio.sleep(0.05)  # Fast polling
 				now = asyncio.get_event_loop().time()
 
-				# Get pending requests for the specific target
+				# === Phase 1: Network & Browser State (REQUIRED) ===
 				target_pending = self._pending_requests.get(target_id, {})
 				target_last_activity = self._last_activity.get(target_id, start_time)
 
-				# Check document/page loading state
-				doc_loaded = self._document_loaded.get(target_id, True)  # Assume loaded if not tracked
-				page_loaded = self._page_loaded.get(target_id, True)  # Assume loaded if not tracked
+				doc_loaded = self._document_loaded.get(target_id, True)
+				page_loaded = self._page_loaded.get(target_id, True)
 
-				# Check if any frames are still loading
 				frames_loading = self._frame_loading_state.get(target_id, {})
 				any_frame_loading = any(is_loading for is_loading in frames_loading.values())
 
-				# Network is stable when:
-				# 1. No pending requests
-				# 2. No network activity for idle_time
-				# 3. Document is loaded (DOMContentLoaded fired)
-				# 4. Page is loaded (window.onload fired)
-				# 5. No iframes are still loading
 				network_idle = len(target_pending) == 0
 				time_idle = (now - target_last_activity) >= idle_time
-				all_loading_complete = doc_loaded and page_loaded and not any_frame_loading
+				browser_loaded = doc_loaded and page_loaded and not any_frame_loading
 
-				if network_idle and time_idle and all_loading_complete:
-					self.logger.debug(
-						f'[TrafficWatchdog] Network stabilized for target {target_id[-4:]} after {now - start_time:.2f}s '
-						f'(idle for {now - target_last_activity:.2f}s, doc_loaded={doc_loaded}, page_loaded={page_loaded}, frames_loading={len([f for f in frames_loading.values() if f])})'
-					)
-					break
+				phase1_satisfied = network_idle and time_idle and browser_loaded
 
-				# Check timeout
-				if now - start_time > max_wait:
-					# Build list of pending URLs safely
-					pending_urls = []
-					for _, req_info in list(target_pending.items())[:5]:
-						url = str(req_info.get('url', ''))[:50] if isinstance(req_info, dict) else ''
-						if url:
-							pending_urls.append(url)
+				# === Phase 2: DOM Stability (OPTIONAL - best effort) ===
+				if phase1_satisfied:
+					# Mark when Phase 1 was first satisfied
+					if phase1_satisfied_at is None:
+						phase1_satisfied_at = now
+						self.logger.debug(
+							f'[TrafficWatchdog] ✅ Phase 1 complete for {target_id[-4:]} at {now - start_time:.2f}s - checking Phase 2...'
+						)
 
-					self.logger.debug(
-						f'[TrafficWatchdog] Network timeout for target {target_id[-4:]} after {max_wait}s: '
-						f'{len(target_pending)} pending requests, doc_loaded={doc_loaded}, page_loaded={page_loaded}, '
-						f'frames_loading={len([f for f in frames_loading.values() if f])}, requests={pending_urls}'
-					)
-					timed_out = True
+					# Try Phase 2 checks with aggressive timeout
+					phase2_elapsed = now - phase1_satisfied_at
+					if phase2_elapsed < phase2_timeout:
+						# Quick checks for DOM stability and loading indicators
+						no_loading_indicators = await self._check_loading_indicators(target_id)
+						dom_stable = await self._check_dom_stable(target_id, stable_threshold_ms=200)
+
+						# Perfect! Both phases satisfied
+						if no_loading_indicators and dom_stable:
+							self.logger.debug(
+								f'[TrafficWatchdog] ✅ Phase 2 complete for {target_id[-4:]} at {now - start_time:.2f}s '
+								f'(total: {now - start_time:.2f}s, phase2_elapsed: {phase2_elapsed:.2f}s)'
+							)
+							break
+					else:
+						# Phase 2 timeout - give up and return (Phase 1 was satisfied)
+						self.logger.debug(
+							f'[TrafficWatchdog] ⏱️ Phase 2 timeout for {target_id[-4:]} after {phase2_elapsed:.2f}s - returning anyway (Phase 1 satisfied)'
+						)
+						break
+
+				# Overall safety timeout (should rarely hit)
+				if now - start_time > safety_timeout:
+					if not phase1_satisfied:
+						# This is concerning - Phase 1 never satisfied
+						pending_urls = [str(req.get('url', ''))[:50] for _, req in list(target_pending.items())[:3]]
+						self.logger.warning(
+							f'[TrafficWatchdog] ⚠️ Safety timeout at {safety_timeout}s - Phase 1 NOT satisfied! '
+							f'(network_idle={network_idle}, time_idle={time_idle}, browser_loaded={browser_loaded}, pending={len(target_pending)}, urls={pending_urls})'
+						)
+					else:
+						# Phase 1 satisfied but Phase 2 taking too long - this is OK
+						self.logger.debug(
+							f'[TrafficWatchdog] ⏱️ Safety timeout at {safety_timeout}s - Phase 1 satisfied, Phase 2 incomplete'
+						)
+					timed_out = not phase1_satisfied  # Only mark as timeout if Phase 1 failed
 					break
 
 		except Exception as e:
-			self.logger.warning(f'[TrafficWatchdog] Error waiting for network stability: {e}')
+			self.logger.warning(f'[TrafficWatchdog] Error during stability check: {e}')
 			timed_out = True
 
 		elapsed = asyncio.get_event_loop().time() - start_time
