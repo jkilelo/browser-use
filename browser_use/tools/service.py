@@ -5,6 +5,8 @@ import logging
 import os
 from typing import Any, Generic, TypeVar
 
+from browser_use.browser.watchdogs.dom_watchdog import DOMWatchdog
+
 try:
 	from lmnr import Laminar  # type: ignore
 except ImportError:
@@ -613,11 +615,13 @@ class Tools(Generic[Context]):
 				content_stats['next_start_char'] = next_start
 
 			# Add content statistics to the result
-			original_html_length = content_stats['original_html_chars']
+
 			initial_markdown_length = content_stats['initial_markdown_chars']
 			chars_filtered = content_stats['filtered_chars_removed']
 
-			stats_summary = f"""Content processed: {original_html_length:,} HTML chars → {initial_markdown_length:,} initial markdown → {final_filtered_length:,} filtered markdown"""
+			stats_summary = (
+				f""" HTML chars → {initial_markdown_length:,} initial markdown → {final_filtered_length:,} filtered markdown"""
+			)
 			if start_from_char > 0:
 				stats_summary += f' (started from char {start_from_char:,})'
 			if truncated:
@@ -1036,7 +1040,10 @@ You will be given a query and the markdown of a webpage that has been filtered t
 	async def extract_clean_markdown(
 		self, browser_session: BrowserSession, extract_links: bool = False
 	) -> tuple[str, dict[str, Any]]:
-		"""Extract clean markdown from the current page.
+		"""Extract clean markdown from the current page using DOM tree.
+
+		This method uses the enhanced DOM tree from DOMWatchdog to capture
+		dynamic content that static HTML extraction would miss.
 
 		Args:
 			browser_session: Browser session to extract content from
@@ -1045,38 +1052,25 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		Returns:
 			tuple: (clean_markdown_content, content_statistics)
 		"""
-		import re
 
-		# Get HTML content from current page
-		cdp_session = await browser_session.get_or_create_cdp_session()
-		try:
-			body_id = await cdp_session.cdp_client.send.DOM.getDocument(session_id=cdp_session.session_id)
-			page_html_result = await cdp_session.cdp_client.send.DOM.getOuterHTML(
-				params={'backendNodeId': body_id['root']['backendNodeId']}, session_id=cdp_session.session_id
-			)
-			page_html = page_html_result['outerHTML']
-			current_url = await browser_session.get_current_page_url()
-		except Exception as e:
-			raise RuntimeError(f"Couldn't extract page content: {e}")
+		current_url = await browser_session.get_current_page_url()
 
-		original_html_length = len(page_html)
+		# Get the enhanced DOM tree from DOMWatchdog
+		# This captures the current state of the page including dynamic content
+		# Access the DOM watchdog to get the enhanced DOM tree
+		dom_watchdog: DOMWatchdog | None = browser_session._dom_watchdog
+		assert dom_watchdog is not None
+		# Get or build the enhanced DOM tree
+		enhanced_dom_tree = dom_watchdog.enhanced_dom_tree
+		assert enhanced_dom_tree is not None
 
-		# Use html2text for clean markdown conversion
-		import html2text
+		# Use the new markdown serializer with the enhanced DOM tree
+		from browser_use.dom.serializer.markdown_serializer import MarkdownSerializer
 
-		h = html2text.HTML2Text()
-		h.ignore_links = not extract_links
-		h.ignore_images = True
-		h.ignore_emphasis = False
-		h.body_width = 0  # Don't wrap lines
-		h.unicode_snob = True
-		h.skip_internal_links = True
-		content = h.handle(page_html)
+		serializer = MarkdownSerializer(extract_links=extract_links)
+		content = serializer.serialize(enhanced_dom_tree)
 
 		initial_markdown_length = len(content)
-
-		# Minimal cleanup - html2text already does most of the work
-		content = re.sub(r'%[0-9A-Fa-f]{2}', '', content)  # Remove any remaining URL encoding
 
 		# Apply light preprocessing to clean up excessive whitespace
 		content, chars_filtered = self._preprocess_markdown_content(content)
@@ -1086,10 +1080,11 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		# Content statistics
 		stats = {
 			'url': current_url,
-			'original_html_chars': original_html_length,
+			'method': 'dom_tree',
 			'initial_markdown_chars': initial_markdown_length,
 			'filtered_chars_removed': chars_filtered,
 			'final_filtered_chars': final_filtered_length,
+			'final_chars': len(content),
 		}
 
 		return content, stats
