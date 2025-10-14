@@ -179,8 +179,11 @@ class SimplifiedNode:
 
 		return node_json
 
-	def __json__(self) -> dict:
-		original_node_json = self.original_node.__json__()
+	def __json__(self, _seen: set[int] | None = None) -> dict:
+		if _seen is None:
+			_seen = set()
+
+		original_node_json = self.original_node.__json__(_seen)
 		# Remove children_nodes and shadow_roots to avoid duplication with SimplifiedNode.children
 		cleaned_original_node_json = self._clean_original_node_json(original_node_json)
 		return {
@@ -189,7 +192,7 @@ class SimplifiedNode:
 			'ignored_by_paint_order': self.ignored_by_paint_order,
 			'excluded_by_parent': self.excluded_by_parent,
 			'original_node': cleaned_original_node_json,
-			'children': [c.__json__() for c in self.children],
+			'children': [c.__json__(_seen) for c in self.children],
 		}
 
 
@@ -454,8 +457,24 @@ class EnhancedDOMTreeNode:
 		except ValueError:
 			return 0
 
-	def __json__(self) -> dict:
-		"""Serializes the node and its descendants to a dictionary, omitting parent references."""
+	def __json__(self, _seen: set[int] | None = None) -> dict:
+		"""Serializes the node and its descendants to a dictionary, omitting parent references.
+
+		Uses a _seen set to track already-serialized nodes and prevent circular reference duplication.
+		"""
+		if _seen is None:
+			_seen = set()
+
+		# If we've already serialized this node, return a reference instead
+		if self.node_id in _seen:
+			return {
+				'node_id': self.node_id,
+				'_ref': True,  # Marker that this is a reference, not full node data
+			}
+
+		# Mark this node as seen
+		_seen.add(self.node_id)
+
 		return {
 			'node_id': self.node_id,
 			'backend_node_id': self.backend_node_id,
@@ -468,13 +487,13 @@ class EnhancedDOMTreeNode:
 			'session_id': self.session_id,
 			'target_id': self.target_id,
 			'frame_id': self.frame_id,
-			'content_document': self.content_document.__json__() if self.content_document else None,
+			'content_document': self.content_document.__json__(_seen) if self.content_document else None,
 			'shadow_root_type': self.shadow_root_type,
 			'ax_node': asdict(self.ax_node) if self.ax_node else None,
 			'snapshot_node': asdict(self.snapshot_node) if self.snapshot_node else None,
 			# these two in the end, so it's easier to read json
-			'shadow_roots': [r.__json__() for r in self.shadow_roots] if self.shadow_roots else [],
-			'children_nodes': [c.__json__() for c in self.children_nodes] if self.children_nodes else [],
+			'shadow_roots': [r.__json__(_seen) for r in self.shadow_roots] if self.shadow_roots else [],
+			'children_nodes': [c.__json__(_seen) for c in self.children_nodes] if self.children_nodes else [],
 		}
 
 	def get_all_children_text(self, max_depth: int = -1) -> str:
