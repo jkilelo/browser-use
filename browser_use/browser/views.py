@@ -84,6 +84,7 @@ class BrowserStateSummary:
 	browser_errors: list[str] = field(default_factory=list)
 	is_pdf_viewer: bool = False  # Whether the current page is a PDF viewer
 	recent_events: str | None = None  # Text summary of recent browser events
+	pending_network_requests: int = 0  # Number of pending network requests
 
 
 @dataclass

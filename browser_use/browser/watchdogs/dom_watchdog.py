@@ -169,6 +169,11 @@ class DOMWatchdog(BaseWatchdog):
 						pixels_right=0,
 					)
 
+				# Get pending network requests count
+				pending_requests = 0
+				if self.browser_session._crash_watchdog:
+					pending_requests = self.browser_session._crash_watchdog.get_pending_network_requests_count()
+
 				return BrowserStateSummary(
 					dom_state=content,
 					url=page_url,
@@ -181,6 +186,7 @@ class DOMWatchdog(BaseWatchdog):
 					browser_errors=[],
 					is_pdf_viewer=False,
 					recent_events=self._get_recent_events_str() if event.include_recent_events else None,
+					pending_network_requests=pending_requests,
 				)
 
 			# Execute DOM building and screenshot capture in parallel
@@ -310,6 +316,11 @@ class DOMWatchdog(BaseWatchdog):
 					'🔍 DOMWatchdog.on_BrowserStateRequestEvent: 📸 Creating BrowserStateSummary WITHOUT screenshot'
 				)
 
+			# Get pending network requests count
+			pending_requests = 0
+			if self.browser_session._crash_watchdog:
+				pending_requests = self.browser_session._crash_watchdog.get_pending_network_requests_count()
+
 			browser_state = BrowserStateSummary(
 				dom_state=content,
 				url=page_url,
@@ -322,6 +333,7 @@ class DOMWatchdog(BaseWatchdog):
 				browser_errors=[],
 				is_pdf_viewer=is_pdf_viewer,
 				recent_events=self._get_recent_events_str() if event.include_recent_events else None,
+				pending_network_requests=pending_requests,
 			)
 
 			# Cache the state
@@ -334,6 +346,14 @@ class DOMWatchdog(BaseWatchdog):
 			self.logger.error(f'Failed to get browser state: {e}')
 
 			# Return minimal recovery state
+			# Get pending network requests count even in error state
+			pending_requests = 0
+			if self.browser_session._crash_watchdog:
+				try:
+					pending_requests = self.browser_session._crash_watchdog.get_pending_network_requests_count()
+				except Exception:
+					pending_requests = 0
+
 			return BrowserStateSummary(
 				dom_state=SerializedDOMState(_root=None, selector_map={}),
 				url=page_url if 'page_url' in locals() else '',
@@ -355,6 +375,7 @@ class DOMWatchdog(BaseWatchdog):
 				pixels_above=0,
 				pixels_below=0,
 				browser_errors=[str(e)],
+				pending_network_requests=pending_requests,
 				is_pdf_viewer=False,
 				recent_events=None,
 			)
