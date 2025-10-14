@@ -458,12 +458,6 @@ class DOMWatchdog(BaseWatchdog):
 
 		# Use TrafficWatchdog's network monitoring
 		try:
-			# Apply minimum wait first to let page settle
-			min_wait = self.browser_session.browser_profile.minimum_wait_page_load_time
-			if min_wait > 0:
-				self.logger.debug(f'⏳ Minimum wait: {min_wait}s (before network monitoring)')
-				await asyncio.sleep(min_wait)
-
 			# Check if we have a target to monitor
 			if not self.browser_session.agent_focus:
 				self.logger.debug('⚠️ No agent focus, skipping network monitoring')
@@ -471,7 +465,8 @@ class DOMWatchdog(BaseWatchdog):
 
 			target_id = self.browser_session.agent_focus.target_id
 
-			# Now wait for network to stabilize
+			# Wait for network to stabilize (includes built-in idle_time settling period)
+			# No need for separate minimum_wait - idle_time already provides settling
 			network_event = await traffic_watchdog.wait_for_stable_network(target_id=target_id)
 
 			if network_event.timed_out:
