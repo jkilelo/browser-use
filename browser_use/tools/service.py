@@ -101,7 +101,7 @@ def handle_browser_error(e: BrowserError) -> ActionResult:
 class Tools(Generic[Context]):
 	def __init__(
 		self,
-		exclude_actions: list[str] = [],
+		exclude_actions: list[str] = ['scroll', 'extract', 'find_text', 'select_dropdown', 'dropdown_options'],
 		output_model: type[T] | None = None,
 		display_files_in_done_text: bool = True,
 	):
@@ -956,7 +956,7 @@ Validated Code (after quote fixing):
 
 				# Check for wasThrown flag (backup error detection)
 				if result_data.get('wasThrown'):
-					msg = f'JavaScript execution failed (wasThrown=true)'
+					msg = 'JavaScript execution failed (wasThrown=true)'
 					logger.debug(f'Code: {code[:200]}...')
 					return ActionResult(error=msg)
 

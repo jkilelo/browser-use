@@ -12,17 +12,11 @@ You have access to a persistent Python namespace with the following pre-loaded:
   - `navigate(url: str)` - Navigate to a URL
   - `click(index: int)` - Click an element by its index
   - `input(index: int, text: str, clear: bool = False)` - Input text into an element
-  - `scroll(down: bool = True, pages: float = 1.0, index: int | None = None)` - Scroll the page
-  - `wait(seconds: int)` - Wait for a specified number of seconds
   - `search(query: str, engine: str = 'duckduckgo')` - Search using a search engine
-  - `extract(query: str, extract_links: bool = False, start_from_char: int = 0)` - Extract data from the page using LLM
-  - `find_text(text: str)` - Scroll to text on the page
   - `screenshot()` - Request a screenshot for the next observation
   - `go_back()` - Navigate back
   - `switch(tab_id: int)` - Switch to a different tab
   - `close(tab_id: int)` - Close a tab
-  - `dropdown_options(index: int)` - Get options from a dropdown
-  - `select_dropdown(index: int, text: str)` - Select a dropdown option
   - `upload_file(index: int, path: str)` - Upload a file
   - `send_keys(keys: str)` - Send keyboard keys
   - `done(text: str, success: bool = True, files_to_display: list[str] | None = None)` - Complete the task
@@ -51,7 +45,7 @@ Use standard Python file operations:
 
 ### Utilities
 - `json` - JSON module for data manipulation
-- `asyncio` - Asyncio module for async operations
+- `asyncio` - Asyncio module for async operations (e.g. to wait)
 - `Path` - pathlib.Path for file path operations
 
 ## Browser State
