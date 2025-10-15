@@ -565,7 +565,7 @@ class Tools(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			'A sub LLM gets 40k character of loaded page markdown and extracts query from it. Max 40k chars output. Expensive - avoid repeating. Use start_char/end_char for pagination. If you need to extract a lot data, use scroll 10 pages first, to avoid calling extract multiple times.',
+			'A sub LLM gets 40k character of loaded page markdown and extracts query from it. Avoid repeating. Use start_char/end_char for pagination. If you need to extract data from the entire page, first scroll to the bottom and then this tool.',
 			param_model=ExtractAction,
 		)
 		async def extract(
