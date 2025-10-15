@@ -588,10 +588,10 @@ class Tools(Generic[Context]):
 
 			if start_from_char > 0:
 				if start_from_char >= len(content):
-					return ActionResult(
-						error=f'start_from_char ({start_from_char}) exceeds content length ({len(content)}). Content has {final_filtered_length} characters after filtering.'
-					)
-				content = content[start_from_char:]
+					# Return empty content instead of error when start_from_char exceeds length
+					content = ''
+				else:
+					content = content[start_from_char:]
 				content_stats['started_from_char'] = start_from_char
 
 			# Smart truncation with context preservation
