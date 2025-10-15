@@ -37,10 +37,15 @@ from browser_use.tools.views import (
 	ClickElementAction,
 	CloseTabAction,
 	DoneAction,
+	EvaluateAction,
+	ExtractAction,
+	FindTextAction,
 	GetDropdownOptionsAction,
 	InputTextAction,
 	NavigateAction,
 	NoParamsAction,
+	ReadFileAction,
+	ReplaceFileAction,
 	ScrollAction,
 	SearchAction,
 	SelectDropdownOptionAction,
@@ -48,6 +53,8 @@ from browser_use.tools.views import (
 	StructuredOutputAction,
 	SwitchTabAction,
 	UploadFileAction,
+	WaitAction,
+	WriteFileAction,
 )
 from browser_use.utils import time_execution_sync
 
@@ -115,7 +122,7 @@ class Tools(Generic[Context]):
 
 		# Basic Navigation Actions
 		@self.registry.action(
-			'',
+			'Search engine query. Navigates to search results page.',
 			param_model=SearchAction,
 		)
 		async def search(params: SearchAction, browser_session: BrowserSession):
@@ -158,7 +165,7 @@ class Tools(Generic[Context]):
 				return ActionResult(error=f'Failed to search {params.engine} for "{params.query}": {str(e)}')
 
 		@self.registry.action(
-			'',
+			'Navigate to URL. Use new_tab for parallel browsing.',
 			param_model=NavigateAction,
 		)
 		async def navigate(params: NavigateAction, browser_session: BrowserSession):
@@ -204,7 +211,7 @@ class Tools(Generic[Context]):
 					# Return error in ActionResult instead of re-raising
 					return ActionResult(error=f'Navigation failed: {str(e)}')
 
-		@self.registry.action('', param_model=NoParamsAction)
+		@self.registry.action('Navigate back to previous page in browser history.', param_model=NoParamsAction)
 		async def go_back(_: NoParamsAction, browser_session: BrowserSession):
 			try:
 				event = browser_session.event_bus.dispatch(GoBackEvent())
@@ -218,23 +225,18 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to go back: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('')
-		async def wait(seconds: int = 3):
-			# Cap wait time at maximum 30 seconds
-			# Reduce the wait time by 3 seconds to account for the llm call which takes at least 3 seconds
-			# So if the model decides to wait for 5 seconds, the llm call took at least 3 seconds, so we only need to wait for 2 seconds
-			# Note by Mert: the above doesnt make sense because we do the LLM call right after this or this could be followed by another action after which we would like to wait
-			# so I revert this.
-			actual_seconds = min(max(seconds - 3, 0), 30)
+		@self.registry.action('Wait for page to load/update. Max 30s.', param_model=WaitAction)
+		async def wait(params: WaitAction):
+			seconds = params.seconds
 			memory = f'Waited for {seconds} seconds'
 			logger.info(f'🕒 waited for {seconds} second{"" if seconds == 1 else "s"}')
-			await asyncio.sleep(actual_seconds)
+			await asyncio.sleep(seconds)
 			return ActionResult(extracted_content=memory, long_term_memory=memory)
 
 		# Element Interaction Actions
 
 		@self.registry.action(
-			'',
+			'Click element by index from browser_state.',
 			param_model=ClickElementAction,
 		)
 		async def click(params: ClickElementAction, browser_session: BrowserSession):
@@ -284,7 +286,7 @@ class Tools(Generic[Context]):
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'',
+			'Type text into input/textarea. Set clear=True to replace, False to append.',
 			param_model=InputTextAction,
 		)
 		async def input(
@@ -349,7 +351,7 @@ class Tools(Generic[Context]):
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'',
+			'Upload file to file input near index. Path must be in available_file_paths or downloaded_files.',
 			param_model=UploadFileAction,
 		)
 		async def upload_file(
@@ -506,7 +508,7 @@ class Tools(Generic[Context]):
 
 		# Tab Management Actions
 
-		@self.registry.action('', param_model=SwitchTabAction)
+		@self.registry.action('Switch to tab by 4-char id from browser_state.', param_model=SwitchTabAction)
 		async def switch(params: SwitchTabAction, browser_session: BrowserSession):
 			# Simple switch tab logic
 			try:
@@ -528,7 +530,7 @@ class Tools(Generic[Context]):
 				memory = f'Attempted to switch to tab #{params.tab_id}'
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 
-		@self.registry.action('', param_model=CloseTabAction)
+		@self.registry.action('Close tab by 4-char id from browser_state.', param_model=CloseTabAction)
 		async def close(params: CloseTabAction, browser_session: BrowserSession):
 			# Simple close tab logic
 			try:
@@ -560,16 +562,14 @@ class Tools(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Returns max 30k chars. This is expensive - do not repeat if nothing changed. Can't get interactive elements (use click/scroll instead). Set extract_links=True for URLs. Use start_char/end_char for pagination. If fails, use find_text/scroll instead.""",
+			'A sub LLM gets 40k character of loaded page markdown and extracts query from it. Max 30k chars output. Expensive - avoid repeating. Use start_char/end_char for pagination. If you need to extract a lot data, use scroll 10 pages first, to avoid calling extract multiple times.',
+			param_model=ExtractAction,
 		)
 		async def extract(
-			query: str,
+			params: ExtractAction,
 			browser_session: BrowserSession,
 			page_extraction_llm: BaseChatModel,
 			file_system: FileSystem,
-			extract_links: bool = False,
-			start_char: int = 0,
-			end_char: int | None = None,
 		):
 			# Constants
 			MAX_CHAR_LIMIT = 30000
@@ -579,7 +579,7 @@ class Tools(Generic[Context]):
 				from browser_use.dom.markdown_extractor import extract_clean_markdown
 
 				content, content_stats = await extract_clean_markdown(
-					browser_session=browser_session, extract_links=extract_links
+					browser_session=browser_session, extract_links=params.extract_links
 				)
 			except Exception as e:
 				raise RuntimeError(f'Could not extract clean markdown: {type(e).__name__}')
@@ -591,19 +591,21 @@ class Tools(Generic[Context]):
 			total_length = len(content)
 
 			# Handle character range slicing
-			if start_char > 0 or end_char is not None:
-				if start_char >= total_length:
-					content = f'Start {start_char} > length {total_length}.'
+			if params.start_char > 0 or params.end_char is not None:
+				if params.start_char >= total_length:
+					content = f'Start {params.start_char} > length {total_length}.'
 				else:
-					if end_char is not None:
-						if end_char > total_length:
-							end_char = total_length
-						if end_char < start_char:
-							return ActionResult(error=f'Invalid range: end_char {end_char} < start_char {start_char}.')
-						content = content[start_char:end_char]
+					if params.end_char is not None:
+						if params.end_char > total_length:
+							params.end_char = total_length
+						if params.end_char < params.start_char:
+							return ActionResult(
+								error=f'Invalid range: end_char {params.end_char} < start_char {params.start_char}.'
+							)
+						content = content[params.start_char : params.end_char]
 					else:
-						content = content[start_char:]
-				content_stats['started_from_char'] = start_char
+						content = content[params.start_char :]
+				content_stats['started_from_char'] = params.start_char
 
 			# Smart truncation with context preservation
 			truncated = False
@@ -623,7 +625,7 @@ class Tools(Generic[Context]):
 
 				content = content[:truncate_at]
 				truncated = True
-				next_start = (start_char or 0) + truncate_at
+				next_start = params.start_char + truncate_at
 				content_stats['truncated_at_char'] = truncate_at
 				content_stats['next_start_char'] = next_start
 
@@ -633,8 +635,8 @@ class Tools(Generic[Context]):
 			chars_filtered = content_stats['filtered_chars_removed']
 
 			stats_summary = f"""Content processed: {original_html_length:,} HTML chars → {initial_markdown_length:,} initial markdown → {final_filtered_length:,} filtered markdown"""
-			if start_char > 0:
-				stats_summary += f' (started from char {start_char:,})'
+			if params.start_char > 0:
+				stats_summary += f' (started from char {params.start_char:,})'
 			if truncated:
 				stats_summary += (
 					f' → {len(content):,} final chars (truncated, use start_char={content_stats["next_start_char"]} to continue)'
@@ -663,7 +665,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 </output>
 """.strip()
 
-			prompt = f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
+			prompt = f'<query>\n{params.query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
 
 			try:
 				response = await asyncio.wait_for(
@@ -673,7 +675,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 				current_url = await browser_session.get_current_page_url()
 				extracted_content = (
-					f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<result>\n{response.completion}\n</result>'
+					f'<url>\n{current_url}\n</url>\n<query>\n{params.query}\n</query>\n<result>\n{response.completion}\n</result>'
 				)
 
 				# Simple memory handling
@@ -683,7 +685,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					include_extracted_content_only_once = False
 				else:
 					file_name = await file_system.save_extracted_content(extracted_content)
-					memory = f'Query: {query}\nContent in {file_name} and once in <read_state>.'
+					memory = f'Query: {params.query}\nContent in {file_name} and once in <read_state>.'
 					include_extracted_content_only_once = True
 
 				logger.info(f'📄 {memory}')
@@ -697,7 +699,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				raise RuntimeError(str(e))
 
 		@self.registry.action(
-			"""Scroll by pages (down=True/False, pages=0.5-10.0, default 1.0). Use index for scroll containers (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
+			'Scroll viewport/element. pages=0.5 for half page, 10 to reach bottom. Use index for containers.',
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):
@@ -802,7 +804,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				return ActionResult(error=error_msg)
 
 		@self.registry.action(
-			'',
+			'Send keyboard keys/shortcuts to page. Use for Escape, Enter, PageDown, Control+key, etc.',
 			param_model=SendKeysAction,
 		)
 		async def send_keys(params: SendKeysAction, browser_session: BrowserSession):
@@ -820,25 +822,25 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				error_msg = f'Failed to send keys: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('')
-		async def find_text(text: str, browser_session: BrowserSession):  # type: ignore
+		@self.registry.action('Scroll page to make text visible. Returns error if not found.', param_model=FindTextAction)
+		async def find_text(params: FindTextAction, browser_session: BrowserSession):
 			# Dispatch scroll to text event
-			event = browser_session.event_bus.dispatch(ScrollToTextEvent(text=text))
+			event = browser_session.event_bus.dispatch(ScrollToTextEvent(text=params.text))
 
 			try:
 				# The handler returns None on success or raises an exception if text not found
 				await event.event_result(raise_if_any=True, raise_if_none=False)
-				memory = f'Scrolled to text: {text}'
+				memory = f'Scrolled to text: {params.text}'
 				msg = f'🔍  {memory}'
 				logger.info(msg)
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 			except Exception as e:
 				# Text not found
-				msg = f"Text '{text}' not found or not visible on page"
+				msg = f"Text '{params.text}' not found or not visible on page"
 				logger.info(msg)
 				return ActionResult(
 					extracted_content=msg,
-					long_term_memory=f"Tried scrolling to text '{text}' but it was not found",
+					long_term_memory=f"Tried scrolling to text '{params.text}' but it was not found",
 				)
 
 		@self.registry.action(
@@ -859,7 +861,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 		# Dropdown Actions
 
 		@self.registry.action(
-			'',
+			'Get all options from native <select> dropdown or ARIA menu.',
 			param_model=GetDropdownOptionsAction,
 		)
 		async def dropdown_options(params: GetDropdownOptionsAction, browser_session: BrowserSession):
@@ -885,7 +887,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			'',
+			'Select dropdown option by exact text match.',
 			param_model=SelectDropdownOptionAction,
 		)
 		async def select_dropdown(params: SelectDropdownOptionAction, browser_session: BrowserSession):
@@ -928,66 +930,57 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					return ActionResult(error=error_msg)
 
 		# File System Actions
-		@self.registry.action('')
-		async def write_file(
-			file_name: str,
-			content: str,
-			file_system: FileSystem,
-			append: bool = False,
-			clear: bool = False,
-			trailing_newline: bool = True,
-			leading_newline: bool = False,
-		):
-			if trailing_newline:
+		@self.registry.action(
+			'Write/append to .txt/.json/.csv/.md file. clear takes precedence over append.', param_model=WriteFileAction
+		)
+		async def write_file(params: WriteFileAction, file_system: FileSystem):
+			content = params.content
+			if params.trailing_newline:
 				content += '\n'
-			if leading_newline:
+			if params.leading_newline:
 				content = '\n' + content
 			# clear takes precedence over append
-			if clear:
-				result = await file_system.write_file(file_name, content)
-			elif append:
-				result = await file_system.append_file(file_name, content)
+			if params.clear:
+				result = await file_system.write_file(params.file_name, content)
+			elif params.append:
+				result = await file_system.append_file(params.file_name, content)
 			else:
-				result = await file_system.write_file(file_name, content)
+				result = await file_system.write_file(params.file_name, content)
 			logger.info(f'💾 {result}')
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
-		@self.registry.action('')
-		async def replace_file(file_name: str, old_str: str, new_str: str, file_system: FileSystem):
-			result = await file_system.replace_file_str(file_name, old_str, new_str)
+		@self.registry.action('Find and replace exact string in file.', param_model=ReplaceFileAction)
+		async def replace_file(params: ReplaceFileAction, file_system: FileSystem):
+			result = await file_system.replace_file_str(params.file_name, params.old_str, params.new_str)
 			logger.info(f'💾 {result}')
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
-		@self.registry.action('')
-		async def read_file(
-			file_name: str,
-			available_file_paths: list[str],
-			file_system: FileSystem,
-			start_char: int = 0,
-			end_char: int | None = None,
-		):
+		@self.registry.action('Read file contents. Use start_char/end_char for large files.', param_model=ReadFileAction)
+		async def read_file(params: ReadFileAction, available_file_paths: list[str], file_system: FileSystem):
 			# Read the file
-			if available_file_paths and file_name in available_file_paths:
-				result = await file_system.read_file(file_name, external_file=True)
+			if available_file_paths and params.file_name in available_file_paths:
+				result = await file_system.read_file(params.file_name, external_file=True)
 			else:
-				result = await file_system.read_file(file_name)
+				result = await file_system.read_file(params.file_name)
 
 			# Get total length before slicing
 			total_length = len(result)
 
 			# Handle character range slicing
-			if start_char > 0 or end_char is not None:
-				if start_char >= total_length:
-					result = f'Start {start_char} > length {total_length}.'
+			if params.start_char > 0 or params.end_char is not None:
+				if params.start_char >= total_length:
+					result = f'Start {params.start_char} > length {total_length}.'
 				else:
-					if end_char is not None:
-						if end_char > total_length:
-							end_char = total_length
-						if end_char < start_char:
-							return ActionResult(error=f'Invalid range: end_char {end_char} < start_char {start_char}.')
-						result = result[start_char:end_char]
+					if params.end_char is not None:
+						if params.end_char > total_length:
+							params.end_char = total_length
+						if params.end_char < params.start_char:
+							return ActionResult(
+								error=f'Invalid range: end_char {params.end_char} < start_char {params.start_char}.'
+							)
+						result = result[params.start_char : params.end_char]
 					else:
-						result = result[start_char:]
+						result = result[params.start_char :]
 
 			MAX_MEMORY_SIZE = 1000
 			if len(result) > MAX_MEMORY_SIZE:
@@ -1012,16 +1005,17 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			"""Execute browser JavaScript. MUST: wrap in IIFE (function(){...})(). MUST include try-catch. MUST return a value. Use ONLY browser APIs (document, window, DOM). NEVER use Node.js APIs (fs, require, process) or arguments[]. NEVER use // comments. NEVER put large data (>1KB) in template literals. Limit output. Use as general tool when others fail or to explore page, zoom, hover, drag drop, and other edge cases. Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})()""",
+			'Execute browser JavaScript. MUST be IIFE with try-catch returning value. Only browser APIs. Max 20k output. For edge cases.',
+			param_model=EvaluateAction,
 		)
-		async def evaluate(code: str, browser_session: BrowserSession):
+		async def evaluate(params: EvaluateAction, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
 
 			try:
 				# Validate and potentially fix JavaScript code before execution
-				validated_code = self._validate_and_fix_javascript(code)
+				validated_code = self._validate_and_fix_javascript(params.code)
 
 				# Always use awaitPromise=True - it's ignored for non-promises
 				result = await cdp_session.cdp_client.send.Runtime.evaluate(
@@ -1052,7 +1046,7 @@ Validated Code (after quote fixing):
 
 				# Check for wasThrown flag (backup error detection)
 				if result_data.get('wasThrown'):
-					msg = f'Code: {code}\n\nError: JavaScript execution failed (wasThrown=true)'
+					msg = f'Code: {params.code}\n\nError: JavaScript execution failed (wasThrown=true)'
 					logger.info(msg)
 					return ActionResult(error=msg)
 
@@ -1077,13 +1071,13 @@ Validated Code (after quote fixing):
 				# Apply length limit with better truncation
 				if len(result_text) > 20000:
 					result_text = result_text[:19950] + '\n... [Truncated after 20000 characters]'
-				msg = f'Code: {code}\n\nResult: {result_text}'
+				msg = f'Code: {params.code}\n\nResult: {result_text}'
 				logger.info(msg)
-				return ActionResult(extracted_content=f'Code: {code}\n\nResult: {result_text}')
+				return ActionResult(extracted_content=f'Code: {params.code}\n\nResult: {result_text}')
 
 			except Exception as e:
 				# CDP communication or other system errors
-				error_msg = f'Code: {code}\n\nError: Failed to execute JavaScript: {type(e).__name__}: {e}'
+				error_msg = f'Code: {params.code}\n\nError: Failed to execute JavaScript: {type(e).__name__}: {e}'
 				logger.info(error_msg)
 				return ActionResult(error=error_msg)
 

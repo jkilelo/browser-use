@@ -88,3 +88,43 @@ class GetDropdownOptionsAction(BaseModel):
 class SelectDropdownOptionAction(BaseModel):
 	index: int
 	text: str = Field(description='exact text/value')
+
+
+class ExtractAction(BaseModel):
+	query: str = Field(description='what to extract')
+	extract_links: bool = Field(default=False, description='include URLs')
+	start_char: int = Field(default=0, ge=0, description='pagination start')
+	end_char: int | None = Field(default=None, ge=0, description='pagination end')
+
+
+class WaitAction(BaseModel):
+	seconds: int = Field(ge=0, le=30, description='0-30 seconds')
+
+
+class FindTextAction(BaseModel):
+	text: str = Field(description='text to scroll to')
+
+
+class EvaluateAction(BaseModel):
+	code: str = Field(description='IIFE with try-catch returning value')
+
+
+class WriteFileAction(BaseModel):
+	file_name: str = Field(description='name.txt/.json/.csv/.md')
+	content: str
+	append: bool = Field(default=False, description='append vs overwrite')
+	clear: bool = Field(default=False, description='clear file first')
+	trailing_newline: bool = Field(default=True, description='add \\n at end')
+	leading_newline: bool = Field(default=False, description='add \\n at start')
+
+
+class ReplaceFileAction(BaseModel):
+	file_name: str = Field(description='name.txt/.json/.csv/.md')
+	old_str: str = Field(description='exact string to find')
+	new_str: str = Field(description='replacement string')
+
+
+class ReadFileAction(BaseModel):
+	file_name: str = Field(description='name.txt/.json/.csv/.md')
+	start_char: int = Field(default=0, ge=0, description='pagination start')
+	end_char: int | None = Field(default=None, ge=0, description='pagination end')
