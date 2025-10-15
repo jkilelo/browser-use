@@ -185,7 +185,7 @@ class AgentMessagePrompt:
 					# For text files, approximate character count
 					if file_path.lower().endswith(('.txt', '.md', '.json', '.csv', '.py', '.js', '.html', '.css')):
 						# Read file to get exact character count
-						with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+						with open(file_path, encoding='utf-8', errors='ignore') as f:
 							content = f.read()
 							char_count = len(content)
 							line_count = len(content.splitlines())

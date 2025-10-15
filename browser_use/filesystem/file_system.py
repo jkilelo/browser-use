@@ -396,9 +396,7 @@ class FileSystem:
 			char_count = len(content)
 
 			# For small files, display the entire content
-			whole_file_description = (
-				f'<file>\n{file_obj.full_name} - {line_count} lines, {char_count} chars\n<content>\n{content}\n</content>\n</file>\n'
-			)
+			whole_file_description = f'<file>\n{file_obj.full_name} - {line_count} lines, {char_count} chars\n<content>\n{content}\n</content>\n</file>\n'
 			if len(content) < int(1.5 * DISPLAY_CHARS):
 				description += whole_file_description
 				continue
@@ -441,7 +439,9 @@ class FileSystem:
 			if not (start_preview or end_preview):
 				description += f'<file>\n{file_obj.full_name} - {line_count} lines, {char_count} chars\n<content>\n{middle_line_count} lines...\n</content>\n</file>\n'
 			else:
-				description += f'<file>\n{file_obj.full_name} - {line_count} lines, {char_count} chars\n<content>\n{start_preview}\n'
+				description += (
+					f'<file>\n{file_obj.full_name} - {line_count} lines, {char_count} chars\n<content>\n{start_preview}\n'
+				)
 				description += f'... {middle_line_count} more lines ...\n'
 				description += f'{end_preview}\n'
 				description += '</content>\n</file>\n'
