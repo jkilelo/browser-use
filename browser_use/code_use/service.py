@@ -1,6 +1,5 @@
 """Code-use agent service - Jupiter notebook-like code execution for browser automation."""
 
-import asyncio
 import logging
 import traceback
 from pathlib import Path
@@ -15,7 +14,7 @@ from browser_use.llm.messages import AssistantMessage, BaseMessage, SystemMessag
 from browser_use.tools.service import Tools
 
 from .namespace import create_namespace
-from .views import CodeCell, ExecutionStatus, NotebookSession
+from .views import ExecutionStatus, NotebookSession
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +106,7 @@ class CodeUseAgent:
 
 		# Main execution loop
 		for step in range(self.max_steps):
-			logger.info(f'Step {step + 1}/{self.max_steps}')
+			logger.info(f'\n\n\n\nStep {step + 1}/{self.max_steps}')
 
 			try:
 				# Get code from LLM
@@ -119,6 +118,14 @@ class CodeUseAgent:
 
 				# Execute code
 				output, error, browser_state = await self._execute_code(code)
+
+				# Log execution results
+				if error:
+					logger.info(f'Code execution error:\n{error}')
+				if output:
+					logger.info(f'Code output:\n{output}')
+				if browser_state:
+					logger.info(f'Browser state:\n{browser_state}')
 
 				# Check if task is done
 				if self._is_task_done():
@@ -140,6 +147,9 @@ class CodeUseAgent:
 		"""Get Python code from the LLM."""
 		# Call LLM with history
 		response = await self.llm.ainvoke(self.history)
+
+		# Log the LLM's raw output for debugging
+		logger.info(f'LLM Response:\n{response.completion}')
 
 		# Extract code from response
 		code = response.completion
@@ -231,7 +241,18 @@ __result__ = asyncio.create_task(__code_use_exec__())
 			cell.browser_state = browser_state
 
 		except Exception as e:
-			error = f'{type(e).__name__}: {e}\n{traceback.format_exc()}'
+			# For syntax errors and common parsing errors, show just the error message
+			# without the full traceback to keep output clean
+			if isinstance(e, SyntaxError):
+				error = f'{type(e).__name__}: {e.msg}'
+				if e.lineno:
+					error += f' at line {e.lineno}'
+				if e.text:
+					error += f'\n{e.text}'
+			else:
+				# For other errors, include the full traceback
+				error = f'{type(e).__name__}: {e}\n{traceback.format_exc()}'
+
 			cell.status = ExecutionStatus.ERROR
 			cell.error = error
 			logger.error(f'Code execution error: {error}')
@@ -251,20 +272,12 @@ __result__ = asyncio.create_task(__code_use_exec__())
 			logger.error(f'Failed to get browser state: {e}')
 			return f'Error getting browser state: {e}'
 
-	def _format_execution_result(
-		self, code: str, output: str | None, error: str | None, browser_state: str | None
-	) -> str:
+	def _format_execution_result(self, code: str, output: str | None, error: str | None, browser_state: str | None) -> str:
 		"""Format the execution result for the LLM."""
 		result = []
-
-		# Add execution info
-		result.append('## Execution Result\n')
-
+		result.append('## Executed\n')
 		if error:
-			result.append('**Status:** Error\n')
 			result.append(f'**Error:**\n```\n{error}\n```\n')
-		else:
-			result.append('**Status:** Success\n')
 
 		if output:
 			# Truncate output if too long
@@ -277,7 +290,7 @@ __result__ = asyncio.create_task(__code_use_exec__())
 			# Truncate browser state if too long
 			if len(browser_state) > 30000:
 				browser_state = browser_state[:29950] + '\n... [Truncated after 30000 characters]'
-			result.append(f'**Browser State:**\n```\n{browser_state}\n```\n')
+			result.append(f'\n{browser_state}\n')
 
 		return ''.join(result)
 

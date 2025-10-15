@@ -43,20 +43,7 @@ async def main():
 	# Create code-use agent
 	agent = CodeUseAgent(
 		task="""
-		Go to https://webscraper.io/test-sites/e-commerce/allinone/computers/laptops
-		and extract all laptop products. For each product, extract:
-		- Name
-		- Price
-		- Description
-		- Rating
-
-		Use JavaScript to extract the data efficiently. Scroll down to load all products
-		if needed. Save the results to a file called 'laptops.json'.
-
-		IMPORTANT: Before calling done(), verify that:
-		1. The JSON file was created successfully
-		2. It contains the expected number of products
-		3. Each product has all required fields
+Read webpage https://www.flipkart.com and follow the prompt: Continue collecting products from Flipkart in the following categories. I need approximately 40 products from:\n\n1. Books & Media (books, stationery) - 15 products\n2. Sports & Fitness (equipment, clothing, accessories) - 15 products  \n3. Beauty & Personal Care (cosmetics, skincare, grooming) - 10 products\n\nNavigate to these categories and collect products with:\n- Product URL (working link)\n- Product name/description\n- Actual price (MRP)\n- Deal price (current selling price)  \n- Discount percentage\n\nFocus on products with good discounts and clear pricing. Target around 40 products total from these three categories.
 		""",
 		llm=llm,
 		browser_profile=BrowserProfile(

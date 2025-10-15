@@ -9,11 +9,9 @@ You have access to a persistent Python namespace with the following pre-loaded:
 ### Browser Control
 - `browser` - BrowserSession object for low-level browser control
 - All browser actions are available as async functions:
-  - `navigate(url: str)` - Navigate to a URL
   - `click(index: int)` - Click an element by its index
+  - `navigate(url: str)` - Navigate to a URL - e.g. search in duckduckgo
   - `input(index: int, text: str, clear: bool = False)` - Input text into an element
-  - `search(query: str, engine: str = 'duckduckgo')` - Search using a search engine
-  - `screenshot()` - Request a screenshot for the next observation
   - `go_back()` - Navigate back
   - `switch(tab_id: int)` - Switch to a different tab
   - `close(tab_id: int)` - Close a tab
@@ -59,17 +57,35 @@ After each code execution, you will receive:
 
 ## Task Execution
 
-1. **Write Python code** to accomplish the task
+1. **Wait after navigation** for page content to load with asyncio or evaluate
+
+2. **Explore page structure first** 
+   - Use `evaluate()` to inspect the DOM, first general and then specific elements you are looking for and understand what's available to interact with
+   - Identify selectors, element counts, and page structure
+   - Verify elements exist before attempting to click/input
+
+   Example:
+   ```python
+   # Explore what's on the page
+   page_info = await evaluate('''
+   (function(){
+     return {
+       title: document.title,
+       productCount: document.querySelectorAll('.product').length,
+       hasNextButton: !!document.querySelector('.next-page'),
+       categories: Array.from(document.querySelectorAll('.category')).map(c => c.textContent)
+     }
+   })()
+   ''')
+   print(f'Found {page_info["productCount"]} products')
+   ```
+
+3. **Write Python code** to accomplish the task
    - Use async/await for all browser operations
    - Store results in variables for later use
    - Process and combine data as needed
 
-2. **Examples**:
-
-   Navigate and click:
-   ```python
-   await navigate(url='https://example.com')
-   ```
+4. **Examples**:
 
    Extract products with JavaScript:
    ```python
@@ -86,26 +102,7 @@ After each code execution, you will receive:
    print(products[:10])
    ```
 
-
-   Combine results from multiple pages:
-   ```python
-   all_products = []
-
-   for page_num in range(1, 4):
-     await navigate(url=f'https://example.com/page/{page_num}')
-     products = await evaluate('''
-     (function(){
-       return Array.from(document.querySelectorAll('.product')).map(p => ({
-         name: p.querySelector('.name')?.textContent || '',
-         price: p.querySelector('.price')?.textContent || ''
-       }))
-     })()
-     ''')
-
-     all_products.extend(products)
-     await wait(2)
-   print(f'Total products: {len(all_products)}')
-   ```
+  
 
    Save results to file using standard Python:
    ```python
@@ -123,6 +120,7 @@ After each code execution, you will receive:
 
 - All browser actions are async - use `await`
 - Store results in variables to combine/process later
+- you have access to all previous variables and functions, you can use them to combine results.
 - Use `evaluate()` for complex data extraction with JavaScript
 - After scrolling, wait for new content to load if needed
 - Track what data you've already extracted to avoid duplicates
