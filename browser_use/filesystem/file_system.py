@@ -271,14 +271,10 @@ class FileSystem:
 					import pypdf
 
 					reader = pypdf.PdfReader(full_filename)
-					num_pages = len(reader.pages)
-					MAX_PDF_PAGES = 20
-					extra_pages = num_pages - MAX_PDF_PAGES
 					extracted_text = ''
-					for page in reader.pages[:MAX_PDF_PAGES]:
+					for page in reader.pages:
 						extracted_text += page.extract_text()
-					extra_pages_text = f'{extra_pages} more pages...' if extra_pages > 0 else ''
-					return f'Read from file {full_filename}.\n<content>\n{extracted_text}\n{extra_pages_text}</content>'
+					return f'Read from file {full_filename}.\n<content>\n{extracted_text}\n</content>'
 				else:
 					return f'Error: Cannot read file {full_filename} as {extension} extension is not supported.'
 			except FileNotFoundError:
@@ -397,10 +393,11 @@ class FileSystem:
 
 			lines = content.splitlines()
 			line_count = len(lines)
+			char_count = len(content)
 
 			# For small files, display the entire content
 			whole_file_description = (
-				f'<file>\n{file_obj.full_name} - {line_count} lines\n<content>\n{content}\n</content>\n</file>\n'
+				f'<file>\n{file_obj.full_name} - {line_count} lines, {char_count} chars\n<content>\n{content}\n</content>\n</file>\n'
 			)
 			if len(content) < int(1.5 * DISPLAY_CHARS):
 				description += whole_file_description
@@ -442,9 +439,9 @@ class FileSystem:
 
 			# Format output
 			if not (start_preview or end_preview):
-				description += f'<file>\n{file_obj.full_name} - {line_count} lines\n<content>\n{middle_line_count} lines...\n</content>\n</file>\n'
+				description += f'<file>\n{file_obj.full_name} - {line_count} lines, {char_count} chars\n<content>\n{middle_line_count} lines...\n</content>\n</file>\n'
 			else:
-				description += f'<file>\n{file_obj.full_name} - {line_count} lines\n<content>\n{start_preview}\n'
+				description += f'<file>\n{file_obj.full_name} - {line_count} lines, {char_count} chars\n<content>\n{start_preview}\n'
 				description += f'... {middle_line_count} more lines ...\n'
 				description += f'{end_preview}\n'
 				description += '</content>\n</file>\n'
