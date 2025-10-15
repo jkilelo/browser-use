@@ -9,7 +9,7 @@ from types import UnionType
 from typing import Any, Generic, Optional, TypeVar, Union, get_args, get_origin
 
 import pyotp
-from pydantic import BaseModel, Field, RootModel, create_model
+from pydantic import BaseModel, ConfigDict, Field, RootModel, create_model
 
 from browser_use.browser import BrowserSession
 from browser_use.filesystem.file_system import FileSystem
@@ -538,6 +538,8 @@ class Registry(Generic[Context]):
 			union_type = Union[tuple(individual_action_models)]  # type: ignore : Typing doesn't understand that the length is >= 2 (by design)
 
 			class ActionModelUnion(RootModel[union_type]):  # type: ignore
+				model_config = ConfigDict(union_mode='left_to_right')  # type: ignore[typeddict-item]
+
 				def get_index(self) -> int | None:
 					"""Delegate get_index to the underlying action model"""
 					if hasattr(self.root, 'get_index'):
