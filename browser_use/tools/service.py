@@ -234,7 +234,7 @@ class Tools(Generic[Context]):
 		# Element Interaction Actions
 
 		@self.registry.action(
-			'',
+			"""Click interactive element.""",
 			param_model=ClickElementAction,
 		)
 		async def click(params: ClickElementAction, browser_session: BrowserSession):
@@ -245,7 +245,7 @@ class Tools(Generic[Context]):
 				)
 
 				# Look up the node from the selector map
-				node = await browser_session.get_element_by_index(params.index)
+				node: EnhancedDOMTreeNode | None = await browser_session.get_element_by_index(params.index)
 				if node is None:
 					raise ValueError(f'Element index {params.index} not found in browser state')
 
@@ -256,7 +256,17 @@ class Tools(Generic[Context]):
 				await event
 				# Wait for handler to complete and get any exception or metadata
 				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
-				memory = 'Clicked element'
+
+				# Build informative feedback about what was clicked
+				element_info = []
+				if node.tag_name:
+					element_info.append(node.tag_name)
+				element_text = node.get_all_children_text(max_depth=2)[:100]
+				if element_text:
+					element_info.append(f'"{element_text}"')
+
+				element_desc = ' '.join(element_info) if element_info else f'index {params.index}'
+				memory = f'Clicked {element_desc}'
 
 				msg = f'🖱️ {memory}'
 				logger.info(msg)
@@ -560,7 +570,13 @@ class Tools(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			"""This calls a sub LLM which is called once with query the page markdown. The LLM will have access to more than the viewport, but only this page. Returns max 40k chars. This is expensive - do not repeat if nothing changed. Can't get interactive elements (use click/scroll instead). Set extract_links=True for URLs. Use start_char/end_char for pagination. If fails, use find_text/scroll instead. E.g. extract(query='Return first 10 products', start_char=0)""",
+			"""PREFERRED FOR BATCH DATA - Gets ALL matching items at once, not one-by-one.
+
+extract(query='all product names') → returns all 50 in one call.
+
+May truncate large tables/lists.
+
+Calls sub-LLM with page markdown. Max 40k chars. Keep query specific. Examples: 'all product names' or 'contact email'. Can't get interactive elements (use click/scroll). Use start_char/end_char to paginate through truncated content. Expensive - don't repeat if nothing changed.""",
 		)
 		async def extract(
 			query: str,
@@ -652,14 +668,15 @@ You will be given a query and the markdown of a webpage that has been filtered t
 <instructions>
 - You are tasked to extract information from the webpage that is relevant to the query.
 - You should ONLY use the information available in the webpage to answer the query. Do not make up information or provide guess from your own knowledge.
-- If the information relevant to the query is not available in the page, your response should mention that.
+- If the information is not visible in this specific page content, say "Not found on this page" (agent can try other pages/methods).
+- NEVER say "not available" or "N/A" - those mean the field doesn't exist anywhere. Say "Not found on this page" instead.
 - If the query asks for all items, products, etc., make sure to directly list all of them.
 - If the content was truncated and you need more information, note that the user can use start_char parameter to continue from where truncation occurred.
 </instructions>
 
 <output>
 - Your output should present ALL the information relevant to the query in a concise way.
-- Do not answer in conversational format - directly output the relevant information or that the information is unavailable.
+- Do not answer in conversational format - directly output the relevant information or "Not found on this page".
 </output>
 """.strip()
 
@@ -1012,7 +1029,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			"""Execute browser JavaScript. CRITICAL: NEVER call any server functions - these don't exist in browser! MUST: wrap in IIFE (function(){...})(). MUST include try-catch. MUST return a value. Use ONLY browser APIs (document, window, DOM). For async, wrap in async IIFE. NEVER use Node.js APIs, arguments[], or // comments. Example: (function(){try{const el=document.querySelector('#id');return el?el.textContent||'not found'}catch(e){return 'Error: '+e.message}})()""",
+			"""Execute browser JavaScript. USE WHEN: extract() truncates, need computed values, or need to batch-process items via JavaScript loop.
+
+Example: Get all product names without 50 clicks:
+(function(){try{return Array.from(document.querySelectorAll('.product')).map(p=>p.textContent.trim())}catch(e){return 'Error: '+e.message}})()
+
+Also use for: Large tables (when extract truncates), computed data, dynamic content, shadow DOM.
+
+CRITICAL: NEVER call server functions - these don't exist in browser! MUST: wrap in IIFE (function(){...})(). MUST include try-catch. MUST return a value. Use ONLY browser APIs (document, window, DOM). For async, wrap in async IIFE. NEVER use Node.js APIs, arguments[], or // comments.""",
 		)
 		async def evaluate(code: str, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support
@@ -1041,7 +1065,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 {error_msg}
 
 Validated Code (after quote fixing):
-{validated_code[:500]}{'...' if len(validated_code) > 500 else ''}
+{validated_code}
 """
 
 					logger.info(enhanced_msg)
@@ -1179,7 +1203,16 @@ Validated Code (after quote fixing):
 		else:
 
 			@self.registry.action(
-				'Complete task.',
+				"""Complete task. ⚠️ ONLY call when 100% complete.
+
+BEFORE calling done(), VERIFY:
+✓ Extracted ALL items (count matches expected total, checked pagination)
+✓ Output format matches user request (JSON if requested, etc.)
+
+text parameter is THE OUTPUT user sees - include full results:
+If wrote to file use files_to_display
+
+Partial results (8 of 30 items) = FAILURE. If incomplete, keep working.""",
 				param_model=DoneAction,
 			)
 			async def done(params: DoneAction, file_system: FileSystem):
