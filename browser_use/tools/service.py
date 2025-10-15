@@ -678,13 +678,14 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				)
 
 				# Simple memory handling
-				MAX_MEMORY_LENGTH = 4000
+				MAX_MEMORY_LENGTH = 1500
 				if len(extracted_content) < MAX_MEMORY_LENGTH:
-					memory = extracted_content
+					file_name = await file_system.save_extracted_content(extracted_content)
+					memory = extracted_content + f'Saved in file: {file_name}'
 					include_extracted_content_only_once = False
 				else:
 					file_name = await file_system.save_extracted_content(extracted_content)
-					memory = f'Query: {query}\nContent in {file_name} and once in <read_state>.'
+					memory = f'Query: {query}\nContent in {file_name} and once in <read_state>. Preview: {extracted_content[:MAX_MEMORY_LENGTH]}...'
 					include_extracted_content_only_once = True
 
 				logger.info(f'📄 {memory}')
