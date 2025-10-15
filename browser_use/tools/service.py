@@ -589,7 +589,7 @@ class Tools(Generic[Context]):
 			if start_from_char > 0:
 				if start_from_char >= len(content):
 					# Return empty content instead of error when start_from_char exceeds length
-					content = ''
+					content = f'Start {start_from_char} > length {len(content)}.'
 				else:
 					content = content[start_from_char:]
 				content_stats['started_from_char'] = start_from_char
@@ -946,9 +946,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
 		@self.registry.action('')
-		async def read_file(
-			file_name: str, available_file_paths: list[str], file_system: FileSystem, start_from_char: int = 0
-		):
+		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem, start_from_char: int = 0):
 			if available_file_paths and file_name in available_file_paths:
 				result = await file_system.read_file(file_name, external_file=True)
 			else:
