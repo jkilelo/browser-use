@@ -560,7 +560,7 @@ class Tools(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Returns max 30k chars. Use ONCE per page+query. Can't get interactive elements (use click/scroll instead). Set extract_links=True for URLs. Use start_from_char if truncated. If fails, use find_text/scroll instead.""",
+			"""LLM extracts structured data from page markdown. Returns max 30k chars. This is expensive - do not repeat if nothing changed. Can't get interactive elements (use click/scroll instead). Set extract_links=True for URLs. Use start_from_char if truncated. If fails, use find_text/scroll instead.""",
 		)
 		async def extract(
 			query: str,
