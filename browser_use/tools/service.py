@@ -564,7 +564,7 @@ class Tools(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			'A sub LLM gets 40k character of loaded page markdown and extracts query from it. Max 30k chars output. Expensive - avoid repeating. Use start_char/end_char for pagination. If you need to extract a lot data, use scroll 10 pages first, to avoid calling extract multiple times.',
+			'A sub LLM gets 40k character of loaded page markdown and extracts query from it. Max 40k chars output. Expensive - avoid repeating. Use start_char/end_char for pagination. If you need to extract a lot data, use scroll 10 pages first, to avoid calling extract multiple times.',
 			param_model=ExtractAction,
 		)
 		async def extract(
@@ -574,7 +574,7 @@ class Tools(Generic[Context]):
 			file_system: FileSystem,
 		):
 			# Constants
-			MAX_CHAR_LIMIT = 30000
+			MAX_CHAR_LIMIT = 40000
 
 			# Extract clean markdown using the unified method
 			try:
@@ -681,13 +681,13 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				)
 
 				# Simple memory handling
-				MAX_MEMORY_LENGTH = 1000
+				MAX_MEMORY_LENGTH = 5000
 				if len(extracted_content) < MAX_MEMORY_LENGTH:
 					memory = extracted_content
 					include_extracted_content_only_once = False
 				else:
 					file_name = await file_system.save_extracted_content(extracted_content)
-					memory = f'Query: {params.query}\nContent in {file_name} and once in <read_state>.'
+					memory = f'Query: {params.query}\nContent in {file_name} and once in <read_state>. Preview: {extracted_content[:200]}...'
 					include_extracted_content_only_once = True
 
 				logger.info(f'📄 {memory}')
