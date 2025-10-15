@@ -1007,7 +1007,72 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			'Execute browser JavaScript. MUST be IIFE with try-catch returning value. Only browser APIs. Max 20k output. For edge cases.',
+			"""Execute browser JavaScript for DOM manipulation and efficient data extraction.
+
+REQUIRED FORMAT: IIFE with try-catch returning value. NO COMMENTS.
+```javascript
+(function() {
+    try {
+        return result;
+    } catch (error) {
+        return 'Error: ' + error.message;
+    }
+})()
+```
+
+PRIMARY USE: Efficient data extraction by exploring structure then looping:
+1. Explore DOM structure to understand patterns
+2. Write loops to extract from each element systematically
+3. Use JSON.stringify() for objects, limit to 20k chars max
+
+OTHER USES:
+• Drag/drop actions, hover events, get coordinates
+• Find shadow roots and access shadow DOM content
+• Check element properties: visibility, dimensions, styles
+• Scroll to specific elements or positions
+
+EXTRACTION PATTERN:
+```javascript
+(function() {
+    try {
+        const items = [];
+        document.querySelectorAll('.product-item').forEach(item => {
+            const title = item.querySelector('.title')?.textContent?.trim();
+            const price = item.querySelector('.price')?.textContent?.trim();
+            const link = item.querySelector('a')?.href;
+            if (title) items.push({title, price, link});
+        });
+        return JSON.stringify(items);
+    } catch (error) {
+        return 'Error: ' + error.message;
+    }
+})()
+```
+
+ADVANCED EXAMPLES:
+```javascript
+(function() {
+    try {
+        const shadowHost = document.querySelector('#shadow-host');
+        const shadowRoot = shadowHost.shadowRoot;
+        return shadowRoot ? shadowRoot.innerHTML : 'No shadow root';
+    } catch (error) {
+        return 'Error: ' + error.message;
+    }
+})()
+
+(function() {
+    try {
+        const el = document.querySelector('.draggable');
+        const rect = el.getBoundingClientRect();
+        return JSON.stringify({x: rect.left, y: rect.top, width: rect.width, height: rect.height});
+    } catch (error) {
+        return 'Error: ' + error.message;
+    }
+})()
+```
+
+Max 20k output. Use JSON.stringify() for objects. Browser APIs only.""",
 			param_model=EvaluateAction,
 		)
 		async def evaluate(params: EvaluateAction, browser_session: BrowserSession):
@@ -1028,29 +1093,21 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				# Check for JavaScript execution errors
 				if result.get('exceptionDetails'):
 					exception = result['exceptionDetails']
-					error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
+					error_msg = f'JavaScript error: {exception.get("text", "Unknown error")}'
 					if 'lineNumber' in exception:
 						error_msg += f' at line {exception["lineNumber"]}'
 
-					# Enhanced error message with debugging info
-					enhanced_msg = f"""JavaScript Execution Failed:
-{error_msg}
-
-Validated Code (after quote fixing):
-{validated_code[:500]}{'...' if len(validated_code) > 500 else ''}
-"""
-
-					logger.info(enhanced_msg)
-					return ActionResult(error=enhanced_msg)
+					logger.info(f'JavaScript execution failed: {error_msg}')
+					return ActionResult(error=f'Code: {params.code}\n\nError: {error_msg}')
 
 				# Get the result data
 				result_data = result.get('result', {})
 
 				# Check for wasThrown flag (backup error detection)
 				if result_data.get('wasThrown'):
-					msg = f'Code: {params.code}\n\nError: JavaScript execution failed (wasThrown=true)'
-					logger.info(msg)
-					return ActionResult(error=msg)
+					error_msg = 'JavaScript execution failed'
+					logger.info(f'JavaScript wasThrown=true: {params.code[:100]}...')
+					return ActionResult(error=f'Code: {params.code}\n\nError: {error_msg}')
 
 				# Get the actual value
 				value = result_data.get('value')
@@ -1079,72 +1136,20 @@ Validated Code (after quote fixing):
 
 			except Exception as e:
 				# CDP communication or other system errors
-				error_msg = f'Code: {params.code}\n\nError: Failed to execute JavaScript: {type(e).__name__}: {e}'
-				logger.info(error_msg)
-				return ActionResult(error=error_msg)
+				error_msg = f'Failed to execute JavaScript: {type(e).__name__}: {e}'
+				logger.info(f'JavaScript CDP error: {error_msg}')
+				return ActionResult(error=f'Code: {params.code}\n\nError: {error_msg}')
 
 	def _validate_and_fix_javascript(self, code: str) -> str:
-		"""Validate and fix common JavaScript issues before execution"""
+		"""Basic JavaScript validation - fix only essential quote issues"""
 
 		import re
 
-		# Pattern 1: Fix double-escaped quotes (\\\" → \")
+		# Only fix double-escaped quotes (common LLM issue)
 		fixed_code = re.sub(r'\\"', '"', code)
 
-		# Pattern 2: Fix over-escaped regex patterns (\\\\d → \\d)
-		# Common issue: regex gets double-escaped during parsing
-		fixed_code = re.sub(r'\\\\([dDsSwWbBnrtfv])', r'\\\1', fixed_code)
-		fixed_code = re.sub(r'\\\\([.*+?^${}()|[\]])', r'\\\1', fixed_code)
-
-		# Pattern 3: Fix XPath expressions with mixed quotes
-		xpath_pattern = r'document\.evaluate\s*\(\s*"([^"]*\'[^"]*)"'
-
-		def fix_xpath_quotes(match):
-			xpath_with_quotes = match.group(1)
-			return f'document.evaluate(`{xpath_with_quotes}`,'
-
-		fixed_code = re.sub(xpath_pattern, fix_xpath_quotes, fixed_code)
-
-		# Pattern 4: Fix querySelector/querySelectorAll with mixed quotes
-		selector_pattern = r'(querySelector(?:All)?)\s*\(\s*"([^"]*\'[^"]*)"'
-
-		def fix_selector_quotes(match):
-			method_name = match.group(1)
-			selector_with_quotes = match.group(2)
-			return f'{method_name}(`{selector_with_quotes}`)'
-
-		fixed_code = re.sub(selector_pattern, fix_selector_quotes, fixed_code)
-
-		# Pattern 5: Fix closest() calls with mixed quotes
-		closest_pattern = r'\.closest\s*\(\s*"([^"]*\'[^"]*)"'
-
-		def fix_closest_quotes(match):
-			selector_with_quotes = match.group(1)
-			return f'.closest(`{selector_with_quotes}`)'
-
-		fixed_code = re.sub(closest_pattern, fix_closest_quotes, fixed_code)
-
-		# Pattern 6: Fix .matches() calls with mixed quotes (similar to closest)
-		matches_pattern = r'\.matches\s*\(\s*"([^"]*\'[^"]*)"'
-
-		def fix_matches_quotes(match):
-			selector_with_quotes = match.group(1)
-			return f'.matches(`{selector_with_quotes}`)'
-
-		fixed_code = re.sub(matches_pattern, fix_matches_quotes, fixed_code)
-
-		# Note: Removed getAttribute fix - attribute names rarely have mixed quotes
-		# getAttribute typically uses simple names like "data-value", not complex selectors
-
-		# Log changes made
-		changes_made = []
-		if r'\"' in code and r'\"' not in fixed_code:
-			changes_made.append('fixed escaped quotes')
-		if '`' in fixed_code and '`' not in code:
-			changes_made.append('converted mixed quotes to template literals')
-
-		if changes_made:
-			logger.debug(f'JavaScript fixes applied: {", ".join(changes_made)}')
+		if fixed_code != code:
+			logger.debug('JavaScript fix applied: unescaped quotes')
 
 		return fixed_code
 
