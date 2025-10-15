@@ -111,9 +111,9 @@ async def _get_enhanced_dom_tree_from_browser_session(browser_session: 'BrowserS
 	dom_watchdog: DOMWatchdog | None = browser_session._dom_watchdog
 	assert dom_watchdog is not None, 'DOMWatchdog not available'
 
-	# Use cached enhanced DOM tree if available, otherwise build it
-	if dom_watchdog.enhanced_dom_tree is not None:
-		return dom_watchdog.enhanced_dom_tree
+	# # Use cached enhanced DOM tree if available, otherwise build it
+	# if dom_watchdog.enhanced_dom_tree is not None:
+	# 	return dom_watchdog.enhanced_dom_tree
 
 	# Build the enhanced DOM tree if not cached
 	await dom_watchdog._build_dom_tree_without_highlights()
