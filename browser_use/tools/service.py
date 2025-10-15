@@ -678,7 +678,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				)
 
 				# Simple memory handling
-				MAX_MEMORY_LENGTH = 1000
+				MAX_MEMORY_LENGTH = 4000
 				if len(extracted_content) < MAX_MEMORY_LENGTH:
 					memory = extracted_content
 					include_extracted_content_only_once = False
