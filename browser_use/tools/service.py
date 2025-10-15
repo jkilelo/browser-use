@@ -921,6 +921,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			content: str,
 			file_system: FileSystem,
 			append: bool = False,
+			clear: bool = False,
 			trailing_newline: bool = True,
 			leading_newline: bool = False,
 		):
@@ -928,7 +929,10 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				content += '\n'
 			if leading_newline:
 				content = '\n' + content
-			if append:
+			# clear takes precedence over append
+			if clear:
+				result = await file_system.write_file(file_name, content)
+			elif append:
 				result = await file_system.append_file(file_name, content)
 			else:
 				result = await file_system.write_file(file_name, content)
