@@ -49,7 +49,7 @@ Read webpage https://www.flipkart.com and follow the prompt: Continue collecting
 		browser_profile=BrowserProfile(
 			headless=False,  # Show browser to see what's happening
 		),
-		max_steps=10,
+		max_steps=30,
 	)
 
 	try:

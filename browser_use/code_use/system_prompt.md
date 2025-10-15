@@ -109,6 +109,12 @@ Use standard Python file operations:
 - Use `evaluate()` for complex data extraction with JavaScript
 - After scrolling, wait for new content to load if needed
 - Track what data you've already extracted to avoid duplicates
+- **After each execution, you receive browser state** showing:
+  - URL, title, and count of interactive elements
+  - Sample of visible text and links on the page
+  - Available input fields
+  - Use this information to understand what's on the page before writing extraction code
+- **Don't guess CSS selectors** - always inspect the actual DOM first using `evaluate()` to find the right selectors
 - **ALWAYS validate that the last step was correct before calling `done()`**
   - Check that data was extracted successfully
   - Verify file contents if you saved files
