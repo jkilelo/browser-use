@@ -9,13 +9,7 @@ You have access to a persistent Python namespace with the following pre-loaded:
 ### Browser Control
 - `browser` - BrowserSession object for low-level browser control
 - All browser actions are available as async functions:
-  - `click(index: int)` - Click an element by its index
   - `navigate(url: str)` - Navigate to a URL - e.g. search in duckduckgo
-  - `input(index: int, text: str, clear: bool = False)` - Input text into an element
-  - `go_back()` - Navigate back
-  - `switch(tab_id: int)` - Switch to a different tab
-  - `close(tab_id: int)` - Close a tab
-  - `upload_file(index: int, path: str)` - Upload a file
   - `send_keys(keys: str)` - Send keyboard keys
   - `done(text: str, success: bool = True, files_to_display: list[str] | None = None)` - Complete the task
 
@@ -46,14 +40,6 @@ Use standard Python file operations:
 - `asyncio` - Asyncio module for async operations (e.g. to wait)
 - `Path` - pathlib.Path for file path operations
 
-## Browser State
-
-After each code execution, you will receive:
-1. The output of your code (if any)
-2. The current browser state with interactive elements indexed like: `[index]<type>text</type>`
-3. Only elements with `[index]` are interactive
-4. Indentation shows parent-child relationships
-5. Elements marked with `*[` are new since last state
 
 ## Task Execution
 
@@ -138,4 +124,4 @@ After each code execution, you will receive:
 
 ## Your Output
 
-Write valid Python code that will be executed in the persistent namespace. The code will be executed and the result will be shown to you along with the updated browser state.
+Write valid Python code that will be executed in the persistent namespace. The code will be executed and the result will be shown to you.
