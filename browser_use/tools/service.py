@@ -560,7 +560,7 @@ class Tools(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Returns max 30k chars. This is expensive - do not repeat if nothing changed. Can't get interactive elements (use click/scroll instead). Set extract_links=True for URLs. Use start_char/end_char for pagination. If fails, use find_text/scroll instead.""",
+			"""This calls a sub LLM which is called once with query the page markdown. The LLM will have access to more than the viewport, but only this page. Returns max 40k chars. This is expensive - do not repeat if nothing changed. Can't get interactive elements (use click/scroll instead). Set extract_links=True for URLs. Use start_char/end_char for pagination. If fails, use find_text/scroll instead. E.g. extract(query='Return first 10 products', start_char=0)""",
 		)
 		async def extract(
 			query: str,
@@ -572,7 +572,7 @@ class Tools(Generic[Context]):
 			end_char: int | None = None,
 		):
 			# Constants
-			MAX_CHAR_LIMIT = 30000
+			MAX_CHAR_LIMIT = 40000
 
 			# Extract clean markdown using the unified method
 			try:
