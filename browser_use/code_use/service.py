@@ -201,9 +201,16 @@ class CodeUseAgent:
 
 			try:
 				# Wrap code in async function to handle top-level await
+				# Use globals() to ensure variables persist across cells
 				wrapped_code = f"""
 async def __code_use_exec__():
+	_globals = globals()
 {chr(10).join('	' + line for line in code.split(chr(10)))}
+	# Update globals with any new variables defined in this cell
+	_locals = locals()
+	for _key in list(_locals.keys()):
+		if not _key.startswith('_'):
+			_globals[_key] = _locals[_key]
 
 import asyncio
 __result__ = asyncio.create_task(__code_use_exec__())
