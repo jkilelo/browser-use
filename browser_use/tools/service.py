@@ -955,7 +955,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			# Handle start_from_char pagination
 			if start_from_char > 0:
 				if start_from_char >= len(result):
-					result = ''
+					result = f'Start {start_from_char} > length {len(result)}.'
 				else:
 					result = result[start_from_char:]
 
