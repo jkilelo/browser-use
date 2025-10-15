@@ -636,7 +636,9 @@ class Tools(Generic[Context]):
 			if start_char > 0:
 				stats_summary += f' (started from char {start_char:,})'
 			if truncated:
-				stats_summary += f' → {len(content):,} final chars (truncated, use start_char={content_stats["next_start_char"]} to continue)'
+				stats_summary += (
+					f' → {len(content):,} final chars (truncated, use start_char={content_stats["next_start_char"]} to continue)'
+				)
 			elif chars_filtered > 0:
 				stats_summary += f' (filtered {chars_filtered:,} chars of noise)'
 
@@ -962,7 +964,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			available_file_paths: list[str],
 			file_system: FileSystem,
 			start_char: int = 0,
-			end_char: int | None = None
+			end_char: int | None = None,
 		):
 			# Read the file
 			if available_file_paths and file_name in available_file_paths:
@@ -1010,7 +1012,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			"""Execute browser JavaScript. MUST: wrap in IIFE (function(){...})(). MUST include try-catch. MUST return a value. Use ONLY browser APIs (document, window, DOM). NEVER use Node.js APIs (fs, require, process) or arguments[]. NEVER use // comments. NEVER put large data (>1KB) in template literals. Limit output. Use as general tool when others fail or to explore page, zoom, hover, drag drop, and other edge cases. Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})()""",
+			"""Execute browser JavaScript. CRITICAL: NEVER call any server functions - these don't exist in browser! MUST: wrap in IIFE (function(){...})(). MUST include try-catch. MUST return a value. Use ONLY browser APIs (document, window, DOM). For async, wrap in async IIFE. NEVER use Node.js APIs, arguments[], or // comments. Example: (function(){try{const el=document.querySelector('#id');return el?el.textContent||'not found'}catch(e){return 'Error: '+e.message}})()""",
 		)
 		async def evaluate(code: str, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support
