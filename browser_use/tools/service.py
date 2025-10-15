@@ -946,11 +946,20 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
 		@self.registry.action('')
-		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
+		async def read_file(
+			file_name: str, available_file_paths: list[str], file_system: FileSystem, start_from_char: int = 0
+		):
 			if available_file_paths and file_name in available_file_paths:
 				result = await file_system.read_file(file_name, external_file=True)
 			else:
 				result = await file_system.read_file(file_name)
+
+			# Handle start_from_char pagination
+			if start_from_char > 0:
+				if start_from_char >= len(result):
+					result = ''
+				else:
+					result = result[start_from_char:]
 
 			MAX_MEMORY_SIZE = 1000
 			if len(result) > MAX_MEMORY_SIZE:
