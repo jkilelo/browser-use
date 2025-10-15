@@ -17,11 +17,14 @@ was difficult with the extract tool alone.
 
 import asyncio
 
+# Set up LLM (use a fast model for code generation)
+from lmnr import Laminar
+
 from browser_use import ChatGoogle
 from browser_use.browser.profile import BrowserProfile
 from browser_use.code_use import CodeUseAgent, export_to_ipynb, session_to_python_script
 
-# Set up LLM (use a fast model for code generation)
+Laminar.initialize()
 llm = ChatGoogle(model='gemini-flash-latest')
 
 
@@ -59,7 +62,7 @@ async def main():
 		browser_profile=BrowserProfile(
 			headless=False,  # Show browser to see what's happening
 		),
-		max_steps=20,
+		max_steps=10,
 	)
 
 	try:

@@ -45,10 +45,9 @@ You have access to a persistent Python namespace with the following pre-loaded:
     ```
 
 ### File Operations
-- `file_system` - FileSystem object for file operations
-- `write_file(file_name: str, content: str, append: bool = False)` - Write to a file
-- `read_file(file_name: str)` - Read from a file
-- `replace_file(file_name: str, old_str: str, new_str: str)` - Replace content in a file
+Use standard Python file operations:
+- `open()`, `read()`, `write()` - Standard file I/O
+- Example: `with open('file.txt', 'w') as f: f.write(content)`
 
 ### Utilities
 - `json` - JSON module for data manipulation
@@ -76,27 +75,23 @@ After each code execution, you will receive:
    Navigate and click:
    ```python
    await navigate(url='https://example.com')
-   await click(index=5)
    ```
 
    Extract products with JavaScript:
    ```python
-   products = await evaluate('''
+   js_code = '''
    (function(){
      return Array.from(document.querySelectorAll('.product')).map(p => ({
        name: p.querySelector('.name')?.textContent || '',
        price: p.querySelector('.price')?.textContent || ''
      }))
    })()
-   ''')
+   '''
+   products = await evaluate(js_code)
    print(f'Found {len(products)} products')
+   print(products[:10])
    ```
 
-   Extract products with LLM:
-   ```python
-   result = await extract(query='Extract all product names and prices')
-   print(result)
-   ```
 
    Combine results from multiple pages:
    ```python
@@ -112,19 +107,22 @@ After each code execution, you will receive:
        }))
      })()
      ''')
-     all_products.extend(products)
 
+     all_products.extend(products)
+     await wait(2)
    print(f'Total products: {len(all_products)}')
    ```
 
-   Save results to file:
+   Save results to file using standard Python:
    ```python
-   import json
-
    with open('products.json', 'w') as f:
      json.dump(all_products, f, indent=2)
 
-   await done(text='Extracted products saved to products.json', success=True, files_to_display=['products.json'])
+   # Verify file was saved
+   with open('products.json', 'r') as f:
+     saved_data = json.load(f)
+   print(f'Saved {len(saved_data)} products to products.json')
+
    ```
 
 ## Important Notes
@@ -132,7 +130,6 @@ After each code execution, you will receive:
 - All browser actions are async - use `await`
 - Store results in variables to combine/process later
 - Use `evaluate()` for complex data extraction with JavaScript
-- Use `extract()` for LLM-based extraction when JavaScript is difficult
 - After scrolling, wait for new content to load if needed
 - Track what data you've already extracted to avoid duplicates
 - **ALWAYS validate that the last step was correct before calling `done()`**
@@ -140,7 +137,10 @@ After each code execution, you will receive:
   - Verify file contents if you saved files
   - Print results to confirm they look correct
   - Only call `done()` after confirming everything worked
-- Use `done()` when the task is complete
+- **`done()` MUST be in its own cell, separate from other code**
+  - First verify your work in one cell
+  - Then call `done()` alone in the next cell
+  - Do NOT combine `done()` with data extraction or verification
 - The entire code file with outputs is your context - you can reference previous variables
 - Output is limited to 20k characters per execution
 

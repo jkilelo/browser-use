@@ -42,8 +42,9 @@ def export_to_ipynb(session: NotebookSession, output_path: str | Path) -> Path:
 		}
 	)
 
-	# Add setup cell at the beginning
+	# Add setup cell at the beginning with proper type hints
 	setup_code = """import asyncio
+from typing import Any
 from browser_use import BrowserSession
 from browser_use.code_use import create_namespace
 
@@ -52,10 +53,13 @@ browser = BrowserSession()
 await browser.start()
 
 # Create namespace with all browser control functions
-namespace = create_namespace(browser)
+namespace: dict[str, Any] = create_namespace(browser)
 
 # Import all functions into the current namespace
 globals().update(namespace)
+
+# Type hints for better IDE support (these are now available globally)
+# navigate, click, input, evaluate, search, extract, scroll, done, etc.
 
 print("Browser-use environment initialized!")
 print("Available functions: navigate, click, input, evaluate, search, extract, done, etc.")"""
@@ -184,7 +188,7 @@ def session_to_python_script(session: NotebookSession) -> str:
 
 			lines.append('\n')
 
-	lines.append('\tawait browser.close()\n\n')
+	lines.append('\tawait browser.stop()\n\n')
 	lines.append("if __name__ == '__main__':\n")
 	lines.append('\tasyncio.run(main())\n')
 

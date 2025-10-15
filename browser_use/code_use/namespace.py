@@ -10,8 +10,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
-
 from browser_use.browser import BrowserSession
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
@@ -130,7 +128,10 @@ def create_namespace(
 	namespace['evaluate'] = evaluate_wrapper
 
 	# Inject all tools as functions into the namespace
+	# Skip 'evaluate' since we have a custom implementation above
 	for action_name, action in tools.registry.registry.actions.items():
+		if action_name == 'evaluate':
+			continue  # Skip - use custom evaluate that returns Python objects directly
 		param_model = action.param_model
 		action_function = action.function
 
