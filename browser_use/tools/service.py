@@ -30,7 +30,6 @@ from browser_use.browser.views import BrowserError
 from browser_use.dom.service import EnhancedDOMTreeNode
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.messages import SystemMessage, UserMessage
 from browser_use.observability import observe_debug
 from browser_use.tools.registry.service import Registry
 from browser_use.tools.views import (
@@ -559,129 +558,129 @@ class Tools(Generic[Context]):
 		# TODO: Refactor to use events instead of direct page access
 		# This action is temporarily disabled as it needs refactoring to use events
 
-		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if truncated. If fails, use find_text/scroll instead.""",
-		)
-		async def extract(
-			query: str,
-			browser_session: BrowserSession,
-			page_extraction_llm: BaseChatModel,
-			file_system: FileSystem,
-			extract_links: bool = False,
-			start_from_char: int = 0,
-		):
-			# Constants
-			MAX_CHAR_LIMIT = 30000
+		# 		@self.registry.action(
+		# 			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if truncated. If fails, use find_text/scroll instead.""",
+		# 		)
+		# 		async def extract(
+		# 			query: str,
+		# 			browser_session: BrowserSession,
+		# 			page_extraction_llm: BaseChatModel,
+		# 			file_system: FileSystem,
+		# 			extract_links: bool = False,
+		# 			start_from_char: int = 0,
+		# 		):
+		# 			# Constants
+		# 			MAX_CHAR_LIMIT = 30000
 
-			# Extract clean markdown using the unified method
-			try:
-				from browser_use.dom.markdown_extractor import extract_clean_markdown
+		# 			# Extract clean markdown using the unified method
+		# 			try:
+		# 				from browser_use.dom.markdown_extractor import extract_clean_markdown
 
-				content, content_stats = await extract_clean_markdown(
-					browser_session=browser_session, extract_links=extract_links
-				)
-			except Exception as e:
-				raise RuntimeError(f'Could not extract clean markdown: {type(e).__name__}')
+		# 				content, content_stats = await extract_clean_markdown(
+		# 					browser_session=browser_session, extract_links=extract_links
+		# 				)
+		# 			except Exception as e:
+		# 				raise RuntimeError(f'Could not extract clean markdown: {type(e).__name__}')
 
-			# Original content length for processing
-			final_filtered_length = content_stats['final_filtered_chars']
+		# 			# Original content length for processing
+		# 			final_filtered_length = content_stats['final_filtered_chars']
 
-			if start_from_char > 0:
-				if start_from_char >= len(content):
-					return ActionResult(
-						error=f'start_from_char ({start_from_char}) exceeds content length ({len(content)}). Content has {final_filtered_length} characters after filtering.'
-					)
-				content = content[start_from_char:]
-				content_stats['started_from_char'] = start_from_char
+		# 			if start_from_char > 0:
+		# 				if start_from_char >= len(content):
+		# 					return ActionResult(
+		# 						error=f'start_from_char ({start_from_char}) exceeds content length ({len(content)}). Content has {final_filtered_length} characters after filtering.'
+		# 					)
+		# 				content = content[start_from_char:]
+		# 				content_stats['started_from_char'] = start_from_char
 
-			# Smart truncation with context preservation
-			truncated = False
-			if len(content) > MAX_CHAR_LIMIT:
-				# Try to truncate at a natural break point (paragraph, sentence)
-				truncate_at = MAX_CHAR_LIMIT
+		# 			# Smart truncation with context preservation
+		# 			truncated = False
+		# 			if len(content) > MAX_CHAR_LIMIT:
+		# 				# Try to truncate at a natural break point (paragraph, sentence)
+		# 				truncate_at = MAX_CHAR_LIMIT
 
-				# Look for paragraph break within last 500 chars of limit
-				paragraph_break = content.rfind('\n\n', MAX_CHAR_LIMIT - 500, MAX_CHAR_LIMIT)
-				if paragraph_break > 0:
-					truncate_at = paragraph_break
-				else:
-					# Look for sentence break within last 200 chars of limit
-					sentence_break = content.rfind('.', MAX_CHAR_LIMIT - 200, MAX_CHAR_LIMIT)
-					if sentence_break > 0:
-						truncate_at = sentence_break + 1
+		# 				# Look for paragraph break within last 500 chars of limit
+		# 				paragraph_break = content.rfind('\n\n', MAX_CHAR_LIMIT - 500, MAX_CHAR_LIMIT)
+		# 				if paragraph_break > 0:
+		# 					truncate_at = paragraph_break
+		# 				else:
+		# 					# Look for sentence break within last 200 chars of limit
+		# 					sentence_break = content.rfind('.', MAX_CHAR_LIMIT - 200, MAX_CHAR_LIMIT)
+		# 					if sentence_break > 0:
+		# 						truncate_at = sentence_break + 1
 
-				content = content[:truncate_at]
-				truncated = True
-				next_start = (start_from_char or 0) + truncate_at
-				content_stats['truncated_at_char'] = truncate_at
-				content_stats['next_start_char'] = next_start
+		# 				content = content[:truncate_at]
+		# 				truncated = True
+		# 				next_start = (start_from_char or 0) + truncate_at
+		# 				content_stats['truncated_at_char'] = truncate_at
+		# 				content_stats['next_start_char'] = next_start
 
-			# Add content statistics to the result
-			original_html_length = content_stats['original_html_chars']
-			initial_markdown_length = content_stats['initial_markdown_chars']
-			chars_filtered = content_stats['filtered_chars_removed']
+		# 			# Add content statistics to the result
+		# 			original_html_length = content_stats['original_html_chars']
+		# 			initial_markdown_length = content_stats['initial_markdown_chars']
+		# 			chars_filtered = content_stats['filtered_chars_removed']
 
-			stats_summary = f"""Content processed: {original_html_length:,} HTML chars → {initial_markdown_length:,} initial markdown → {final_filtered_length:,} filtered markdown"""
-			if start_from_char > 0:
-				stats_summary += f' (started from char {start_from_char:,})'
-			if truncated:
-				stats_summary += f' → {len(content):,} final chars (truncated, use start_from_char={content_stats["next_start_char"]} to continue)'
-			elif chars_filtered > 0:
-				stats_summary += f' (filtered {chars_filtered:,} chars of noise)'
+		# 			stats_summary = f"""Content processed: {original_html_length:,} HTML chars → {initial_markdown_length:,} initial markdown → {final_filtered_length:,} filtered markdown"""
+		# 			if start_from_char > 0:
+		# 				stats_summary += f' (started from char {start_from_char:,})'
+		# 			if truncated:
+		# 				stats_summary += f' → {len(content):,} final chars (truncated, use start_from_char={content_stats["next_start_char"]} to continue)'
+		# 			elif chars_filtered > 0:
+		# 				stats_summary += f' (filtered {chars_filtered:,} chars of noise)'
 
-			system_prompt = """
-You are an expert at extracting data from the markdown of a webpage.
+		# 			system_prompt = """
+		# You are an expert at extracting data from the markdown of a webpage.
 
-<input>
-You will be given a query and the markdown of a webpage that has been filtered to remove noise and advertising content.
-</input>
+		# <input>
+		# You will be given a query and the markdown of a webpage that has been filtered to remove noise and advertising content.
+		# </input>
 
-<instructions>
-- You are tasked to extract information from the webpage that is relevant to the query.
-- You should ONLY use the information available in the webpage to answer the query. Do not make up information or provide guess from your own knowledge. 
-- If the information relevant to the query is not available in the page, your response should mention that.
-- If the query asks for all items, products, etc., make sure to directly list all of them.
-- If the content was truncated and you need more information, note that the user can use start_from_char parameter to continue from where truncation occurred.
-</instructions>
+		# <instructions>
+		# - You are tasked to extract information from the webpage that is relevant to the query.
+		# - You should ONLY use the information available in the webpage to answer the query. Do not make up information or provide guess from your own knowledge.
+		# - If the information relevant to the query is not available in the page, your response should mention that.
+		# - If the query asks for all items, products, etc., make sure to directly list all of them.
+		# - If the content was truncated and you need more information, note that the user can use start_from_char parameter to continue from where truncation occurred.
+		# </instructions>
 
-<output>
-- Your output should present ALL the information relevant to the query in a concise way.
-- Do not answer in conversational format - directly output the relevant information or that the information is unavailable.
-</output>
-""".strip()
+		# <output>
+		# - Your output should present ALL the information relevant to the query in a concise way.
+		# - Do not answer in conversational format - directly output the relevant information or that the information is unavailable.
+		# </output>
+		# """.strip()
 
-			prompt = f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
+		# 			prompt = f'<query>\n{query}\n</query>\n\n<content_stats>\n{stats_summary}\n</content_stats>\n\n<webpage_content>\n{content}\n</webpage_content>'
 
-			try:
-				response = await asyncio.wait_for(
-					page_extraction_llm.ainvoke([SystemMessage(content=system_prompt), UserMessage(content=prompt)]),
-					timeout=120.0,
-				)
+		# 			try:
+		# 				response = await asyncio.wait_for(
+		# 					page_extraction_llm.ainvoke([SystemMessage(content=system_prompt), UserMessage(content=prompt)]),
+		# 					timeout=120.0,
+		# 				)
 
-				current_url = await browser_session.get_current_page_url()
-				extracted_content = (
-					f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<result>\n{response.completion}\n</result>'
-				)
+		# 				current_url = await browser_session.get_current_page_url()
+		# 				extracted_content = (
+		# 					f'<url>\n{current_url}\n</url>\n<query>\n{query}\n</query>\n<result>\n{response.completion}\n</result>'
+		# 				)
 
-				# Simple memory handling
-				MAX_MEMORY_LENGTH = 1000
-				if len(extracted_content) < MAX_MEMORY_LENGTH:
-					memory = extracted_content
-					include_extracted_content_only_once = False
-				else:
-					file_name = await file_system.save_extracted_content(extracted_content)
-					memory = f'Query: {query}\nContent in {file_name} and once in <read_state>.'
-					include_extracted_content_only_once = True
+		# 				# Simple memory handling
+		# 				MAX_MEMORY_LENGTH = 1000
+		# 				if len(extracted_content) < MAX_MEMORY_LENGTH:
+		# 					memory = extracted_content
+		# 					include_extracted_content_only_once = False
+		# 				else:
+		# 					file_name = await file_system.save_extracted_content(extracted_content)
+		# 					memory = f'Query: {query}\nContent in {file_name} and once in <read_state>.'
+		# 					include_extracted_content_only_once = True
 
-				logger.info(f'📄 {memory}')
-				return ActionResult(
-					extracted_content=extracted_content,
-					include_extracted_content_only_once=include_extracted_content_only_once,
-					long_term_memory=memory,
-				)
-			except Exception as e:
-				logger.debug(f'Error extracting content: {e}')
-				raise RuntimeError(str(e))
+		# 				logger.info(f'📄 {memory}')
+		# 				return ActionResult(
+		# 					extracted_content=extracted_content,
+		# 					include_extracted_content_only_once=include_extracted_content_only_once,
+		# 					long_term_memory=memory,
+		# 				)
+		# 			except Exception as e:
+		# 				logger.debug(f'Error extracting content: {e}')
+		# 				raise RuntimeError(str(e))
 
 		@self.registry.action(
 			"""Scroll by pages (down=True/False, pages=0.5-10.0, default 1.0). Use index for scroll containers (dropdowns/custom UI). High pages (10) reaches bottom. Multi-page scrolls sequentially. Viewport-based height, fallback 1000px/page.""",
@@ -914,61 +913,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					error_msg = selection_data.get('error', f'Failed to select option: {params.text}')
 					return ActionResult(error=error_msg)
 
-		# File System Actions
-		@self.registry.action('')
-		async def write_file(
-			file_name: str,
-			content: str,
-			file_system: FileSystem,
-			append: bool = False,
-			trailing_newline: bool = True,
-			leading_newline: bool = False,
-		):
-			if trailing_newline:
-				content += '\n'
-			if leading_newline:
-				content = '\n' + content
-			if append:
-				result = await file_system.append_file(file_name, content)
-			else:
-				result = await file_system.write_file(file_name, content)
-			logger.info(f'💾 {result}')
-			return ActionResult(extracted_content=result, long_term_memory=result)
-
-		@self.registry.action('')
-		async def replace_file(file_name: str, old_str: str, new_str: str, file_system: FileSystem):
-			result = await file_system.replace_file_str(file_name, old_str, new_str)
-			logger.info(f'💾 {result}')
-			return ActionResult(extracted_content=result, long_term_memory=result)
-
-		@self.registry.action('')
-		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem):
-			if available_file_paths and file_name in available_file_paths:
-				result = await file_system.read_file(file_name, external_file=True)
-			else:
-				result = await file_system.read_file(file_name)
-
-			MAX_MEMORY_SIZE = 1000
-			if len(result) > MAX_MEMORY_SIZE:
-				lines = result.splitlines()
-				display = ''
-				lines_count = 0
-				for line in lines:
-					if len(display) + len(line) < MAX_MEMORY_SIZE:
-						display += line + '\n'
-						lines_count += 1
-					else:
-						break
-				remaining_lines = len(lines) - lines_count
-				memory = f'{display}{remaining_lines} more lines...' if remaining_lines > 0 else display
-			else:
-				memory = result
-			logger.info(f'💾 {memory}')
-			return ActionResult(
-				extracted_content=result,
-				long_term_memory=memory,
-				include_extracted_content_only_once=True,
-			)
+		# File System Actions removed - use normal Python file operations instead
 
 		@self.registry.action(
 			"""Execute browser JavaScript. MUST: wrap in IIFE (function(){...})(). Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Add try-catch. Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Never use comments. You are not allowed to use // in code. No human reads this. Use e.g. for hover, drag, zoom, custom selectors, extract/filter links, shadow DOM or to analyse page structure. Limit output.""",
@@ -1003,7 +948,7 @@ Validated Code (after quote fixing):
 {validated_code[:500]}{'...' if len(validated_code) > 500 else ''}
 """
 
-					logger.info(enhanced_msg)
+					logger.debug(enhanced_msg)
 					return ActionResult(error=enhanced_msg)
 
 				# Get the result data
@@ -1011,8 +956,8 @@ Validated Code (after quote fixing):
 
 				# Check for wasThrown flag (backup error detection)
 				if result_data.get('wasThrown'):
-					msg = f'Code: {code}\n\nError: JavaScript execution failed (wasThrown=true)'
-					logger.info(msg)
+					msg = f'JavaScript execution failed (wasThrown=true)'
+					logger.debug(f'Code: {code[:200]}...')
 					return ActionResult(error=msg)
 
 				# Get the actual value
@@ -1034,16 +979,17 @@ Validated Code (after quote fixing):
 					result_text = str(value)
 
 				# Apply length limit with better truncation
-				if len(result_text) > 20000:
-					result_text = result_text[:19950] + '\n... [Truncated after 20000 characters]'
-				msg = f'Code: {code}\n\nResult: {result_text}'
-				logger.info(msg)
-				return ActionResult(extracted_content=f'Code: {code}\n\nResult: {result_text}')
+				if len(result_text) > 50000:
+					result_text = result_text[:49950] + '\n... [Truncated after 50000 characters]'
+				# Don't log the code - it's already visible in the user's cell
+				logger.debug(f'JavaScript executed successfully, result length: {len(result_text)}')
+				# Return only the result, not the code (code is already in user's cell)
+				return ActionResult(extracted_content=result_text)
 
 			except Exception as e:
 				# CDP communication or other system errors
-				error_msg = f'Code: {code}\n\nError: Failed to execute JavaScript: {type(e).__name__}: {e}'
-				logger.info(error_msg)
+				error_msg = f'Failed to execute JavaScript: {type(e).__name__}: {e}'
+				logger.debug(f'Code that failed: {code[:200]}...')
 				return ActionResult(error=error_msg)
 
 	def _validate_and_fix_javascript(self, code: str) -> str:
