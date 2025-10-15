@@ -225,7 +225,9 @@ class Tools(Generic[Context]):
 				error_msg = f'Failed to go back: {str(e)}'
 				return ActionResult(error=error_msg)
 
-		@self.registry.action('Wait for page to load/update. Max 30s.', param_model=WaitAction)
+		@self.registry.action(
+			'Wait for page to load/update. Max 30s. Use this if you need to wait for the page.', param_model=WaitAction
+		)
 		async def wait(params: WaitAction):
 			seconds = params.seconds
 			memory = f'Waited for {seconds} seconds'
@@ -699,7 +701,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 				raise RuntimeError(str(e))
 
 		@self.registry.action(
-			'Scroll viewport/element. pages=0.5 for half page, 10 to reach bottom. Use index for containers.',
+			'Scroll viewport/element. pages=0.5 for half page, 10 to reach bottom. Use index to scroll in containers. ',
 			param_model=ScrollAction,
 		)
 		async def scroll(params: ScrollAction, browser_session: BrowserSession):

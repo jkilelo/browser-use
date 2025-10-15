@@ -176,6 +176,9 @@ class AgentMessagePrompt:
 		"""Get file metadata (size, line count) for available files"""
 		import os
 
+		# Extract limit constant (must match tools/service.py MAX_CHAR_LIMIT)
+		EXTRACT_LIMIT = 30000
+
 		available_file_paths_with_metadata = []
 		for file_path in file_paths:
 			try:
@@ -189,7 +192,13 @@ class AgentMessagePrompt:
 							content = f.read()
 							char_count = len(content)
 							line_count = len(content.splitlines())
-							metadata = f'{file_path} ({line_count} lines, {char_count} chars)'
+
+							# Add pagination hint if file is larger than extract limit
+							if char_count > EXTRACT_LIMIT:
+								pages_hint = f', ~{char_count // EXTRACT_LIMIT + 1} extract pages'
+								metadata = f'{file_path} ({line_count} lines, {char_count:,} chars{pages_hint})'
+							else:
+								metadata = f'{file_path} ({line_count} lines, {char_count:,} chars)'
 							available_file_paths_with_metadata.append(metadata)
 					elif file_path.lower().endswith('.pdf'):
 						# For PDFs, show file size in KB
@@ -260,7 +269,7 @@ class AgentMessagePrompt:
 					pi = self.browser_state.page_info
 					pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
 					elements_text = (
-						f'... {pages_above:.1f} pages above - scroll, find_text or extract to see more ...\n{elements_text}'
+						f'... {pages_above:.1f} pages above - find_text, scroll, wait or extract to see more ...\n{elements_text}'
 					)
 			else:
 				elements_text = f'[Start of loaded page]\n{elements_text}'
@@ -268,7 +277,7 @@ class AgentMessagePrompt:
 				if self.browser_state.page_info:
 					pi = self.browser_state.page_info
 					pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
-					elements_text = f'{elements_text}\n... {pages_below:.1f} pages below loaded - scroll, find_text or extract to see more ...'
+					elements_text = f'{elements_text}\n... {pages_below:.1f} pages below loaded - find_text, scroll, wait or extract to see more ...'
 			else:
 				elements_text = f'{elements_text}\n[End of loaded page]'
 		else:
