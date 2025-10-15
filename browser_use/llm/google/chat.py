@@ -209,7 +209,7 @@ class ChatGoogle(BaseChatModel):
 
 		# set default for flash, flash-lite, gemini-flash-lite-latest, and gemini-flash-latest models
 		if self.thinking_budget is None and ('gemini-2.5-flash' in self.model or 'gemini-flash' in self.model):
-			self.thinking_budget = 0
+			self.thinking_budget = -1
 
 		if self.thinking_budget is not None:
 			thinking_config_dict: types.ThinkingConfigDict = {'thinking_budget': self.thinking_budget}
