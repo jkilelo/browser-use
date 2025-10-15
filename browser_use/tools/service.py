@@ -982,7 +982,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			)
 
 		@self.registry.action(
-			"""Execute browser JavaScript. MUST: wrap in IIFE (function(){...})(). MUST include try-catch. MUST return a value. Use ONLY browser APIs (document, window, DOM). NEVER use Node.js APIs (fs, require, process) or arguments[]. NEVER use // comments. NEVER put large data (>1KB) in template literals. Limit output. Fallback when other tools fail. Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})()""",
+			"""Execute browser JavaScript. MUST: wrap in IIFE (function(){...})(). MUST include try-catch. MUST return a value. Use ONLY browser APIs (document, window, DOM). NEVER use Node.js APIs (fs, require, process) or arguments[]. NEVER use // comments. NEVER put large data (>1KB) in template literals. Limit output. Use as general tool when others fail or to explore page, zoom, hover, drag drop, and other edge cases. Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})()""",
 		)
 		async def evaluate(code: str, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support
