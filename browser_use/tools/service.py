@@ -256,7 +256,8 @@ class Tools(Generic[Context]):
 				await event
 				# Wait for handler to complete and get any exception or metadata
 				click_metadata = await event.event_result(raise_if_any=True, raise_if_none=False)
-				memory = 'Clicked element'
+				el_text = node.get_all_children_text(max_depth=2)[:100]
+				memory = 'Clicked element' + (f' {el_text}' if el_text else '')
 
 				msg = f'🖱️ {memory}'
 				logger.info(msg)
