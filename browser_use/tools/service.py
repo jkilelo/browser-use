@@ -945,7 +945,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 					return ActionResult(error=error_msg)
 
 		# File System Actions
-		@self.registry.action('')
+		@self.registry.action('Write to file. Available types: txt, json, csv, md, pdf, use append to add, or clear to overwrite')
 		async def write_file(
 			file_name: str,
 			content: str,
