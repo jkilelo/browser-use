@@ -560,7 +560,7 @@ class Tools(Generic[Context]):
 		# This action is temporarily disabled as it needs refactoring to use events
 
 		@self.registry.action(
-			"""LLM extracts structured data from page markdown. Use when: on right page, know what to extract, haven't called before on same page+query. Can't get interactive elements. Set extract_links=True for URLs. Use start_from_char if truncated. If fails, use find_text/scroll instead.""",
+			"""LLM extracts structured data from page markdown. Returns max 30k chars. This is expensive - do not repeat if nothing changed. Can't get interactive elements (use click/scroll instead). Set extract_links=True for URLs. Use start_char/end_char for pagination. If fails, use find_text/scroll instead.""",
 		)
 		async def extract(
 			query: str,
@@ -568,7 +568,8 @@ class Tools(Generic[Context]):
 			page_extraction_llm: BaseChatModel,
 			file_system: FileSystem,
 			extract_links: bool = False,
-			start_from_char: int = 0,
+			start_char: int = 0,
+			end_char: int | None = None,
 		):
 			# Constants
 			MAX_CHAR_LIMIT = 30000
@@ -586,13 +587,23 @@ class Tools(Generic[Context]):
 			# Original content length for processing
 			final_filtered_length = content_stats['final_filtered_chars']
 
-			if start_from_char > 0:
-				if start_from_char >= len(content):
-					# Return empty content instead of error when start_from_char exceeds length
-					content = f'Start {start_from_char} > length {len(content)}.'
+			# Get total length before slicing
+			total_length = len(content)
+
+			# Handle character range slicing
+			if start_char > 0 or end_char is not None:
+				if start_char >= total_length:
+					content = f'Start {start_char} > length {total_length}.'
 				else:
-					content = content[start_from_char:]
-				content_stats['started_from_char'] = start_from_char
+					if end_char is not None:
+						if end_char > total_length:
+							end_char = total_length
+						if end_char < start_char:
+							return ActionResult(error=f'Invalid range: end_char {end_char} < start_char {start_char}.')
+						content = content[start_char:end_char]
+					else:
+						content = content[start_char:]
+				content_stats['started_from_char'] = start_char
 
 			# Smart truncation with context preservation
 			truncated = False
@@ -612,7 +623,7 @@ class Tools(Generic[Context]):
 
 				content = content[:truncate_at]
 				truncated = True
-				next_start = (start_from_char or 0) + truncate_at
+				next_start = (start_char or 0) + truncate_at
 				content_stats['truncated_at_char'] = truncate_at
 				content_stats['next_start_char'] = next_start
 
@@ -622,10 +633,12 @@ class Tools(Generic[Context]):
 			chars_filtered = content_stats['filtered_chars_removed']
 
 			stats_summary = f"""Content processed: {original_html_length:,} HTML chars → {initial_markdown_length:,} initial markdown → {final_filtered_length:,} filtered markdown"""
-			if start_from_char > 0:
-				stats_summary += f' (started from char {start_from_char:,})'
+			if start_char > 0:
+				stats_summary += f' (started from char {start_char:,})'
 			if truncated:
-				stats_summary += f' → {len(content):,} final chars (truncated, use start_from_char={content_stats["next_start_char"]} to continue)'
+				stats_summary += (
+					f' → {len(content):,} final chars (truncated, use start_char={content_stats["next_start_char"]} to continue)'
+				)
 			elif chars_filtered > 0:
 				stats_summary += f' (filtered {chars_filtered:,} chars of noise)'
 
@@ -638,10 +651,10 @@ You will be given a query and the markdown of a webpage that has been filtered t
 
 <instructions>
 - You are tasked to extract information from the webpage that is relevant to the query.
-- You should ONLY use the information available in the webpage to answer the query. Do not make up information or provide guess from your own knowledge. 
+- You should ONLY use the information available in the webpage to answer the query. Do not make up information or provide guess from your own knowledge.
 - If the information relevant to the query is not available in the page, your response should mention that.
 - If the query asks for all items, products, etc., make sure to directly list all of them.
-- If the content was truncated and you need more information, note that the user can use start_from_char parameter to continue from where truncation occurred.
+- If the content was truncated and you need more information, note that the user can use start_char parameter to continue from where truncation occurred.
 </instructions>
 
 <output>
@@ -946,18 +959,35 @@ You will be given a query and the markdown of a webpage that has been filtered t
 			return ActionResult(extracted_content=result, long_term_memory=result)
 
 		@self.registry.action('')
-		async def read_file(file_name: str, available_file_paths: list[str], file_system: FileSystem, start_from_char: int = 0):
+		async def read_file(
+			file_name: str,
+			available_file_paths: list[str],
+			file_system: FileSystem,
+			start_char: int = 0,
+			end_char: int | None = None,
+		):
+			# Read the file
 			if available_file_paths and file_name in available_file_paths:
 				result = await file_system.read_file(file_name, external_file=True)
 			else:
 				result = await file_system.read_file(file_name)
 
-			# Handle start_from_char pagination
-			if start_from_char > 0:
-				if start_from_char >= len(result):
-					result = f'Start {start_from_char} > length {len(result)}.'
+			# Get total length before slicing
+			total_length = len(result)
+
+			# Handle character range slicing
+			if start_char > 0 or end_char is not None:
+				if start_char >= total_length:
+					result = f'Start {start_char} > length {total_length}.'
 				else:
-					result = result[start_from_char:]
+					if end_char is not None:
+						if end_char > total_length:
+							end_char = total_length
+						if end_char < start_char:
+							return ActionResult(error=f'Invalid range: end_char {end_char} < start_char {start_char}.')
+						result = result[start_char:end_char]
+					else:
+						result = result[start_char:]
 
 			MAX_MEMORY_SIZE = 1000
 			if len(result) > MAX_MEMORY_SIZE:

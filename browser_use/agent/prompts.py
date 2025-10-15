@@ -302,7 +302,37 @@ Available tabs:
 
 		agent_state += f'<step_info>{step_info_description}</step_info>\n'
 		if self.available_file_paths:
-			available_file_paths_text = '\n'.join(self.available_file_paths)
+			# Add file metadata (size in chars) for available files
+			available_file_paths_with_metadata = []
+			for file_path in self.available_file_paths:
+				try:
+					import os
+					# Get file size in characters for text-based files
+					if os.path.exists(file_path):
+						file_size = os.path.getsize(file_path)
+						# For text files, approximate character count
+						if file_path.lower().endswith(('.txt', '.md', '.json', '.csv', '.py', '.js', '.html', '.css')):
+							# Read file to get exact character count
+							with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+								content = f.read()
+								char_count = len(content)
+								line_count = len(content.splitlines())
+								available_file_paths_with_metadata.append(f'{file_path} ({line_count} lines, {char_count} chars)')
+						elif file_path.lower().endswith('.pdf'):
+							# For PDFs, show file size in KB
+							size_kb = file_size / 1024
+							available_file_paths_with_metadata.append(f'{file_path} ({size_kb:.1f} KB PDF)')
+						else:
+							# For other files, just show size
+							size_kb = file_size / 1024
+							available_file_paths_with_metadata.append(f'{file_path} ({size_kb:.1f} KB)')
+					else:
+						available_file_paths_with_metadata.append(file_path)
+				except Exception:
+					# If we can't get metadata, just use the path
+					available_file_paths_with_metadata.append(file_path)
+
+			available_file_paths_text = '\n'.join(available_file_paths_with_metadata)
 			agent_state += f'<available_file_paths>{available_file_paths_text}\nUse with absolute paths</available_file_paths>\n'
 		return agent_state
 
