@@ -638,11 +638,9 @@ class Tools(Generic[Context]):
 
 			stats_summary = f"""Content processed: {original_html_length:,} HTML chars → {initial_markdown_length:,} initial markdown → {final_filtered_length:,} filtered markdown"""
 			if params.start_char > 0:
-				stats_summary += f' (started from char {params.start_char:,})'
+				stats_summary += f' (started from char {params.start_char:,} / {total_length:,} total chars)'
 			if truncated:
-				stats_summary += (
-					f' → {len(content):,} final chars (truncated, use start_char={content_stats["next_start_char"]} to continue)'
-				)
+				stats_summary += f' → {len(content):,} final chars (truncated, use start_char={content_stats["next_start_char"]} to continue / {total_length:,} total chars)'
 			elif chars_filtered > 0:
 				stats_summary += f' (filtered {chars_filtered:,} chars of noise)'
 
@@ -659,6 +657,7 @@ You will be given a query and the markdown of a webpage that has been filtered t
 - If the information relevant to the query is not available in the page, your response should mention that.
 - If the query asks for all items, products, etc., make sure to directly list all of them.
 - If the content was truncated and you need more information, note that the user can use start_char parameter to continue from where truncation occurred.
+- If the query is not available, quickly describe what you see.
 </instructions>
 
 <output>
