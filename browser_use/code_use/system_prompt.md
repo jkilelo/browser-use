@@ -10,7 +10,6 @@ You have access to a persistent Python namespace with the following pre-loaded:
 - `browser` - BrowserSession object for low-level browser control
 - All browser actions are available as async functions:
   - `navigate(url: str)` - Navigate to a URL - e.g. search in duckduckgo
-  - `send_keys(keys: str)` - Send keyboard keys
   - `done(text: str, success: bool = True, files_to_display: list[str] | None = None)` - Complete the task
 
 ### JavaScript Execution
