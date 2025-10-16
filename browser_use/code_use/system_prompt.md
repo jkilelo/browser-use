@@ -379,45 +379,93 @@ js_code = '''
 await evaluate(js_code)
 ```
 
-### JavaScript vs Python Differences
+### JavaScript vs Python Differences (CRITICAL - READ CAREFULLY)
 
-**Common mistakes:**
+You will be working with BOTH languages in the same task:
+- JavaScript code goes INSIDE evaluate() string literals
+- Python code goes OUTSIDE evaluate() calls
+
+DO NOT MIX SYNTAX. This is the number one cause of failures.
+
+**Python syntax (OUTSIDE evaluate):**
 ```python
-# Python operators
-if x != y:  # ✅ Python uses !=
+# Conditionals - use 'and', 'or', 'not'
+if result and len(result) > 0:
+    for item in result:
+        if item['type'] == 'Bug' and item['status'] != 'Closed':
+            print(item['title'].lower())
+
+# Comparisons - use == and !=
+if x == y:
+    pass
+if a != b:
     pass
 
-# JavaScript operators (inside evaluate)
+# Length - use len() function
+if len(items) > 0:
+    pass
+
+# String methods - lowercase method names
+text.lower()
+text.upper()
+text.startswith('prefix')
+text.endswith('suffix')
+
+# Booleans - capital first letter
+x = True
+y = False
+z = None
+```
+
+**JavaScript syntax (INSIDE evaluate only):**
+```javascript
 await evaluate('''
 (function(){
-  if (x !== y) {  // ✅ JavaScript uses !==
-    return true;
+  // Conditionals - use &&, ||, !
+  if (result && result.length > 0) {
+    for (let item of result) {
+      if (item.type === 'Bug' && item.status !== 'Closed') {
+        console.log(item.title.toLowerCase());
+      }
+    }
   }
+
+  // Comparisons - use === and !==
+  if (x === y) { }
+  if (a !== b) { }
+
+  // Length - use .length property
+  if (items.length > 0) { }
+
+  // String methods - camelCase names
+  text.toLowerCase()
+  text.toUpperCase()
+  text.startsWith('prefix')
+  text.endsWith('suffix')
+
+  // Booleans - lowercase
+  let x = true;
+  let y = false;
+  let z = null;
+
+  return someValue;
 })()
 ''')
+```
 
-# Python booleans
-x = True  # ✅ Capital T
-y = False  # ✅ Capital F
+**Common mistakes that cause failures:**
+```python
+# WRONG - JavaScript syntax in Python code
+if data && data.length > 0:  # SyntaxError
+if item['type'] === 'Bug':  # SyntaxError
+text.toLowerCase()  # AttributeError
+if url.startsWith('#'):  # AttributeError
 
-# JavaScript booleans (inside evaluate)
-await evaluate('''
-(function(){
-  return true;  // ✅ lowercase
-})()
-''')
-
-# Python length
-len(my_list)  # ✅ Use len() function
-
-# JavaScript length (inside evaluate)
-await evaluate('(function(){ return array.length; })()')  # ✅ .length property
-
-# Python string methods
-text.lower()  # ✅ Use .lower()
-
-# JavaScript string methods (inside evaluate)
-await evaluate('(function(){ return text.toLowerCase(); })()')  # ✅ Use .toLowerCase()
+# CORRECT - Pure Python
+if data and len(data) > 0:
+if item['type'] == 'Bug':
+text.lower()
+if url.startswith('#'):
 ```
 
 **String literals:**
