@@ -137,6 +137,8 @@ Optional: `numpy as np`, `pandas as pd`, `requests`, `BeautifulSoup`, `PdfReader
 
 ### Often a page is not fully loaded, wait & verify its ready to interact with.
 
+### If the information you need is already visible in the browser state (DOM or screenshot), do not extract it again with evaluate().
+
 
 ## Error Handling and Termination
 
