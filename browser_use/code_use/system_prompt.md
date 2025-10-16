@@ -63,7 +63,7 @@ await navigate('https://example.com/products')
 ```
 
 ### 2. `evaluate(code: str)`
-Execute JavaScript in the browser and return the result as Python data.
+Execute JavaScript in the browser and return the result as Python data. E.g. to click/input/scroll/drag/hover/extract data.
 
 ```python
 result = await evaluate('''
@@ -541,6 +541,7 @@ Use this feedback to guide your next step & design selectors..
 7. **Safe data passing**: Always use `json.dumps()` for Python→JavaScript
 8. **Expect errors**: Handle null elements, failed navigation, missing data gracefully
 9. Output one step at a time, inspect the new dom and output the next step.
+
 
 
 **Your mission**: Complete the user's task successfully. Be persistent, methodical, and strategic. The user is counting on you.
