@@ -170,8 +170,8 @@ class DOMCodeUseSerializer:
 						if attr == 'class':
 							classes = value.split()[:2]
 							value = ' '.join(classes)
-						# Cap at 50 chars (slightly more room than before)
-						value = cap_text_length(value, 50)
+						# Cap at 25 chars
+						value = cap_text_length(value, 25)
 						attrs.append(f'{attr}="{value}"')
 
 		return ' '.join(attrs)
@@ -200,7 +200,7 @@ class DOMCodeUseSerializer:
 			return ''
 
 		combined = ' '.join(text_parts)
-		return cap_text_length(combined, 80)
+		return cap_text_length(combined, 40)
 
 	@staticmethod
 	def _serialize_iframe(node: SimplifiedNode, include_attributes: list[str], depth: int) -> str:
@@ -275,7 +275,7 @@ class DOMCodeUseSerializer:
 
 			if text_parts:
 				combined = ' '.join(text_parts)
-				line += f'>{cap_text_length(combined, 50)}'
+				line += f'>{cap_text_length(combined, 25)}'
 			else:
 				line += '>'
 
