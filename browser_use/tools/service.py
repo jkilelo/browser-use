@@ -112,6 +112,7 @@ class Tools(Generic[Context]):
 			'click',
 			'input',
 			'switch',
+			'wait',
 			'send_keys',
 			'close',
 			'go_back',
