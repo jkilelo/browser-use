@@ -573,6 +573,12 @@ __result__ = __code_use_exec__()
 					else:
 						setattr(self, key, value)
 
+			def __getattr__(self, name):
+				"""Provide safe attribute access with defaults for missing attributes."""
+				# Return None for missing attributes instead of raising AttributeError
+				# This handles cases where eval system checks attributes that CodeUseAgent doesn't set
+				return None
+
 			def model_dump(self):
 				"""Support model_dump() calls from eval system."""
 				result = {}
