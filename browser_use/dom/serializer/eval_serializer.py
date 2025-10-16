@@ -189,8 +189,8 @@ class DOMEvalSerializer:
 						classes = value.split()[:2]
 						value = ' '.join(classes)
 					if value:
-						# Cap at 50 chars
-						value = cap_text_length(value, 50)
+						# Cap at 25 chars
+						value = cap_text_length(value, 25)
 						attrs.append(f'{attr}="{value}"')
 
 		# Add AX role if different from tag
@@ -211,7 +211,7 @@ class DOMEvalSerializer:
 
 	@staticmethod
 	def _get_inline_text(node: SimplifiedNode) -> str:
-		"""Get text content to display inline (max 80 chars)."""
+		"""Get text content to display inline (max 40 chars)."""
 		text_parts = []
 		for child in node.children:
 			if child.original_node.node_type == NodeType.TEXT_NODE:
@@ -223,7 +223,7 @@ class DOMEvalSerializer:
 			return ''
 
 		combined = ' '.join(text_parts)
-		return cap_text_length(combined, 80)
+		return cap_text_length(combined, 40)
 
 	@staticmethod
 	def _serialize_iframe(node: SimplifiedNode, include_attributes: list[str], depth: int) -> str:
@@ -302,7 +302,7 @@ class DOMEvalSerializer:
 
 			if text_parts:
 				combined = ' '.join(text_parts)
-				line += f'>{cap_text_length(combined, 60)}'
+				line += f'>{cap_text_length(combined, 30)}'
 			else:
 				line += ' />'
 
