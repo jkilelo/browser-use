@@ -78,7 +78,7 @@ class CodeUseAgent:
 
 		self.session = NotebookSession()
 		self.namespace: dict[str, Any] = {}
-		self.history: list[BaseMessage] = []  # LLM conversation history
+		self._llm_messages: list[BaseMessage] = []  # Internal LLM conversation history
 		self.complete_history: list[dict] = []  # Eval system history with model_output and result
 		self.dom_service: DomService | None = None
 
@@ -125,15 +125,15 @@ class CodeUseAgent:
 		system_prompt = system_prompt_path.read_text()
 
 		# Initialize conversation with task
-		self.history.append(SystemMessage(content=system_prompt))
-		self.history.append(UserMessage(content=f'Task: {self.task}'))
+		self._llm_messages.append(SystemMessage(content=system_prompt))
+		self._llm_messages.append(UserMessage(content=f'Task: {self.task}'))
 
 		# Main execution loop
 		for step in range(self.max_steps):
 			logger.info(f'\n\n\n\nStep {step + 1}/{self.max_steps}')
 
 			try:
-				# Get code from LLM (this also adds to self.history)
+				# Get code from LLM (this also adds to self._llm_messages)
 				code, full_llm_response = await self._get_code_from_llm()
 
 				if not code or code.strip() == '':
@@ -172,9 +172,9 @@ class CodeUseAgent:
 						logger.info(f'Final result: {final_result}')
 					break
 
-				# Add result to history for next iteration
+				# Add result to LLM messages for next iteration
 				result_message = self._format_execution_result(code, output, error, browser_state)
-				self.history.append(UserMessage(content=result_message))
+				self._llm_messages.append(UserMessage(content=result_message))
 
 			except Exception as e:
 				logger.error(f'Error in step {step + 1}: {e}')
@@ -195,8 +195,8 @@ class CodeUseAgent:
 		Returns:
 			Tuple of (extracted_code, full_llm_response)
 		"""
-		# Call LLM with history
-		response = await self.llm.ainvoke(self.history)
+		# Call LLM with message history
+		response = await self.llm.ainvoke(self._llm_messages)
 
 		# Log the LLM's raw output for debugging
 		logger.info(f'LLM Response:\n{response.completion}')
@@ -220,8 +220,8 @@ class CodeUseAgent:
 			if len(parts) > 1:
 				code = parts[1].strip()
 
-		# Add to history
-		self.history.append(AssistantMessage(content=response.completion))
+		# Add to LLM messages
+		self._llm_messages.append(AssistantMessage(content=response.completion))
 
 		return code, full_response
 
@@ -507,17 +507,18 @@ __result__ = __code_use_exec__()
 		"""
 
 		class MockMessageManager:
-			def __init__(self, history):
-				# Convert code-use history to message format expected by eval system
-				self.last_input_messages = history
+			def __init__(self, llm_messages):
+				# Convert code-use LLM messages to format expected by eval system
+				self.last_input_messages = llm_messages
 
-		return MockMessageManager(self.history)
+		return MockMessageManager(self._llm_messages)
 
 	@property
-	def history_list(self):
+	def history(self):
 		"""
 		Compatibility property for eval system.
-		Returns a mock AgentHistoryList object with history attribute.
+		Returns a mock AgentHistoryList object with history attribute containing complete_history.
+		This is what the eval system expects when it does: agent_history = agent.history
 		"""
 
 		class MockAgentHistoryList:
