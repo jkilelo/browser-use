@@ -480,9 +480,14 @@ __result__ = __code_use_exec__()
 				logger.debug(f'Failed to get browser URL/title for history: {e}')
 
 		# Create result entry matching eval system expectations
+		# Check if this is a done result
+		is_done = self._is_task_done()
+
 		result_entry = {
 			'extracted_content': output if output else None,
 			'error': error if error else None,
+			'is_done': is_done,  # Add is_done flag for eval system
+			'success': not bool(error) if is_done else None,  # Add success flag if task is done
 		}
 
 		# Create state entry (will be converted to object with get_screenshot() method by DictToObject)
@@ -491,6 +496,15 @@ __result__ = __code_use_exec__()
 			'url': url,
 			'title': title,
 			'screenshot_path': screenshot_path,  # Store path here for get_screenshot() to use
+		}
+
+		# Create metadata entry (eval system uses this for token counting and timing)
+		# CodeUseAgent doesn't track these yet, so provide empty/null values
+		metadata_entry = {
+			'input_tokens': None,  # Token counting not implemented in CodeUseAgent yet
+			'output_tokens': None,
+			'step_start_time': None,  # Timing not implemented yet
+			'step_end_time': None,
 		}
 
 		# Create history entry matching eval system format
@@ -502,6 +516,7 @@ __result__ = __code_use_exec__()
 			},
 			'result': [result_entry],  # Always a list
 			'state': state_entry,  # Add state entry for eval system
+			'metadata': metadata_entry,  # Add metadata for eval system
 			'screenshot_path': screenshot_path,  # Keep this for backward compatibility
 		}
 
