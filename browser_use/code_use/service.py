@@ -373,7 +373,7 @@ __code_exec_coro__ = __code_exec__()"""
 			lines.append(f'**Title:** {state.title}')
 			lines.append('')
 			lines.append('**DOM Structure:**')
-			lines.append(dom_html)
+			lines.append(dom_html[:40000])
 
 			return '\n'.join(lines)
 
@@ -386,7 +386,7 @@ __code_exec_coro__ = __code_exec__()"""
 		result = []
 		result.append('## Executed\n')
 		if error:
-			result.append(f'**Error:**\n```\n{error}\n```\n')
+			result.append(f'**Error:**```{error}```')
 
 		if output:
 			# Truncate output if too long
