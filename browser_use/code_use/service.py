@@ -275,6 +275,7 @@ class CodeUseAgent:
 			# Capture output
 			import io
 			import sys
+			import ast
 
 			old_stdout = sys.stdout
 			sys.stdout = io.StringIO()
@@ -284,30 +285,80 @@ class CodeUseAgent:
 				if 'asyncio' not in self.namespace:
 					self.namespace['asyncio'] = asyncio
 
-				# Wrap code in async function to support top-level await
-				# This makes it work like Jupyter notebooks with async support
-				# We use globals() and locals() to maintain variable persistence
-				indented_code = '\n'.join('\t' + line for line in code.split('\n'))
-				wrapped_code = f"""async def __code_exec__():
-{indented_code}
-	# Update namespace with any new variables defined in this cell
-	_locals = locals()
-	for _key in list(_locals.keys()):
-		if not _key.startswith('_'):
-			globals()[_key] = _locals[_key]
+				# Check if code contains await expressions - if so, wrap in async function
+				# This mimics how Jupyter/IPython handles top-level await
+				try:
+					tree = ast.parse(code, mode='exec')
+					has_await = any(isinstance(node, (ast.Await, ast.AsyncWith, ast.AsyncFor))
+					               for node in ast.walk(tree))
+				except SyntaxError:
+					# If parse fails, let exec handle the error
+					has_await = False
 
-__code_exec_coro__ = __code_exec__()"""
+				if has_await:
+					# When code has await, we must wrap in async function
+					# To make variables persist naturally (like Jupyter without needing 'global'):
+					# 1. Extract all assigned variable names from the code
+					# 2. Inject 'global' declarations for variables that already exist in namespace
+					# 3. Return locals() so we can update namespace with new variables
 
-				# Compile and execute to create the coroutine
-				compiled_code = compile(wrapped_code, '<code>', 'exec')
-				exec(compiled_code, self.namespace, self.namespace)
+					# Find all variable names being assigned (to inject global declarations)
+					try:
+						assigned_names = set()
+						for node in ast.walk(tree):
+							if isinstance(node, ast.Assign):
+								for target in node.targets:
+									if isinstance(target, ast.Name):
+										assigned_names.add(target.id)
+							elif isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+								assigned_names.add(node.target.id)
+							elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)):
+								if hasattr(node, 'target') and isinstance(node.target, ast.Name):
+									assigned_names.add(node.target.id)
 
-				# Get the coroutine and await it
-				coro = self.namespace.get('__code_exec_coro__')
-				if coro:
-					await coro
-					# Clean up
-					del self.namespace['__code_exec_coro__']
+						# Filter to only existing namespace vars (like Jupyter does)
+						existing_vars = {name for name in assigned_names if name in self.namespace}
+					except:
+						existing_vars = set()
+
+					# Build global declaration if needed
+					global_decl = ''
+					if existing_vars:
+						vars_str = ', '.join(sorted(existing_vars))
+						global_decl = f'    global {vars_str}\n'
+
+					indented_code = '\n'.join('    ' + line if line.strip() else line
+					                         for line in code.split('\n'))
+					wrapped_code = f'''async def __code_exec__():
+{global_decl}{indented_code}
+    # Return locals so we can update the namespace
+    return locals()
+
+__code_exec_coro__ = __code_exec__()
+'''
+					# Compile and execute wrapper at module level
+					compiled_code = compile(wrapped_code, '<code>', 'exec')
+					exec(compiled_code, self.namespace, self.namespace)
+
+					# Get and await the coroutine, then update namespace with new/modified variables
+					coro = self.namespace.get('__code_exec_coro__')
+					if coro:
+						result_locals = await coro
+						# Update namespace with all variables from the function's locals
+						# This makes variable assignments persist across cells
+						if result_locals:
+							for key, value in result_locals.items():
+								if not key.startswith('_'):
+									self.namespace[key] = value
+
+						# Clean up temporary variables
+						self.namespace.pop('__code_exec_coro__', None)
+						self.namespace.pop('__code_exec__', None)
+				else:
+					# No await - execute directly at module level for natural variable scoping
+					# This means x = x + 10 will work without needing 'global x'
+					compiled_code = compile(code, '<code>', 'exec')
+					exec(compiled_code, self.namespace, self.namespace)
 
 				# Get output
 				output_value = sys.stdout.getvalue()
