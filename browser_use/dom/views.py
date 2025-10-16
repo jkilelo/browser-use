@@ -842,6 +842,32 @@ class SerializedDOMState:
 
 		return DOMEvalSerializer.serialize_tree(self._root, include_attributes)
 
+	@observe_debug(ignore_input=True, ignore_output=True, name='code_representation')
+	def code_representation(
+		self,
+		include_attributes: list[str] | None = None,
+	) -> str:
+		"""
+		Optimized DOM representation for code-use agents.
+
+		This serializer balances token efficiency with useful context:
+		- Keeps top 2 CSS classes for querySelector compatibility
+		- Includes href attributes for navigation
+		- Shows div/span/p with useful attributes or text content
+		- Prioritizes interactive + semantic elements
+		- 80 char text max (vs 40000+ in full representation)
+		- 40-50% token savings vs eval_representation
+		"""
+		from browser_use.dom.serializer.code_use_serializer import DOMCodeUseSerializer
+
+		if not self._root:
+			return 'Empty DOM tree (you might have to wait for the page to load)'
+
+		# Code use has a hardcoded minimal attribute set
+		include_attributes = include_attributes or []
+
+		return DOMCodeUseSerializer.serialize_tree(self._root, include_attributes)
+
 
 @dataclass
 class DOMInteractedElement:

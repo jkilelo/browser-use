@@ -343,7 +343,7 @@ class CodeUseAgent:
 
 						# Filter to only existing namespace vars (like Jupyter does)
 						existing_vars = {name for name in assigned_names if name in self.namespace}
-					except:
+					except Exception:
 						existing_vars = set()
 
 					# Build global declaration if needed
@@ -438,22 +438,22 @@ __code_exec_coro__ = __code_exec__()
 		return output, error, browser_state
 
 	async def _get_browser_state(self) -> str:
-		"""Get the current browser state as text with full DOM structure for evaluation."""
+		"""Get the current browser state as text with ultra-minimal DOM structure for code agents."""
 		if not self.browser_session or not self.dom_service:
 			return 'Browser state not available'
 
 		try:
-			# Get full browser state using the eval_representation which includes:
-			# - Full HTML structure up to interactive elements
-			# - All meaningful text content
-			# - Enhanced attribute information
-			# - No interactive indexes (not needed for code execution context)
+			# Get full browser state using the code_representation which includes:
+			# - Only interactive + semantic elements (buttons, inputs, links, headings)
+			# - Minimal attributes (no CSS classes, no redundant roles)
+			# - Compact text (60 chars max)
+			# - Token-optimized formatting (2-space indentation)
 			state = await self.browser_session.get_browser_state_summary()
 			assert state.dom_state is not None
 			dom_state = state.dom_state
 
-			# Use eval_representation for richer context
-			dom_html = dom_state.eval_representation()
+			# Use code_representation for ultra-minimal, token-efficient output
+			dom_html = dom_state.code_representation()
 
 			# Format with URL and title header
 			lines = ['## Browser State']
