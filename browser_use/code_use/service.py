@@ -601,8 +601,23 @@ __result__ = __code_use_exec__()
 
 			def get_screenshot(self):
 				"""Support get_screenshot() calls for state objects."""
-				# CodeUseAgent stores screenshot paths, not base64 data
-				return None
+				# Load screenshot from disk and return as base64 string (matching BrowserStateHistory implementation)
+				if not hasattr(self, 'screenshot_path') or not self.screenshot_path:
+					return None
+
+				import base64
+				from pathlib import Path
+
+				path_obj = Path(self.screenshot_path)
+				if not path_obj.exists():
+					return None
+
+				try:
+					with open(path_obj, 'rb') as f:
+						screenshot_data = f.read()
+					return base64.b64encode(screenshot_data).decode('utf-8')
+				except Exception:
+					return None
 
 		class MockAgentHistoryList:
 			def __init__(self, complete_history):
