@@ -489,10 +489,28 @@ __result__ = __code_use_exec__()
 
 		return paths
 
+	@property
+	def message_manager(self):
+		"""
+		Compatibility property for eval system.
+		Returns a mock object with last_input_messages attribute.
+		"""
+
+		class MockMessageManager:
+			def __init__(self, history):
+				# Convert code-use history to message format expected by eval system
+				self.last_input_messages = history
+
+		return MockMessageManager(self.history)
+
 	async def close(self):
 		"""Close the browser session."""
 		if self.browser_session:
-			await self.browser_session.stop()
+			# Check if we should close the browser based on keep_alive setting
+			if not self.browser_session.browser_profile.keep_alive:
+				await self.browser_session.kill()
+			else:
+				logger.debug('Browser keep_alive is True, not closing browser session')
 
 	async def __aenter__(self):
 		"""Async context manager entry."""
