@@ -49,6 +49,13 @@ try:
 except ImportError:
 	BS4_AVAILABLE = False
 
+try:
+	from pypdf import PdfReader
+
+	PYPDF_AVAILABLE = True
+except ImportError:
+	PYPDF_AVAILABLE = False
+
 
 async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 	"""
@@ -191,6 +198,9 @@ def create_namespace(
 	if BS4_AVAILABLE:
 		namespace['BeautifulSoup'] = BeautifulSoup
 		namespace['bs4'] = BeautifulSoup
+	if PYPDF_AVAILABLE:
+		namespace['PdfReader'] = PdfReader
+		namespace['pypdf'] = PdfReader
 
 	# Add custom evaluate function that returns values directly
 	async def evaluate_wrapper(code: str) -> Any:

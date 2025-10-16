@@ -299,9 +299,9 @@ class CodeUseAgent:
 
 		try:
 			# Capture output
+			import ast
 			import io
 			import sys
-			import ast
 
 			old_stdout = sys.stdout
 			sys.stdout = io.StringIO()
@@ -315,8 +315,7 @@ class CodeUseAgent:
 				# This mimics how Jupyter/IPython handles top-level await
 				try:
 					tree = ast.parse(code, mode='exec')
-					has_await = any(isinstance(node, (ast.Await, ast.AsyncWith, ast.AsyncFor))
-					               for node in ast.walk(tree))
+					has_await = any(isinstance(node, (ast.Await, ast.AsyncWith, ast.AsyncFor)) for node in ast.walk(tree))
 				except SyntaxError:
 					# If parse fails, let exec handle the error
 					has_await = False
@@ -353,15 +352,14 @@ class CodeUseAgent:
 						vars_str = ', '.join(sorted(existing_vars))
 						global_decl = f'    global {vars_str}\n'
 
-					indented_code = '\n'.join('    ' + line if line.strip() else line
-					                         for line in code.split('\n'))
-					wrapped_code = f'''async def __code_exec__():
+					indented_code = '\n'.join('    ' + line if line.strip() else line for line in code.split('\n'))
+					wrapped_code = f"""async def __code_exec__():
 {global_decl}{indented_code}
     # Return locals so we can update the namespace
     return locals()
 
 __code_exec_coro__ = __code_exec__()
-'''
+"""
 					# Compile and execute wrapper at module level
 					compiled_code = compile(wrapped_code, '<code>', 'exec')
 					exec(compiled_code, self.namespace, self.namespace)
@@ -474,15 +472,15 @@ __code_exec_coro__ = __code_exec__()
 	def _format_execution_result(self, code: str, output: str | None, error: str | None) -> str:
 		"""Format the execution result for the LLM (without browser state)."""
 		result = []
-		result.append('## Executed')
+		result.append('Executed')
 		if error:
-			result.append(f'**Error:** {error}')
+			result.append(f'Error: {error}')
 
 		if output:
 			# Truncate output if too long
-			if len(output) > 20000:
-				output = output[:19950] + '\n[Truncated after 20000 characters]'
-			result.append(f'**Output:** {output}')
+			if len(output) > 10000:
+				output = output[:9950] + '\n[Truncated after 10000 characters]'
+			result.append(f'Output: {output}')
 
 		return '\n'.join(result)
 
