@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from uuid_extensions import uuid7str
+
 from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.dom.service import DomService
@@ -15,8 +17,6 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import AssistantMessage, BaseMessage, SystemMessage, UserMessage
 from browser_use.screenshots.service import ScreenshotService
 from browser_use.tools.service import Tools
-from browser_use.utils import time_execution_sync
-from uuid_extensions import uuid7str
 
 from .namespace import create_namespace
 from .views import ExecutionStatus, NotebookSession
@@ -89,13 +89,19 @@ class CodeUseAgent:
 		self.agent_directory = base_tmp / f'browser_use_code_agent_{self.id}_{timestamp}'
 		self.screenshot_service = ScreenshotService(agent_directory=self.agent_directory)
 
-	async def run(self) -> NotebookSession:
+	async def run(self, max_steps: int | None = None) -> NotebookSession:
 		"""
 		Run the agent to complete the task.
+
+		Args:
+			max_steps: Optional override for maximum number of steps (uses __init__ value if not provided)
 
 		Returns:
 			The notebook session with all executed cells
 		"""
+		# Use override if provided, otherwise use value from __init__
+		steps_to_run = max_steps if max_steps is not None else self.max_steps
+		self.max_steps = steps_to_run
 		# Start browser if not provided
 		if self.browser_session is None:
 			self.browser_session = BrowserSession(browser_profile=self.browser_profile)
@@ -154,7 +160,7 @@ class CodeUseAgent:
 					full_llm_response=full_llm_response,
 					output=output,
 					error=error,
-					screenshot_path=screenshot_path
+					screenshot_path=screenshot_path,
 				)
 
 				# Check if task is done
@@ -370,7 +376,7 @@ __result__ = __code_use_exec__()
 			dom_structure = result_data.get('value', {})
 
 			# Format the browser state
-			lines = [f'## Browser State']
+			lines = ['## Browser State']
 			lines.append(f'**URL:** {url}')
 			lines.append(f'**Title:** {dom_structure.get("title", "N/A")}')
 			lines.append(f'**Interactive elements:** {dom_structure.get("interactive_count", 0)}')
@@ -437,22 +443,14 @@ __result__ = __code_use_exec__()
 			state = await self.browser_session.get_browser_state_summary(include_screenshot=True)
 			if state and state.screenshot:
 				# Store screenshot using screenshot service
-				screenshot_path = await self.screenshot_service.store_screenshot(
-					state.screenshot,
-					step_number
-				)
+				screenshot_path = await self.screenshot_service.store_screenshot(state.screenshot, step_number)
 				return str(screenshot_path) if screenshot_path else None
 		except Exception as e:
 			logger.warning(f'Failed to capture screenshot for step {step_number}: {e}')
 			return None
 
 	async def _add_step_to_complete_history(
-		self,
-		model_output_code: str,
-		full_llm_response: str,
-		output: str | None,
-		error: str | None,
-		screenshot_path: str | None
+		self, model_output_code: str, full_llm_response: str, output: str | None, error: str | None, screenshot_path: str | None
 	) -> None:
 		"""Add a step to complete_history in eval system format."""
 		# Create result entry matching eval system expectations
