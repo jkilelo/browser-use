@@ -288,7 +288,7 @@ class CodeUseAgent:
 				# This makes it work like Jupyter notebooks with async support
 				# We use globals() and locals() to maintain variable persistence
 				indented_code = '\n'.join('\t' + line for line in code.split('\n'))
-				wrapped_code = f'''async def __code_exec__():
+				wrapped_code = f"""async def __code_exec__():
 {indented_code}
 	# Update namespace with any new variables defined in this cell
 	_locals = locals()
@@ -296,7 +296,7 @@ class CodeUseAgent:
 		if not _key.startswith('_'):
 			globals()[_key] = _locals[_key]
 
-__code_exec_coro__ = __code_exec__()'''
+__code_exec_coro__ = __code_exec__()"""
 
 				# Compile and execute to create the coroutine
 				compiled_code = compile(wrapped_code, '<code>', 'exec')
@@ -350,92 +350,30 @@ __code_exec_coro__ = __code_exec__()'''
 		return output, error, browser_state
 
 	async def _get_browser_state(self) -> str:
-		"""Get the current browser state as text with DOM structure."""
+		"""Get the current browser state as text with full DOM structure for evaluation."""
 		if not self.browser_session or not self.dom_service:
 			return 'Browser state not available'
 
 		try:
-			# Get current URL
-			url = await self.browser_session.get_current_page_url()
+			# Get full browser state using the eval_representation which includes:
+			# - Full HTML structure up to interactive elements
+			# - All meaningful text content
+			# - Enhanced attribute information
+			# - No interactive indexes (not needed for code execution context)
+			state = await self.browser_session.get_browser_state_summary()
+			assert state.dom_state is not None
+			dom_state = state.dom_state
 
-			# Get simplified DOM structure using JavaScript via CDP
-			cdp_session = await self.browser_session.get_or_create_cdp_session()
+			# Use eval_representation for richer context
+			dom_html = dom_state.eval_representation()
 
-			js_code = """
-			(function() {
-				// Get all interactive elements
-				const allElements = document.querySelectorAll('a, button, input, select, textarea, [onclick], [role="button"]');
-
-				// Get a sample of visible text elements
-				const textElements = Array.from(document.querySelectorAll('h1, h2, h3, p, span, div'))
-					.filter(el => el.textContent.trim().length > 0 && el.offsetParent !== null)
-					.slice(0, 20);
-
-				// Get form elements
-				const forms = Array.from(document.querySelectorAll('form'));
-
-				return {
-					url: window.location.href,
-					title: document.title,
-					interactive_count: allElements.length,
-					forms_count: forms.length,
-					sample_text: textElements.map(el => ({
-						tag: el.tagName.toLowerCase(),
-						class: el.className,
-						text: el.textContent.trim().substring(0, 100)
-					})).slice(0, 10),
-					sample_links: Array.from(document.querySelectorAll('a[href]'))
-						.filter(a => a.textContent.trim().length > 0)
-						.map(a => ({
-							text: a.textContent.trim().substring(0, 50),
-							href: a.href
-						}))
-						.slice(0, 10),
-					inputs: Array.from(document.querySelectorAll('input, select, textarea'))
-						.map(inp => ({
-							type: inp.type || inp.tagName.toLowerCase(),
-							name: inp.name,
-							id: inp.id,
-							placeholder: inp.placeholder
-						}))
-						.slice(0, 5)
-				};
-			})()
-			"""
-
-			result = await cdp_session.cdp_client.send.Runtime.evaluate(
-				params={'expression': js_code, 'returnByValue': True, 'awaitPromise': True},
-				session_id=cdp_session.session_id,
-			)
-
-			# Get the result data
-			result_data = result.get('result', {})
-			dom_structure = result_data.get('value', {})
-
-			# Format the browser state
+			# Format with URL and title header
 			lines = ['## Browser State']
-			lines.append(f'**URL:** {url}')
-			lines.append(f'**Title:** {dom_structure.get("title", "N/A")}')
-			lines.append(f'**Interactive elements:** {dom_structure.get("interactive_count", 0)}')
-			lines.append(f'**Forms:** {dom_structure.get("forms_count", 0)}')
-
-			# Add sample text elements
-			if dom_structure.get('sample_text'):
-				lines.append('\n**Sample visible text:**')
-				for item in dom_structure['sample_text'][:5]:
-					lines.append(f'  - <{item["tag"]} class="{item["class"][:50]}"> {item["text"][:80]}')
-
-			# Add sample links
-			if dom_structure.get('sample_links'):
-				lines.append('\n**Sample links:**')
-				for link in dom_structure['sample_links'][:5]:
-					lines.append(f'  - {link["text"][:50]} → {link["href"][:100]}')
-
-			# Add input fields
-			if dom_structure.get('inputs'):
-				lines.append('\n**Input fields:**')
-				for inp in dom_structure['inputs']:
-					lines.append(f'  - {inp["type"]}: {inp.get("placeholder") or inp.get("name") or inp.get("id") or "unnamed"}')
+			lines.append(f'**URL:** {state.url}')
+			lines.append(f'**Title:** {state.title}')
+			lines.append('')
+			lines.append('**DOM Structure:**')
+			lines.append(dom_html)
 
 			return '\n'.join(lines)
 
@@ -643,6 +581,7 @@ __code_exec_coro__ = __code_exec__()'''
 				# Get usage summary from token cost service (sync version)
 				try:
 					import asyncio
+
 					loop = asyncio.get_event_loop()
 					if loop.is_running():
 						# If loop is running, we can't await, so usage will be None
