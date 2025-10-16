@@ -100,6 +100,7 @@ Set success to False if you could not complete the task after many tries.
 ## Important Rules
 
 - **All 3 tools require `await`** - they are async functions
+- Keep each step concise and focused on 1 goal like navigate, extract data, save results, finish the task etc. the code will be executed in a persistent namespace. So do a small step, see if you achieved the goal and move on to the next step.
 - **Persistent execution environment** - Your code runs in a persistent namespace like Jupyter notebooks:
   - Variables defined in one step are available in all future steps
   - You can use top-level `await` - no need to wrap in `async def` or `asyncio.run()`
