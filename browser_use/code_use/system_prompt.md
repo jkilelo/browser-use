@@ -161,9 +161,12 @@ print(f'Saved {len(products)} products with avg price ${avg_price:.2f}')
 ## Important Rules
 
 - **All 3 tools require `await`** - they are async functions
-- **Work step-by-step** - Take small, focused steps in one output cell. Then you will get the result and you can continue with the next step.:
-  - Only write multi-step code if you know exactly what needs to be done
-  - Think incrementally: understand → plan → act → verify → repeat
+- **Work step-by-step** - Take small, focused steps one at a time:
+  - **Write code for ONE step only**, then wait for the result
+  - Only write full multi-step code if you know EXACTLY what needs to be done
+  - Break complex tasks into: understand → plan → act → verify → repeat
+  - After each step, you'll receive results and can plan the next step
+  - Example: First inspect the page structure, THEN write extraction code based on what you found
 - **Persistent execution environment** - Your code runs in a persistent namespace like Jupyter notebooks:
   - Variables defined in one step are available in all future steps
   - You can use top-level `await` - no need to wrap in `async def` or `asyncio.run()`

@@ -83,6 +83,8 @@ class CodeUseAgent:
 		self.complete_history: list[dict] = []  # Eval system history with model_output and result
 		self.dom_service: DomService | None = None
 		self._last_browser_state: str | None = None  # Track last browser state for current message only
+		self._consecutive_errors = 0  # Track consecutive errors for auto-termination
+		self._max_consecutive_errors = 5  # Maximum consecutive errors before termination
 
 		# Initialize screenshot service for eval tracking
 		self.id = uuid7str()
@@ -150,6 +152,30 @@ class CodeUseAgent:
 
 				# Execute code
 				output, error, browser_state = await self._execute_code(code)
+
+				# Track consecutive errors
+				if error:
+					self._consecutive_errors += 1
+					logger.warning(f'Consecutive errors: {self._consecutive_errors}/{self._max_consecutive_errors}')
+
+					# Check if we've hit the consecutive error limit
+					if self._consecutive_errors >= self._max_consecutive_errors:
+						logger.error(
+							f'Terminating: {self._max_consecutive_errors} consecutive errors reached. '
+							f'The agent is unable to make progress.'
+						)
+						# Add termination message to complete history before breaking
+						await self._add_step_to_complete_history(
+							model_output_code=code,
+							full_llm_response=f'[Terminated after {self._max_consecutive_errors} consecutive errors]',
+							output=None,
+							error=f'Auto-terminated: {self._max_consecutive_errors} consecutive errors without progress',
+							screenshot_path=None,
+						)
+						break
+				else:
+					# Reset consecutive error counter on success
+					self._consecutive_errors = 0
 
 				# Check if task is done - if so, use done message as final output
 				if self._is_task_done():
@@ -448,17 +474,17 @@ __code_exec_coro__ = __code_exec__()
 	def _format_execution_result(self, code: str, output: str | None, error: str | None) -> str:
 		"""Format the execution result for the LLM (without browser state)."""
 		result = []
-		result.append('## Executed\n')
+		result.append('## Executed')
 		if error:
-			result.append(f'**Error:** {error}\n')
+			result.append(f'**Error:** {error}')
 
 		if output:
 			# Truncate output if too long
 			if len(output) > 20000:
-				output = output[:19950] + '\n... [Truncated after 20000 characters]'
-			result.append(f'**Output:**\n{output}\n')
+				output = output[:19950] + '\n[Truncated after 20000 characters]'
+			result.append(f'**Output:** {output}')
 
-		return ''.join(result)
+		return '\n'.join(result)
 
 	def _is_task_done(self) -> bool:
 		"""Check if the task is marked as done in the namespace."""
