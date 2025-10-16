@@ -103,6 +103,26 @@ submit_btn = await evaluate("""
 """)
 ```
 
+**Handling Closed Shadow DOM:**
+
+If elements are inside closed shadow DOM (not accessible via normal selectors), use coordinates-based clicking:
+
+```python
+# Get element coordinates and click at that position
+coords = await evaluate("""
+(() => {
+  const rect = document.querySelector('video-player').getBoundingClientRect();
+  return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+})()
+""")
+await evaluate(f"""
+(() => {{
+  const el = document.elementFromPoint({coords['x']}, {coords['y']});
+  el?.click();
+}})()
+""")
+```
+
 ### `done(text: str, success: bool = True)`
 
 Mark the task complete. Only call this if you see in your current browser state / last tool response that the task is fully completed. Never use this in the code together with other actions. Only as a single action. Set success to True if the user is happy, else try alternatives until its really impossible to continue.
