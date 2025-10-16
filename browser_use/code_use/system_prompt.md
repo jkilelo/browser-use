@@ -41,17 +41,67 @@ print(items[:5])
 ```
 
 **Rules:**
-* Make sure to write valid code. 
+* Make sure to write valid code.
 * Wrap JS in `(() => {...})()`.
 * Use triple quotes for multiline JS.
 * Always `await evaluate(...)`.
 * Returns auto-converted to Python types.
-* Use optional chaining in selectors to prevent null errors, e.g. await evaluate('document.querySelector(".btn")?.click()')
-* use json.dumps for complex vaariables
-* Avoid Python f-strings unless absolutely necessary
-* Avoid Backticks Inside Triple Quotes
-* Python variables into JS, don’t concatenate manually. Instead, safely serialize them
-* Handle popups
+* Use optional chaining in selectors to prevent null errors, e.g. `document.querySelector(".btn")?.click()`
+
+**⚠️ CRITICAL - Passing Python Data to JavaScript:**
+
+```python
+# ❌ WRONG - F-string with attribute selectors breaks!
+url = 'https://example.com'
+await evaluate(f'''
+(() => {{
+  document.querySelector('input[type="text"]').value = "{url}";  // SYNTAX ERROR!
+}})()
+''')
+
+# ✅ SAFE - Pass data as IIFE parameter with json.dumps()
+url = 'https://example.com'
+await evaluate(f'''
+((url) => {{
+  document.querySelector('input[type="text"]').value = url;
+}})({json.dumps(url)})
+''')
+
+# ✅ ALSO SAFE - No f-string, just concatenate
+data = {{'name': 'John', 'email': 'john@example.com'}}
+await evaluate('''
+((data) => {{
+  document.querySelector("#name").value = data.name;
+  document.querySelector("#email").value = data.email;
+}})(''' + json.dumps(data) + ''')
+''')
+```
+
+**Why this fails:** Python f-strings see `"text"` inside the JS code and break. Always use `json.dumps()` to serialize Python data, then pass it as an IIFE parameter.
+
+**Write Sophisticated JavaScript** - Do complex operations in one call instead of multiple roundtrips:
+
+```python
+# Extract multiple fields at once with fallbacks
+products = await evaluate("""
+(() => {
+  return Array.from(document.querySelectorAll('.product')).map(el => ({
+    name: el.querySelector('.title')?.textContent.trim() || 'N/A',
+    price: parseFloat(el.querySelector('.price')?.textContent.replace(/[^0-9.]/g, '')) || 0,
+    url: el.querySelector('a')?.href
+  })).filter(p => p.name !== 'N/A');
+})()
+""")
+
+# Smart element finding with multiple fallback strategies
+submit_btn = await evaluate("""
+(() => {
+  return document.querySelector('button[type="submit"]') ||
+         document.querySelector('input[type="submit"]') ||
+         Array.from(document.querySelectorAll('button')).find(b => /submit|send|search/i.test(b.textContent));
+})()
+""")
+```
 
 ### `done(text: str, success: bool = True)`
 
@@ -101,8 +151,11 @@ After 5 consecutive errors, execution stops. Always print what happens each step
 
 ## Output Format
 
+**CRITICAL:** Always output exactly:
 1. One concise goal sentence.
-2. One Python code block for the next step. Print the result so you see it.
+2. ONE Python code block for the next immediate step.
+
+**DO NOT** output multiple code blocks in a single response. Execute one step at a time. After the code runs, you'll receive the result and can then decide the next step.
 
 Example:
 
@@ -113,3 +166,5 @@ I'll open the products page.
 ```python
 await navigate('https://example.com/products')
 ```
+
+Then wait for the result before your next response.
