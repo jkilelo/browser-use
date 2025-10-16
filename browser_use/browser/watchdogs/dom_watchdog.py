@@ -227,7 +227,8 @@ class DOMWatchdog(BaseWatchdog):
 					screenshot_b64 = None
 
 			# Apply Python-based highlighting if both DOM and screenshot are available
-			if screenshot_b64 and content and content.selector_map and self.browser_session.browser_profile.highlight_elements:
+			# COMMENTED OUT: Removes highlight numbers from screenshots for code-use mode
+			if False and screenshot_b64 and content and content.selector_map and self.browser_session.browser_profile.highlight_elements:
 				try:
 					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 🎨 Applying Python-based highlighting...')
 					from browser_use.browser.python_highlights import create_highlighted_screenshot_async
