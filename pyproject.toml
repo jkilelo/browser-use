@@ -41,7 +41,10 @@ dependencies = [
     "cdp-use>=1.4.0",
     "pyotp>=2.9.0",
     "pillow>=11.2.1",
-    "markdownify>=1.2.0"
+    "markdownify>=1.2.0",
+    "beautifulsoup4>=4.12.0",
+    "matplotlib>=3.9.0",
+    "numpy>=2.3.2",
 ]
 # google-api-core: only used for Google LLM APIs
 # pyperclip: only used for examples that use copy/paste
@@ -62,6 +65,7 @@ cli = [
 code_use = [
     "ipykernel>=7.0.1",
     "nbclient>=0.10.2",
+
 ]
 aws = [
     "boto3>=1.38.45"

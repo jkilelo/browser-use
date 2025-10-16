@@ -5,8 +5,11 @@ similar to a Jupiter notebook environment.
 """
 
 import asyncio
+import csv
 import json
 import logging
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,35 @@ from browser_use.llm.base import BaseChatModel
 from browser_use.tools.service import Tools
 
 logger = logging.getLogger(__name__)
+
+# Try to import optional data science libraries
+try:
+	import numpy as np
+
+	NUMPY_AVAILABLE = True
+except ImportError:
+	NUMPY_AVAILABLE = False
+
+try:
+	import matplotlib.pyplot as plt
+
+	MATPLOTLIB_AVAILABLE = True
+except ImportError:
+	MATPLOTLIB_AVAILABLE = False
+
+try:
+	import requests
+
+	REQUESTS_AVAILABLE = True
+except ImportError:
+	REQUESTS_AVAILABLE = False
+
+try:
+	from bs4 import BeautifulSoup
+
+	BS4_AVAILABLE = True
+except ImportError:
+	BS4_AVAILABLE = False
 
 
 async def evaluate(code: str, browser_session: BrowserSession) -> Any:
@@ -138,11 +170,27 @@ def create_namespace(
 		# Core objects
 		'browser': browser_session,
 		'file_system': file_system,
-		# Utility modules
+		# Standard library modules (always available)
 		'json': json,
 		'asyncio': asyncio,
 		'Path': Path,
+		'csv': csv,
+		're': re,
+		'datetime': datetime,
 	}
+
+	# Add optional data science libraries if available
+	if NUMPY_AVAILABLE:
+		namespace['np'] = np
+		namespace['numpy'] = np
+	if MATPLOTLIB_AVAILABLE:
+		namespace['plt'] = plt
+		namespace['matplotlib'] = plt
+	if REQUESTS_AVAILABLE:
+		namespace['requests'] = requests
+	if BS4_AVAILABLE:
+		namespace['BeautifulSoup'] = BeautifulSoup
+		namespace['bs4'] = BeautifulSoup
 
 	# Add custom evaluate function that returns values directly
 	async def evaluate_wrapper(code: str) -> Any:

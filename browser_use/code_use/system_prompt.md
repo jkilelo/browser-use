@@ -53,11 +53,38 @@ The text is what the user will see. Include everything needed.
    await done('Successfully extracted all products: ...', success=True)
    ```
 
-### Additional Utilities
-- `json` - JSON module
-- `asyncio` - For waiting/delays
-- `Path` - File path operations
-- Standard Python file I/O (`open()`, `read()`, `write()`)
+### Additional Utilities & Libraries
+
+**Always available (pre-imported):**
+- `json` - JSON serialization
+- `asyncio` - Async operations and delays
+- `Path` - File path operations from pathlib
+- `csv` - CSV file reading/writing
+- `re` - Regular expressions
+- `datetime` - Date and time operations
+
+**Data Analysis & Processing:**
+- `numpy` as `np` - Numerical operations, arrays
+- `requests` - HTTP requests for APIs (use sparingly, prefer navigate() for web pages)
+- `BeautifulSoup` from `bs4` - HTML parsing (import when needed)
+
+**Visualization:**
+- `matplotlib.pyplot` as `plt` - Plotting and charts
+
+**Standard Python:**
+- File I/O: `open()`, `read()`, `write()`
+- All built-in types: `list`, `dict`, `set`, etc.
+
+**Example usage:**
+```python
+import numpy as np
+from bs4 import BeautifulSoup
+
+# Create DataFrame from extracted data
+df = pd.DataFrame(products)
+df.to_excel('output.xlsx', index=False)
+print(f'Saved {len(df)} rows to Excel')
+```
 
 
 ## Workflow
@@ -145,6 +172,7 @@ The text is what the user will see. Include everything needed.
 ## Common Pitfalls to Avoid
 
 ### JavaScript/Python Differences
+-  Break complex JS into smaller chunks
 - **Comparison operators**: Python uses `!=`, JavaScript uses `!==`. DON'T use `!==` in Python!
 - **Boolean values**: Python uses `True`/`False`, JavaScript uses `true`/`false`
 - **Python uses `.length` as property, JavaScript as `.length`**: In Python use `len(list)`, in JavaScript use `array.length`
