@@ -20,6 +20,8 @@ EVAL_KEY_ATTRIBUTES = [
 	'value',
 	'href',
 	'data-testid',
+	'alt',  # for images
+	'title',  # useful for tooltips/link context
 ]
 
 # Semantic elements that should always be shown
@@ -44,12 +46,22 @@ SEMANTIC_ELEMENTS = {
 	'article',
 	'section',
 	'table',
+	'thead',
+	'tbody',
+	'tr',
+	'th',
+	'td',
 	'ul',
 	'ol',
 	'li',
 	'img',
 	'iframe',
+	'video',
+	'audio',
 }
+
+# Container elements that can be collapsed if they only wrap one child
+COLLAPSIBLE_CONTAINERS = {'div', 'span', 'section', 'article'}
 
 
 class DOMEvalSerializer:
@@ -64,8 +76,9 @@ class DOMEvalSerializer:
 		- Self-closing tags only (no closing tags)
 		- Skip meaningless containers (divs/spans without useful attributes)
 		- Prioritize semantic elements
+		- Flatten single-child wrappers
 		- Limit text to 80 chars
-		- Minimal scroll info
+		- Minimal shadow/iframe notation
 		"""
 		if not node:
 			return ''
@@ -85,9 +98,13 @@ class DOMEvalSerializer:
 			tag = node.original_node.tag_name.lower()
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 
-			# Skip invisible elements
+			# Skip invisible elements (except iframes which might have visible content)
 			if not is_visible and tag not in ['iframe', 'frame']:
 				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
+
+			# Special handling for iframes - show them with their content
+			if tag in ['iframe', 'frame']:
+				return DOMEvalSerializer._serialize_iframe(node, include_attributes, depth)
 
 			# Build compact attributes string
 			attributes_str = DOMEvalSerializer._build_compact_attributes(node.original_node)
@@ -96,9 +113,20 @@ class DOMEvalSerializer:
 			is_semantic = tag in SEMANTIC_ELEMENTS
 			has_useful_attrs = bool(attributes_str)
 			has_text_content = DOMEvalSerializer._has_direct_text(node)
+			has_children = len(node.children) > 0
 
-			# Skip generic containers without useful attributes
+			# Skip generic containers without useful attributes or semantic value
 			if not is_semantic and not has_useful_attrs and not has_text_content:
+				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
+
+			# Collapse single-child wrappers without useful attributes
+			if (
+				tag in COLLAPSIBLE_CONTAINERS
+				and not has_useful_attrs
+				and not has_text_content
+				and len(node.children) == 1
+			):
+				# Skip this wrapper and just show the child
 				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
 
 			# Build compact element representation
@@ -116,21 +144,23 @@ class DOMEvalSerializer:
 
 			formatted_text.append(line)
 
-			# Process children with increased depth
-			children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1)
-			if children_text:
-				formatted_text.append(children_text)
+			# Process children with increased depth (but only if we have text-free children)
+			if has_children and not inline_text:
+				children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1)
+				if children_text:
+					formatted_text.append(children_text)
 
 		elif node.original_node.node_type == NodeType.TEXT_NODE:
 			# Text nodes are handled inline with their parent
 			pass
 
 		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
-			# Minimal shadow DOM representation
-			formatted_text.append(f'{depth_str}#shadow')
-			children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1)
-			if children_text:
-				formatted_text.append(children_text)
+			# Shadow DOM - just show children directly with minimal marker
+			if node.children:
+				formatted_text.append(f'{depth_str}#shadow')
+				children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1)
+				if children_text:
+					formatted_text.append(children_text)
 
 		return '\n'.join(formatted_text)
 
@@ -194,3 +224,91 @@ class DOMEvalSerializer:
 
 		combined = ' '.join(text_parts)
 		return cap_text_length(combined, 80)
+
+	@staticmethod
+	def _serialize_iframe(node: SimplifiedNode, include_attributes: list[str], depth: int) -> str:
+		"""Handle iframe serialization with content document."""
+		formatted_text = []
+		depth_str = depth * '\t'
+		tag = node.original_node.tag_name.lower()
+
+		# Build minimal iframe marker with key attributes
+		attributes_str = DOMEvalSerializer._build_compact_attributes(node.original_node)
+		line = f'{depth_str}<{tag}'
+		if attributes_str:
+			line += f' {attributes_str}'
+		line += ' />'
+		formatted_text.append(line)
+
+		# If iframe has content document, serialize its content
+		if node.original_node.content_document:
+			# Add marker for iframe content
+			formatted_text.append(f'{depth_str}\t#iframe-content')
+
+			# Process content document children
+			for child_node in node.original_node.content_document.children_nodes or []:
+				# Create temporary SimplifiedNode wrapper to reuse serialize_tree
+				# We need to process the content document's DOM tree
+				if child_node.tag_name.lower() == 'html':
+					# Find body or start serializing from html
+					for html_child in child_node.children:
+						if html_child.tag_name.lower() in ['body', 'head']:
+							# Only serialize body content for iframes
+							if html_child.tag_name.lower() == 'body':
+								for body_child in html_child.children:
+									# Recursively process body children
+									DOMEvalSerializer._serialize_document_node(body_child, formatted_text, include_attributes, depth + 2)
+							break
+
+		return '\n'.join(formatted_text)
+
+	@staticmethod
+	def _serialize_document_node(
+		dom_node: EnhancedDOMTreeNode, output: list[str], include_attributes: list[str], depth: int
+	) -> None:
+		"""Helper to serialize a document node without SimplifiedNode wrapper."""
+		depth_str = depth * '\t'
+
+		if dom_node.node_type == NodeType.ELEMENT_NODE:
+			tag = dom_node.tag_name.lower()
+
+			# Skip invisible and non-semantic elements
+			is_visible = dom_node.snapshot_node and dom_node.is_visible
+			if not is_visible:
+				return
+
+			# Check if semantic or has useful attributes
+			is_semantic = tag in SEMANTIC_ELEMENTS
+			attributes_str = DOMEvalSerializer._build_compact_attributes(dom_node)
+
+			if not is_semantic and not attributes_str:
+				# Skip but process children
+				for child in dom_node.children:
+					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth)
+				return
+
+			# Build element line
+			line = f'{depth_str}<{tag}'
+			if attributes_str:
+				line += f' {attributes_str}'
+
+			# Get direct text content
+			text_parts = []
+			for child in dom_node.children:
+				if child.node_type == NodeType.TEXT_NODE and child.node_value:
+					text = child.node_value.strip()
+					if text and len(text) > 1:
+						text_parts.append(text)
+
+			if text_parts:
+				combined = ' '.join(text_parts)
+				line += f'>{cap_text_length(combined, 60)}'
+			else:
+				line += ' />'
+
+			output.append(line)
+
+			# Process non-text children
+			for child in dom_node.children:
+				if child.node_type != NodeType.TEXT_NODE:
+					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth + 1)
