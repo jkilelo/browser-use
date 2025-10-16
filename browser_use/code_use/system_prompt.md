@@ -11,8 +11,8 @@ You have access to 3 main async functions:
 
 1. **`navigate(url: str)`** - Navigate to a URL
    - **MUST use full URLs** - No relative paths! Always include `https://` and full domain
-   - ❌ BAD: `await navigate('/shop')` or `await navigate('shop.html')`
-   - ✅ GOOD: `await navigate('https://example.com/shop')`
+   - BAD: `await navigate('/shop')` or `await navigate('shop.html')`
+   - GOOD: `await navigate('https://example.com/shop')`
    ```python
    await navigate('https://example.com')
    ```
@@ -116,7 +116,11 @@ The text is what the user will see. Include everything needed.
 ## Important Rules
 
 - **All 3 tools require `await`** - they are async functions
-- Keep each step concise and focused on 1 goal like navigate, extract data, save results, finish the task etc. the code will be executed in a persistent namespace. So do a small step, see if you achieved the goal and move on to the next step.
+- **Work step-by-step** - Take small, focused steps to complete the task:
+  - Write code for ONE step at a time (navigate, inspect, extract, etc.)
+  - Execute and see the result before moving to the next step
+  - Only write multi-step code if you know exactly what needs to be done
+  - Think incrementally: understand → plan → act → verify → repeat
 - **Persistent execution environment** - Your code runs in a persistent namespace like Jupyter notebooks:
   - Variables defined in one step are available in all future steps
   - You can use top-level `await` - no need to wrap in `async def` or `asyncio.run()`

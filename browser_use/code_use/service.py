@@ -340,8 +340,21 @@ __code_exec_coro__ = __code_exec__()"""
 				if e.text:
 					error += f'\n{e.text}'
 			else:
-				# For other errors, include the full traceback
-				error = f'{type(e).__name__}: {e}\n{traceback.format_exc()}'
+				# For other errors, only include the last line of the error message
+				# to keep feedback concise and actionable
+				error_str = str(e)
+				if error_str:
+					# Extract just the last meaningful line from multi-line errors
+					# Split by newlines and take the last non-empty line
+					lines = [line.strip() for line in error_str.split('\n') if line.strip()]
+					if lines:
+						# Take just the last line
+						error = f'{type(e).__name__}: {lines[-1]}'
+					else:
+						error = f'{type(e).__name__}: {error_str}'
+				else:
+					# If no error message, use a generic one
+					error = f'{type(e).__name__} occurred'
 
 			cell.status = ExecutionStatus.ERROR
 			cell.error = error
@@ -386,13 +399,13 @@ __code_exec_coro__ = __code_exec__()"""
 		result = []
 		result.append('## Executed\n')
 		if error:
-			result.append(f'**Error:**```{error}```')
+			result.append(f'**Error:** {error}\n')
 
 		if output:
 			# Truncate output if too long
 			if len(output) > 20000:
 				output = output[:19950] + '\n... [Truncated after 20000 characters]'
-			result.append(f'**Output:**\n```\n{output}\n```\n')
+			result.append(f'**Output:**\n{output}\n')
 
 		return ''.join(result)
 
