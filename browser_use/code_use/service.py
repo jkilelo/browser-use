@@ -82,6 +82,7 @@ class CodeUseAgent:
 		self._llm_messages: list[BaseMessage] = []  # Internal LLM conversation history
 		self.complete_history: list[dict] = []  # Eval system history with model_output and result
 		self.dom_service: DomService | None = None
+		self._last_browser_state: str | None = None  # Track last browser state for current message only
 
 		# Initialize screenshot service for eval tracking
 		self.id = uuid7str()
@@ -187,8 +188,8 @@ class CodeUseAgent:
 						logger.info(f'Final result: {final_result}')
 					break
 
-				# Add result to LLM messages for next iteration
-				result_message = self._format_execution_result(code, output, error, browser_state)
+				# Add result to LLM messages for next iteration (without browser state)
+				result_message = self._format_execution_result(code, output, error)
 				self._llm_messages.append(UserMessage(content=result_message))
 
 			except Exception as e:
@@ -213,8 +214,16 @@ class CodeUseAgent:
 		Returns:
 			Tuple of (extracted_code, full_llm_response)
 		"""
-		# Call LLM with message history
-		response = await self.llm.ainvoke(self._llm_messages)
+		# Prepare messages for this request
+		# Include browser state as separate message if available (not accumulated in history)
+		messages_to_send = self._llm_messages.copy()
+		if self._last_browser_state:
+			messages_to_send.append(UserMessage(content=self._last_browser_state))
+			# Clear browser state after including it so it's only in this request
+			self._last_browser_state = None
+
+		# Call LLM with message history (including temporary browser state message)
+		response = await self.llm.ainvoke(messages_to_send)
 
 		# Log the LLM's raw output for debugging
 		logger.info(f'LLM Response:\n{response.completion}')
@@ -293,6 +302,8 @@ class CodeUseAgent:
 			if self.browser_session and self.dom_service:
 				try:
 					browser_state = await self._get_browser_state()
+					# Store as last browser state for use in next message
+					self._last_browser_state = browser_state
 				except Exception as e:
 					logger.warning(f'Failed to get browser state: {e}')
 
@@ -413,8 +424,8 @@ class CodeUseAgent:
 			logger.error(f'Failed to get browser state: {e}')
 			return f'Error getting browser state: {e}'
 
-	def _format_execution_result(self, code: str, output: str | None, error: str | None, browser_state: str | None) -> str:
-		"""Format the execution result for the LLM."""
+	def _format_execution_result(self, code: str, output: str | None, error: str | None) -> str:
+		"""Format the execution result for the LLM (without browser state)."""
 		result = []
 		result.append('## Executed\n')
 		if error:
@@ -425,13 +436,6 @@ class CodeUseAgent:
 			if len(output) > 20000:
 				output = output[:19950] + '\n... [Truncated after 20000 characters]'
 			result.append(f'**Output:**\n```\n{output}\n```\n')
-
-		# Add browser state
-		if browser_state:
-			# Truncate browser state if too long
-			if len(browser_state) > 30000:
-				browser_state = browser_state[:29950] + '\n... [Truncated after 30000 characters]'
-			result.append(f'\n{browser_state}\n')
 
 		return ''.join(result)
 
