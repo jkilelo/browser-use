@@ -463,10 +463,34 @@ __result__ = __code_use_exec__()
 		self, model_output_code: str, full_llm_response: str, output: str | None, error: str | None, screenshot_path: str | None
 	) -> None:
 		"""Add a step to complete_history in eval system format."""
+		# Get current browser URL and title for state
+		url = None
+		title = None
+		if self.browser_session:
+			try:
+				url = await self.browser_session.get_current_page_url()
+				# Get title from browser
+				cdp_session = await self.browser_session.get_or_create_cdp_session()
+				result = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': 'document.title', 'returnByValue': True},
+					session_id=cdp_session.session_id,
+				)
+				title = result.get('result', {}).get('value')
+			except Exception as e:
+				logger.debug(f'Failed to get browser URL/title for history: {e}')
+
 		# Create result entry matching eval system expectations
 		result_entry = {
 			'extracted_content': output if output else None,
 			'error': error if error else None,
+		}
+
+		# Create state entry (will be converted to object with get_screenshot() method by DictToObject)
+		# The eval system expects state to have url, title, and get_screenshot() method
+		state_entry = {
+			'url': url,
+			'title': title,
+			'screenshot_path': screenshot_path,  # Store path here for get_screenshot() to use
 		}
 
 		# Create history entry matching eval system format
@@ -477,7 +501,8 @@ __result__ = __code_use_exec__()
 				'full_response': full_llm_response,  # The complete LLM response including any text/reasoning
 			},
 			'result': [result_entry],  # Always a list
-			'screenshot_path': screenshot_path,
+			'state': state_entry,  # Add state entry for eval system
+			'screenshot_path': screenshot_path,  # Keep this for backward compatibility
 		}
 
 		self.complete_history.append(history_entry)
@@ -521,10 +546,39 @@ __result__ = __code_use_exec__()
 		This is what the eval system expects when it does: agent_history = agent.history
 		"""
 
+		class DictToObject:
+			"""Convert dict to object with attribute access for eval compatibility."""
+
+			def __init__(self, data):
+				for key, value in data.items():
+					if isinstance(value, dict):
+						setattr(self, key, DictToObject(value))
+					elif isinstance(value, list):
+						setattr(self, key, [DictToObject(item) if isinstance(item, dict) else item for item in value])
+					else:
+						setattr(self, key, value)
+
+			def model_dump(self):
+				"""Support model_dump() calls from eval system."""
+				result = {}
+				for key, value in self.__dict__.items():
+					if isinstance(value, DictToObject):
+						result[key] = value.model_dump()
+					elif isinstance(value, list):
+						result[key] = [item.model_dump() if isinstance(item, DictToObject) else item for item in value]
+					else:
+						result[key] = value
+				return result
+
+			def get_screenshot(self):
+				"""Support get_screenshot() calls for state objects."""
+				# CodeUseAgent stores screenshot paths, not base64 data
+				return None
+
 		class MockAgentHistoryList:
 			def __init__(self, complete_history):
-				# Store complete_history as .history attribute for compatibility
-				self.history = complete_history
+				# Convert each dict in complete_history to objects with attribute access
+				self.history = [DictToObject(item) for item in complete_history]
 				self.usage = None
 
 		return MockAgentHistoryList(self.complete_history)
