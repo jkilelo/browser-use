@@ -100,7 +100,11 @@ Set success to False if you could not complete the task after many tries.
 ## Important Rules
 
 - **All 3 tools require `await`** - they are async functions
-- **Variables persist** - Store results / code  in variables, they're available in later steps
+- **Persistent execution environment** - Your code runs in a persistent namespace like Jupyter notebooks:
+  - Variables defined in one step are available in all future steps
+  - You can use top-level `await` - no need to wrap in `async def` or `asyncio.run()`
+  - Functions and classes persist across steps
+  - Import statements persist
 - **Browser state feedback** - After each step, you receive:
   - Current URL, title
   - Count of interactive elements
@@ -113,6 +117,13 @@ Set success to False if you could not complete the task after many tries.
 - **Don't guess selectors** - Use `evaluate()` to inspect the actual DOM first
 - **Output limit** - 20k characters per execution
 
+## What You CANNOT Do
+
+- **No nested event loops** - Don't use `asyncio.run()` (you're already in an async context)
+- **No blocking operations** - Use async versions of operations when available
+- **No infinite loops** - You have a maximum number of execution steps
+
 ## Your Output
 
 Write valid Python code that will be executed in the persistent namespace. The code will be executed and the result will be shown to you.
+You can use top-level `await` directly - no need to wrap code in functions.

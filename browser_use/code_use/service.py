@@ -284,11 +284,30 @@ class CodeUseAgent:
 				if 'asyncio' not in self.namespace:
 					self.namespace['asyncio'] = asyncio
 
-				# Execute code directly in namespace as module-level code
-				# This allows nested functions to access variables defined in the same cell
-				# and makes it work like a real Python module or Jupyter notebook
-				compiled_code = compile(code, '<code>', 'exec')
+				# Wrap code in async function to support top-level await
+				# This makes it work like Jupyter notebooks with async support
+				# We use globals() and locals() to maintain variable persistence
+				indented_code = '\n'.join('\t' + line for line in code.split('\n'))
+				wrapped_code = f'''async def __code_exec__():
+{indented_code}
+	# Update namespace with any new variables defined in this cell
+	_locals = locals()
+	for _key in list(_locals.keys()):
+		if not _key.startswith('_'):
+			globals()[_key] = _locals[_key]
+
+__code_exec_coro__ = __code_exec__()'''
+
+				# Compile and execute to create the coroutine
+				compiled_code = compile(wrapped_code, '<code>', 'exec')
 				exec(compiled_code, self.namespace, self.namespace)
+
+				# Get the coroutine and await it
+				coro = self.namespace.get('__code_exec_coro__')
+				if coro:
+					await coro
+					# Clean up
+					del self.namespace['__code_exec_coro__']
 
 				# Get output
 				output_value = sys.stdout.getvalue()
