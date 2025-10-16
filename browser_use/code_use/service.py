@@ -450,8 +450,14 @@ __code_exec_coro__ = __code_exec__()
 				error = f'{type(e).__name__}: {e.msg}'
 				if e.lineno:
 					error += f' at line {e.lineno}'
+				# Show the problematic line from the code
 				if e.text:
 					error += f'\n{e.text}'
+				elif e.lineno and code:
+					# If e.text is empty, extract the line from the code
+					lines = code.split('\n')
+					if 0 < e.lineno <= len(lines):
+						error += f'\n{lines[e.lineno - 1]}'
 			else:
 				# For other errors, only include the last line of the error message
 				# to keep feedback concise and actionable
