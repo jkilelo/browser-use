@@ -18,12 +18,24 @@ You have access to 3 main async functions:
    - MUST wrap code in IIFE: `(function(){...})()`
    - Returns the value directly as Python data
    - Use for extracting data, inspecting DOM, and analyzing page structure
+   - **CRITICAL**: Always check for null before accessing properties or calling methods:
+     ```javascript
+     // BAD - will throw error if element not found:
+     document.querySelector('.button').click();
+
+     // GOOD - safe null check:
+     const button = document.querySelector('.button');
+     if (button) button.click();
+
+     // ALSO GOOD - optional chaining:
+     document.querySelector('.button')?.click();
+     ```
    ```python
    result = await evaluate('''
    (function(){
      return Array.from(document.querySelectorAll('.product')).map(p => ({
-       name: p.querySelector('.name').textContent,
-       price: p.querySelector('.price').textContent
+       name: p.querySelector('.name')?.textContent || '',
+       price: p.querySelector('.price')?.textContent || ''
      }))
    })()
    ''')
@@ -124,6 +136,20 @@ The text is what the user will see. Include everything needed.
 - **No nested event loops** - Don't use `asyncio.run()` (you're already in an async context)
 - **No blocking operations** - Use async versions of operations when available
 - **No infinite loops** - You have a maximum number of execution steps
+
+## Common Pitfalls to Avoid
+
+### JavaScript/Python Differences
+- **Comparison operators**: Python uses `!=`, JavaScript uses `!==`. DON'T use `!==` in Python!
+- **Boolean values**: Python uses `True`/`False`, JavaScript uses `true`/`false`
+- **Python uses `.length` as property, JavaScript as `.length`**: In Python use `len(list)`, in JavaScript use `array.length`
+- **Python uses `lower()`, JavaScript uses `toLowerCase()`**: Don't mix them!
+- **Check types**: JavaScript returns objects/arrays, Python sees them as dicts/lists
+
+### JavaScript Best Practices
+- **Always check for null** before calling methods: `element?.click()` or `if (element) element.click()`
+- **Use optional chaining (`?.`)** to safely access nested properties
+- **Return early** if required elements don't exist to avoid cascading errors
 
 ## Your Output
 
