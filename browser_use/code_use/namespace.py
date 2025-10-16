@@ -29,6 +29,13 @@ except ImportError:
 	NUMPY_AVAILABLE = False
 
 try:
+	import pandas as pd
+
+	PANDAS_AVAILABLE = True
+except ImportError:
+	PANDAS_AVAILABLE = False
+
+try:
 	import matplotlib.pyplot as plt
 
 	MATPLOTLIB_AVAILABLE = True
@@ -190,6 +197,9 @@ def create_namespace(
 	if NUMPY_AVAILABLE:
 		namespace['np'] = np
 		namespace['numpy'] = np
+	if PANDAS_AVAILABLE:
+		namespace['pd'] = pd
+		namespace['pandas'] = pd
 	if MATPLOTLIB_AVAILABLE:
 		namespace['plt'] = plt
 		namespace['matplotlib'] = plt
