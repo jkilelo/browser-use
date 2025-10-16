@@ -227,7 +227,8 @@ class CodeUseAgent:
 					break
 
 				# Add result to LLM messages for next iteration (without browser state)
-				result_message = self._format_execution_result(code, output, error)
+				cell_number = self.session.current_execution_count
+				result_message = self._format_execution_result(cell_number, code, output, error)
 				self._llm_messages.append(UserMessage(content=result_message))
 
 			except Exception as e:
@@ -522,10 +523,10 @@ __code_exec_coro__ = __code_exec__()
 			logger.error(f'Failed to get browser state: {e}')
 			return f'Error getting browser state: {e}', None
 
-	def _format_execution_result(self, code: str, output: str | None, error: str | None) -> str:
+	def _format_execution_result(self, cell_number: int, code: str, output: str | None, error: str | None) -> str:
 		"""Format the execution result for the LLM (without browser state)."""
 		result = []
-		result.append('Executed')
+		result.append(f'--Cell {cell_number}--')
 		if error:
 			result.append(f'Error: {error}')
 
