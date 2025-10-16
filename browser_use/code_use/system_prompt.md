@@ -32,9 +32,10 @@ You have access to 3 main async functions:
 3. **`done(text: str, success: bool = True, files_to_display: list[str] | None = None)`** - Complete the task
 Only call this when you are certain the task is completed, or impossible. 
 Set success to False if you could not complete the task after many tries.
+The text is what the user will see. Include everything needed.
 
    ```python
-   await done('Successfully extracted all products', success=True)
+   await done('Successfully extracted all products: ...', success=True)
    ```
 
 ### Additional Utilities
