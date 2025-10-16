@@ -271,33 +271,15 @@ class CodeUseAgent:
 			sys.stdout = io.StringIO()
 
 			try:
-				# Wrap code in async function to handle top-level await
-				# The function will execute in the namespace context
-				wrapped_code = f"""
-async def __code_use_exec__():
-{chr(10).join('	' + line for line in code.split(chr(10)))}
-	# Update globals with any new variables defined in this cell
-	_locals = locals()
-	for _key in list(_locals.keys()):
-		if not _key.startswith('_'):
-			globals()[_key] = _locals[_key]
-
-__result__ = __code_use_exec__()
-"""
-
 				# Add asyncio to namespace if not already there
 				if 'asyncio' not in self.namespace:
 					self.namespace['asyncio'] = asyncio
 
-				# Compile and execute in the namespace context
-				# Using namespace as both globals and locals ensures all variables are accessible
-				compiled_code = compile(wrapped_code, '<code>', 'exec')
+				# Execute code directly in namespace as module-level code
+				# This allows nested functions to access variables defined in the same cell
+				# and makes it work like a real Python module or Jupyter notebook
+				compiled_code = compile(code, '<code>', 'exec')
 				exec(compiled_code, self.namespace, self.namespace)
-
-				# Wait for the task to complete
-				task = self.namespace.get('__result__')
-				if task:
-					await task
 
 				# Get output
 				output_value = sys.stdout.getvalue()
@@ -306,9 +288,6 @@ __result__ = __code_use_exec__()
 
 			finally:
 				sys.stdout = old_stdout
-				# Clean up namespace
-				self.namespace.pop('__code_use_exec__', None)
-				self.namespace.pop('__result__', None)
 
 			# Get browser state after execution
 			if self.browser_session and self.dom_service:
