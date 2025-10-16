@@ -180,6 +180,12 @@ class CodeUseAgent:
 				logger.error(f'Error in step {step + 1}: {e}')
 				traceback.print_exc()
 				break
+		else:
+			# Loop completed without break - max_steps reached
+			logger.warning(f'Maximum steps ({self.max_steps}) reached without task completion')
+
+		# Auto-close browser if keep_alive is False
+		await self.close()
 
 		return self.session
 
@@ -506,6 +512,21 @@ __result__ = __code_use_exec__()
 				self.last_input_messages = history
 
 		return MockMessageManager(self.history)
+
+	@property
+	def history_list(self):
+		"""
+		Compatibility property for eval system.
+		Returns a mock AgentHistoryList object with history attribute.
+		"""
+
+		class MockAgentHistoryList:
+			def __init__(self, complete_history):
+				# Store complete_history as .history attribute for compatibility
+				self.history = complete_history
+				self.usage = None
+
+		return MockAgentHistoryList(self.complete_history)
 
 	async def close(self):
 		"""Close the browser session."""
