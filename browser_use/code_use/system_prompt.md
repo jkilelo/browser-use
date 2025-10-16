@@ -47,7 +47,6 @@ Use standard Python file operations:
 2. **Explore page structure first** 
    - Use `evaluate()` to inspect the DOM, first general and then specific elements you are looking for and understand what's available to interact with
    - Identify selectors, element counts, and page structure
-   - Verify elements exist before attempting to click/input
 
    Example:
    ```python

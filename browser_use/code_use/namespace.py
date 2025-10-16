@@ -170,6 +170,9 @@ def create_namespace(
 					# Special handling for done action - mark task as complete
 					if act_name == 'done' and hasattr(result, 'is_done') and result.is_done:
 						namespace['_task_done'] = True
+						# Store the extracted content as the final result
+						if result.extracted_content:
+							namespace['_task_result'] = result.extracted_content
 
 					# If there's extracted content, return it
 					if result.extracted_content:

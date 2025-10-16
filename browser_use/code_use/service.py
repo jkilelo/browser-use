@@ -165,7 +165,11 @@ class CodeUseAgent:
 
 				# Check if task is done
 				if self._is_task_done():
+					# Get the final result from namespace
+					final_result = self.namespace.get('_task_result', output)
 					logger.info('Task completed successfully')
+					if final_result:
+						logger.info(f'Final result: {final_result}')
 					break
 
 				# Add result to history for next iteration
