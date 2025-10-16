@@ -14,7 +14,15 @@ from browser_use.browser.profile import BrowserProfile
 from browser_use.dom.service import DomService
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
-from browser_use.llm.messages import AssistantMessage, BaseMessage, SystemMessage, UserMessage
+from browser_use.llm.messages import (
+	AssistantMessage,
+	BaseMessage,
+	ContentPartImageParam,
+	ContentPartTextParam,
+	ImageURL,
+	SystemMessage,
+	UserMessage,
+)
 from browser_use.screenshots.service import ScreenshotService
 from browser_use.tokens.service import TokenCost
 from browser_use.tools.service import Tools
@@ -45,6 +53,7 @@ class CodeUseAgent:
 		available_file_paths: list[str] | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_steps: int = 100,
+		use_vision: bool = True,
 		**kwargs,
 	):
 		"""
@@ -61,6 +70,7 @@ class CodeUseAgent:
 			available_file_paths: Optional list of available file paths
 			sensitive_data: Optional sensitive data dictionary
 			max_steps: Maximum number of execution steps
+			use_vision: Whether to include screenshots in LLM messages (default: True)
 			**kwargs: Additional keyword arguments for compatibility (ignored)
 		"""
 		# Log and ignore unknown kwargs for compatibility
@@ -76,13 +86,15 @@ class CodeUseAgent:
 		self.available_file_paths = available_file_paths or []
 		self.sensitive_data = sensitive_data
 		self.max_steps = max_steps
+		self.use_vision = use_vision
 
 		self.session = NotebookSession()
 		self.namespace: dict[str, Any] = {}
 		self._llm_messages: list[BaseMessage] = []  # Internal LLM conversation history
 		self.complete_history: list[dict] = []  # Eval system history with model_output and result
 		self.dom_service: DomService | None = None
-		self._last_browser_state: str | None = None  # Track last browser state for current message only
+		self._last_browser_state_text: str | None = None  # Track last browser state text
+		self._last_screenshot: str | None = None  # Track last screenshot (base64)
 		self._consecutive_errors = 0  # Track consecutive errors for auto-termination
 		self._max_consecutive_errors = 5  # Maximum consecutive errors before termination
 
@@ -243,10 +255,34 @@ class CodeUseAgent:
 		# Prepare messages for this request
 		# Include browser state as separate message if available (not accumulated in history)
 		messages_to_send = self._llm_messages.copy()
-		if self._last_browser_state:
-			messages_to_send.append(UserMessage(content=self._last_browser_state))
+
+		if self._last_browser_state_text:
+			# Create message with optional screenshot
+			if self.use_vision and self._last_screenshot:
+				# Build content with text + screenshot
+				content_parts: list[ContentPartTextParam | ContentPartImageParam] = [
+					ContentPartTextParam(text=self._last_browser_state_text)
+				]
+
+				# Add screenshot
+				content_parts.append(
+					ContentPartImageParam(
+						image_url=ImageURL(
+							url=f'data:image/jpeg;base64,{self._last_screenshot}',
+							media_type='image/jpeg',
+							detail='auto',
+						),
+					)
+				)
+
+				messages_to_send.append(UserMessage(content=content_parts))
+			else:
+				# Text only
+				messages_to_send.append(UserMessage(content=self._last_browser_state_text))
+
 			# Clear browser state after including it so it's only in this request
-			self._last_browser_state = None
+			self._last_browser_state_text = None
+			self._last_screenshot = None
 
 		# Call LLM with message history (including temporary browser state message)
 		response = await self.llm.ainvoke(messages_to_send)
@@ -395,9 +431,11 @@ __code_exec_coro__ = __code_exec__()
 			# Get browser state after execution
 			if self.browser_session and self.dom_service:
 				try:
-					browser_state = await self._get_browser_state()
+					browser_state_text, screenshot = await self._get_browser_state()
 					# Store as last browser state for use in next message
-					self._last_browser_state = browser_state
+					self._last_browser_state_text = browser_state_text
+					self._last_screenshot = screenshot
+					browser_state = browser_state_text  # For logging and cell storage
 				except Exception as e:
 					logger.warning(f'Failed to get browser state: {e}')
 
@@ -435,20 +473,32 @@ __code_exec_coro__ = __code_exec__()
 			cell.error = error
 			logger.error(f'Code execution error: {error}')
 
+			# Get browser state after error (important for LLM to see state after failure)
+			if self.browser_session and self.dom_service:
+				try:
+					browser_state_text, screenshot = await self._get_browser_state()
+					# Store as last browser state for use in next message
+					self._last_browser_state_text = browser_state_text
+					self._last_screenshot = screenshot
+					browser_state = browser_state_text  # For logging and cell storage
+				except Exception as browser_state_error:
+					logger.warning(f'Failed to get browser state after error: {browser_state_error}')
+
 		return output, error, browser_state
 
-	async def _get_browser_state(self) -> str:
-		"""Get the current browser state as text with full DOM structure for evaluation."""
+	async def _get_browser_state(self) -> tuple[str, str | None]:
+		"""Get the current browser state as text with ultra-minimal DOM structure for code agents.
+
+		Returns:
+			Tuple of (browser_state_text, screenshot_base64)
+		"""
 		if not self.browser_session or not self.dom_service:
-			return 'Browser state not available'
+			return 'Browser state not available', None
 
 		try:
-			# Get full browser state using the eval_representation which includes:
-			# - Full HTML structure up to interactive elements
-			# - All meaningful text content
-			# - Enhanced attribute information
-			# - No interactive indexes (not needed for code execution context)
-			state = await self.browser_session.get_browser_state_summary()
+			# Get full browser state including screenshot if use_vision is enabled
+			include_screenshot = self.use_vision
+			state = await self.browser_session.get_browser_state_summary(include_screenshot=include_screenshot)
 			assert state.dom_state is not None
 			dom_state = state.dom_state
 
@@ -463,11 +513,14 @@ __code_exec_coro__ = __code_exec__()
 			lines.append('**DOM Structure:**')
 			lines.append(dom_html[:40000])
 
-			return '\n'.join(lines)
+			browser_state_text = '\n'.join(lines)
+			screenshot = state.screenshot if include_screenshot else None
+
+			return browser_state_text, screenshot
 
 		except Exception as e:
 			logger.error(f'Failed to get browser state: {e}')
-			return f'Error getting browser state: {e}'
+			return f'Error getting browser state: {e}', None
 
 	def _format_execution_result(self, code: str, output: str | None, error: str | None) -> str:
 		"""Format the execution result for the LLM (without browser state)."""
