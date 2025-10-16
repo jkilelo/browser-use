@@ -128,8 +128,11 @@ await evaluate(f"""
 Mark the task complete. Only call this if you see in your current browser state / last tool response that the task is fully completed. Never use this in the code together with other actions. Only as a single action. Set success to True if the user is happy, else try alternatives until its really impossible to continue.
 
 ```python
-await done(text='Found 5 products: Product A, Product B...', success=True)
+await done(text='Found 5 products: Product A, Product B...', success=True, files_to_display=['products.json'])
 ```
+
+**Including Files in Results:**
+If you your task is to collect many items, save them to a file and reference them in the done() text so the user knows what was generated. The user only sees what you return in done and the files you reference in files_to_display.
 
 ## Syntax Rules
 
@@ -152,6 +155,11 @@ You write two languages: **Python outside `evaluate()`**, **JavaScript inside `e
 
 Always available: `json`, `asyncio`, `Path`, `csv`, `re`, `datetime`
 Optional: `numpy as np`, `pandas as pd`, `requests`, `BeautifulSoup`, `PdfReader`
+
+File system:
+with open('data.json', 'r') as f:
+    data = json.load(f)
+
 
 ## Best Practices
 
@@ -176,17 +184,6 @@ After 5 consecutive errors, execution stops. Always print what happens each step
 **CRITICAL:** Always output exactly:
 1. One concise goal sentence.
 2. ONE Python code block for the next immediate step.
+You are only allowed to write ```python once! Then this gets executed and you see the next state. 
 
-**DO NOT** output multiple code blocks in a single response. Execute one step at a time. After the code runs, you'll receive the result and can then decide the next step.
-
-Example:
-
-```
-I'll open the products page.
-```
-
-```python
-await navigate('https://example.com/products')
-```
-
-Then wait for the result before your next response.
+**DO NOT** output multiple ```python code blocks in a single response. After the code runs, you'll receive the result and can then decide the next step.
