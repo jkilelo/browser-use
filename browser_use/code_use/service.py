@@ -16,6 +16,7 @@ from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import AssistantMessage, BaseMessage, SystemMessage, UserMessage
 from browser_use.screenshots.service import ScreenshotService
+from browser_use.tokens.service import TokenCost
 from browser_use.tools.service import Tools
 
 from .namespace import create_namespace
@@ -88,6 +89,12 @@ class CodeUseAgent:
 		base_tmp = Path('/tmp')
 		self.agent_directory = base_tmp / f'browser_use_code_agent_{self.id}_{timestamp}'
 		self.screenshot_service = ScreenshotService(agent_directory=self.agent_directory)
+
+		# Initialize token cost service for usage tracking
+		self.token_cost_service = TokenCost(include_cost=True)
+		self.token_cost_service.register_llm(llm)
+		if page_extraction_llm:
+			self.token_cost_service.register_llm(page_extraction_llm)
 
 	async def run(self, max_steps: int | None = None) -> NotebookSession:
 		"""
@@ -194,6 +201,9 @@ class CodeUseAgent:
 
 		# Auto-close browser if keep_alive is False
 		await self.close()
+
+		# Log token usage summary
+		await self.token_cost_service.log_usage_summary()
 
 		return self.session
 
@@ -491,11 +501,16 @@ __result__ = __code_use_exec__()
 		# Check if this is a done result
 		is_done = self._is_task_done()
 
+		# Get self-reported success from done() call if task is done
+		self_reported_success = None
+		if is_done:
+			self_reported_success = self.namespace.get('_task_success')
+
 		result_entry = {
 			'extracted_content': output if output else None,
 			'error': error if error else None,
 			'is_done': is_done,  # Add is_done flag for eval system
-			'success': not bool(error) if is_done else None,  # Add success flag if task is done
+			'success': self_reported_success,  # Use self-reported success from done() call
 		}
 
 		# Create state entry (will be converted to object with get_screenshot() method by DictToObject)
@@ -620,12 +635,23 @@ __result__ = __code_use_exec__()
 					return None
 
 		class MockAgentHistoryList:
-			def __init__(self, complete_history):
+			def __init__(self, complete_history, token_cost_service):
 				# Convert each dict in complete_history to objects with attribute access
 				self.history = [DictToObject(item) for item in complete_history]
-				self.usage = None
+				# Get usage summary from token cost service (sync version)
+				try:
+					import asyncio
+					loop = asyncio.get_event_loop()
+					if loop.is_running():
+						# If loop is running, we can't await, so usage will be None
+						self.usage = None
+					else:
+						# Get the usage summary synchronously
+						self.usage = loop.run_until_complete(token_cost_service.get_usage_summary())
+				except Exception:
+					self.usage = None
 
-		return MockAgentHistoryList(self.complete_history)
+		return MockAgentHistoryList(self.complete_history, self.token_cost_service)
 
 	async def close(self):
 		"""Close the browser session."""

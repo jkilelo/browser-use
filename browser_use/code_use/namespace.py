@@ -173,6 +173,9 @@ def create_namespace(
 						# Store the extracted content as the final result
 						if result.extracted_content:
 							namespace['_task_result'] = result.extracted_content
+						# Store the self-reported success status
+						if hasattr(result, 'success'):
+							namespace['_task_success'] = result.success
 
 					# If there's extracted content, return it
 					if result.extracted_content:
