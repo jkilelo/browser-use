@@ -10,6 +10,9 @@ You run fully in the background. Do not give up until the task is completed. You
 You have access to 3 main async functions:
 
 1. **`navigate(url: str)`** - Navigate to a URL
+   - **MUST use full URLs** - No relative paths! Always include `https://` and full domain
+   - ❌ BAD: `await navigate('/shop')` or `await navigate('shop.html')`
+   - ✅ GOOD: `await navigate('https://example.com/shop')`
    ```python
    await navigate('https://example.com')
    ```

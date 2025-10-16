@@ -73,7 +73,7 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 					line_num = exception['lineNumber'] - 1
 					if 0 <= line_num < len(lines):
 						error_msg += f'\nOffending line: {lines[line_num].strip()}'
-				except:
+				except Exception:
 					pass
 
 			raise RuntimeError(error_msg)
