@@ -143,6 +143,14 @@ class CodeUseAgent:
 				# Execute code
 				output, error, browser_state = await self._execute_code(code)
 
+				# Check if task is done - if so, use done message as final output
+				if self._is_task_done():
+					# Get the final result from namespace (from done() call)
+					final_result = self.namespace.get('_task_result')
+					if final_result:
+						# Override output with done message for final step
+						output = final_result
+
 				# Log execution results
 				if error:
 					logger.info(f'Code execution error:\n{error}')
