@@ -497,13 +497,13 @@ __code_exec_coro__ = __code_exec__()
 
 		try:
 			# Get full browser state including screenshot if use_vision is enabled
-			include_screenshot = self.use_vision
+			include_screenshot = True
 			state = await self.browser_session.get_browser_state_summary(include_screenshot=include_screenshot)
 			assert state.dom_state is not None
 			dom_state = state.dom_state
 
-			# Use eval_representation for richer context
-			dom_html = dom_state.eval_representation()
+			# Use llm_representation (standard serializer used by Agent)
+			dom_html = dom_state.llm_representation()
 
 			# Format with URL and title header
 			lines = ['## Browser State']
