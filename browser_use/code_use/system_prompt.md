@@ -45,7 +45,7 @@ You have access to 3 main async functions:
    ```
 
 3. **`done(text: str, success: bool = True, files_to_display: list[str] | None = None)`** - Complete the task
-Only call this when you are certain the task is completed, or impossible. 
+Only use this when you are certain the task is completed. This is only allowed if you see in your current user message that the task is completed.  
 Set success to False if you could not complete the task after many tries.
 The text is what the user will see. Include everything needed.
 
