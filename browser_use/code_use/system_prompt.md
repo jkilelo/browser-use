@@ -79,11 +79,29 @@ The text is what the user will see. Include everything needed.
 ```python
 import numpy as np
 from bs4 import BeautifulSoup
+import csv
 
-# Create DataFrame from extracted data
-df = pd.DataFrame(products)
-df.to_excel('output.xlsx', index=False)
-print(f'Saved {len(df)} rows to Excel')
+# Extract data from page
+products = await evaluate('''
+(function(){
+    return Array.from(document.querySelectorAll('.product')).map(p => ({
+        name: p.querySelector('.name')?.textContent,
+        price: p.querySelector('.price')?.textContent
+    }))
+})()
+''')
+
+# Use numpy for numerical operations
+prices = np.array([float(p['price'].replace('$', '')) for p in products])
+avg_price = prices.mean()
+
+# Save to CSV
+with open('products.csv', 'w', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=['name', 'price'])
+    writer.writeheader()
+    writer.writerows(products)
+
+print(f'Saved {len(products)} products with avg price ${avg_price:.2f}')
 ```
 
 
