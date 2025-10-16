@@ -852,7 +852,6 @@ class SerializedDOMState:
 
 		This serializer balances token efficiency with useful context:
 		- Keeps top 2 CSS classes for querySelector compatibility
-		- Includes href attributes for navigation
 		- Shows div/span/p with useful attributes or text content
 		- Prioritizes interactive + semantic elements
 		- 80 char text max (vs 40000+ in full representation)

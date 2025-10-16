@@ -16,9 +16,7 @@ CODE_USE_KEY_ATTRIBUTES = [
 	'placeholder',  # For empty inputs
 	'aria-label',  # For buttons without text
 	'value',  # Current values
-	'data-testid',  # Common test selector
 	'alt',  # For images
-	'href',  # For links - important for navigation
 	'class',  # Keep top 2 classes for common selectors
 ]
 
@@ -67,7 +65,6 @@ class DOMCodeUseSerializer:
 
 		Strategy:
 		- Keep top 2 CSS classes for querySelector compatibility
-		- Keep href attributes for links
 		- Show div/span/p elements with useful attributes or text
 		- Show all interactive + semantic elements
 		- Inline text up to 80 chars for better context
