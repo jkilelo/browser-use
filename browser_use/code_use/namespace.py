@@ -50,9 +50,32 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 		# Check for JavaScript execution errors
 		if result.get('exceptionDetails'):
 			exception = result['exceptionDetails']
-			error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
+			error_text = exception.get('text', 'Unknown error')
+
+			# Try to get more details from the exception
+			error_details = []
+			if 'exception' in exception:
+				exc_obj = exception['exception']
+				if 'description' in exc_obj:
+					error_details.append(exc_obj['description'])
+				elif 'value' in exc_obj:
+					error_details.append(str(exc_obj['value']))
+
+			# Build comprehensive error message
+			error_msg = f'JavaScript execution error: {error_text}'
+			if error_details:
+				error_msg += f'\nDetails: {" | ".join(error_details)}'
 			if 'lineNumber' in exception:
-				error_msg += f' at line {exception["lineNumber"]}'
+				error_msg += f'\nat line {exception["lineNumber"]}'
+				# Try to extract the offending line from the code
+				try:
+					lines = code.split('\n')
+					line_num = exception['lineNumber'] - 1
+					if 0 <= line_num < len(lines):
+						error_msg += f'\nOffending line: {lines[line_num].strip()}'
+				except:
+					pass
+
 			raise RuntimeError(error_msg)
 
 		# Get the result data
