@@ -1,4 +1,4 @@
-# @file purpose: Evaluation-focused serializer for DOM trees (no interactive indexes, full structure)
+# @file purpose: Concise evaluation serializer for DOM trees - optimized for LLM query writing
 
 
 from browser_use.dom.utils import cap_text_length
@@ -8,231 +8,189 @@ from browser_use.dom.views import (
 	SimplifiedNode,
 )
 
-# Additional attributes useful for evaluation context
-EVAL_INCLUDE_ATTRIBUTES = [
-	'class',  # Include class for better context
-	'href',  # Include links
-	'src',  # Include image/script sources
-	'data-testid',  # Test IDs can be useful
-	'data-test',
+# Only the most critical attributes for query writing
+EVAL_KEY_ATTRIBUTES = [
+	'id',
+	'class',
+	'name',
+	'type',
+	'placeholder',
+	'aria-label',
+	'role',
+	'value',
+	'href',
+	'data-testid',
 ]
+
+# Semantic elements that should always be shown
+SEMANTIC_ELEMENTS = {
+	'h1',
+	'h2',
+	'h3',
+	'h4',
+	'h5',
+	'h6',
+	'a',
+	'button',
+	'input',
+	'textarea',
+	'select',
+	'form',
+	'label',
+	'nav',
+	'header',
+	'footer',
+	'main',
+	'article',
+	'section',
+	'table',
+	'ul',
+	'ol',
+	'li',
+	'img',
+	'iframe',
+}
 
 
 class DOMEvalSerializer:
-	"""Serializes DOM trees for evaluation contexts without interactive indexes."""
+	"""Ultra-concise DOM serializer for quick LLM query writing."""
 
 	@staticmethod
 	def serialize_tree(node: SimplifiedNode | None, include_attributes: list[str], depth: int = 0) -> str:
 		"""
-		Serialize the DOM tree for evaluation purposes.
+		Serialize DOM tree focusing on semantic/interactive elements.
 
-		Key differences from interactive serializer:
-		- No interactive indexes ([1], [2], etc.)
-		- Includes full HTML structure up to interactive elements
-		- Shows more attributes for context
-		- Preserves all meaningful text content
+		Strategy for conciseness:
+		- Self-closing tags only (no closing tags)
+		- Skip meaningless containers (divs/spans without useful attributes)
+		- Prioritize semantic elements
+		- Limit text to 80 chars
+		- Minimal scroll info
 		"""
 		if not node:
 			return ''
 
-		# Skip rendering excluded nodes, but process their children
+		# Skip excluded nodes but process children
 		if hasattr(node, 'excluded_by_parent') and node.excluded_by_parent:
-			formatted_text = []
-			for child in node.children:
-				child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
-				if child_text:
-					formatted_text.append(child_text)
-			return '\n'.join(formatted_text)
+			return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
+
+		# Skip nodes marked as should_display=False
+		if not node.should_display:
+			return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
 
 		formatted_text = []
 		depth_str = depth * '\t'
-		next_depth = depth
 
 		if node.original_node.node_type == NodeType.ELEMENT_NODE:
-			# Skip displaying nodes marked as should_display=False
-			if not node.should_display:
-				for child in node.children:
-					child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
-					if child_text:
-						formatted_text.append(child_text)
-				return '\n'.join(formatted_text)
-
-			# Always show element nodes with enhanced attributes for context
-			is_any_scrollable = node.original_node.is_actually_scrollable or node.original_node.is_scrollable
-			should_show_scroll = node.original_node.should_show_scroll_info
-
-			# Show all visible elements to provide full context
+			tag = node.original_node.tag_name.lower()
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
-			if is_visible or is_any_scrollable or node.original_node.tag_name.upper() in ['IFRAME', 'FRAME'] or node.children:
-				next_depth += 1
 
-				# Build enhanced attributes string with more context
-				text_content = ''
-				attributes_html_str = DOMEvalSerializer._build_attributes_string(
-					node.original_node, include_attributes, text_content
-				)
+			# Skip invisible elements
+			if not is_visible and tag not in ['iframe', 'frame']:
+				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
 
-				# Build the line with element context
-				shadow_prefix = ''
-				if node.is_shadow_host:
-					# Check if any shadow children are closed
-					has_closed_shadow = any(
-						child.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE
-						and child.original_node.shadow_root_type
-						and child.original_node.shadow_root_type.lower() == 'closed'
-						for child in node.children
-					)
-					shadow_prefix = '|SHADOW(closed)|' if has_closed_shadow else '|SHADOW(open)|'
+			# Build compact attributes string
+			attributes_str = DOMEvalSerializer._build_compact_attributes(node.original_node)
 
-				# Build opening tag with attributes
-				if should_show_scroll:
-					line = f'{depth_str}{shadow_prefix}|SCROLL|<{node.original_node.tag_name}'
-				elif node.original_node.tag_name.upper() == 'IFRAME':
-					line = f'{depth_str}{shadow_prefix}|IFRAME|<{node.original_node.tag_name}'
-				elif node.original_node.tag_name.upper() == 'FRAME':
-					line = f'{depth_str}{shadow_prefix}|FRAME|<{node.original_node.tag_name}'
-				else:
-					line = f'{depth_str}{shadow_prefix}<{node.original_node.tag_name}'
+			# Decide if this element should be shown
+			is_semantic = tag in SEMANTIC_ELEMENTS
+			has_useful_attrs = bool(attributes_str)
+			has_text_content = DOMEvalSerializer._has_direct_text(node)
 
-				if attributes_html_str:
-					line += f' {attributes_html_str}'
+			# Skip generic containers without useful attributes
+			if not is_semantic and not has_useful_attrs and not has_text_content:
+				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
 
-				line += '>'
+			# Build compact element representation
+			line = f'{depth_str}<{tag}'
 
-				# Add scroll information when applicable
-				if should_show_scroll:
-					scroll_info_text = node.original_node.get_scroll_info_text()
-					if scroll_info_text:
-						line += f' ({scroll_info_text})'
+			if attributes_str:
+				line += f' {attributes_str}'
 
-				formatted_text.append(line)
-
-		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
-			# Shadow DOM representation
-			if node.original_node.shadow_root_type and node.original_node.shadow_root_type.lower() == 'closed':
-				formatted_text.append(f'{depth_str}#shadow-root (closed)')
+			# Add inline text if present (keep it on same line for compactness)
+			inline_text = DOMEvalSerializer._get_inline_text(node)
+			if inline_text:
+				line += f'>{inline_text}'
 			else:
-				formatted_text.append(f'{depth_str}#shadow-root (open)')
+				line += ' />'
 
-			next_depth += 1
+			formatted_text.append(line)
 
-			# Process shadow DOM children
-			for child in node.children:
-				child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, next_depth)
-				if child_text:
-					formatted_text.append(child_text)
-
-			# Close shadow DOM indicator
-			if node.children:
-				formatted_text.append(f'{depth_str}#shadow-root-end')
+			# Process children with increased depth
+			children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1)
+			if children_text:
+				formatted_text.append(children_text)
 
 		elif node.original_node.node_type == NodeType.TEXT_NODE:
-			# Include all visible text for full context
-			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
-			if (
-				is_visible
-				and node.original_node.node_value
-				and node.original_node.node_value.strip()
-				and len(node.original_node.node_value.strip()) > 1
-			):
-				clean_text = node.original_node.node_value.strip()
-				# For eval, keep more text content (up to 500 chars per text node)
-				if len(clean_text) > 500:
-					clean_text = clean_text[:497] + '...'
-				formatted_text.append(f'{depth_str}{clean_text}')
+			# Text nodes are handled inline with their parent
+			pass
 
-		# Process children (for non-shadow elements)
-		if node.original_node.node_type != NodeType.DOCUMENT_FRAGMENT_NODE:
-			for child in node.children:
-				child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, next_depth)
-				if child_text:
-					formatted_text.append(child_text)
-
-			# Add closing tag for element nodes with children
-			if (
-				node.original_node.node_type == NodeType.ELEMENT_NODE
-				and node.children
-				and node.should_display
-				and (node.original_node.snapshot_node and node.original_node.is_visible or node.children)
-			):
-				formatted_text.append(f'{depth_str}</{node.original_node.tag_name}>')
+		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
+			# Minimal shadow DOM representation
+			formatted_text.append(f'{depth_str}#shadow')
+			children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1)
+			if children_text:
+				formatted_text.append(children_text)
 
 		return '\n'.join(formatted_text)
 
 	@staticmethod
-	def _build_attributes_string(node: EnhancedDOMTreeNode, include_attributes: list[str], text: str) -> str:
-		"""Build the attributes string for an element with enhanced context."""
-		attributes_to_include = {}
+	def _serialize_children(node: SimplifiedNode, include_attributes: list[str], depth: int) -> str:
+		"""Helper to serialize all children of a node."""
+		children_output = []
+		for child in node.children:
+			child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
+			if child_text:
+				children_output.append(child_text)
+		return '\n'.join(children_output)
 
-		# Combine standard and eval-specific attributes
-		all_attributes = list(set(include_attributes + EVAL_INCLUDE_ATTRIBUTES))
+	@staticmethod
+	def _build_compact_attributes(node: EnhancedDOMTreeNode) -> str:
+		"""Build ultra-compact attributes string with only key attributes."""
+		attrs = []
 
-		# Include HTML attributes
+		# Prioritize attributes that help with query writing
 		if node.attributes:
-			attributes_to_include.update(
-				{
-					key: str(value).strip()
-					for key, value in node.attributes.items()
-					if key in all_attributes and str(value).strip() != ''
-				}
-			)
+			for attr in EVAL_KEY_ATTRIBUTES:
+				if attr in node.attributes:
+					value = str(node.attributes[attr]).strip()
+					if value and attr == 'class':
+						# For class, limit to first 2 classes to save space
+						classes = value.split()[:2]
+						value = ' '.join(classes)
+					if value:
+						# Cap at 50 chars
+						value = cap_text_length(value, 50)
+						attrs.append(f'{attr}="{value}"')
 
-		# Include accessibility properties
-		if node.ax_node and node.ax_node.properties:
-			for prop in node.ax_node.properties:
-				try:
-					if prop.name in all_attributes and prop.value is not None:
-						# Convert boolean to lowercase string, keep others as-is
-						if isinstance(prop.value, bool):
-							attributes_to_include[prop.name] = str(prop.value).lower()
-						else:
-							prop_value_str = str(prop.value).strip()
-							if prop_value_str:
-								attributes_to_include[prop.name] = prop_value_str
-				except (AttributeError, ValueError):
-					continue
+		# Add AX role if different from tag
+		if node.ax_node and node.ax_node.role and node.ax_node.role.lower() != node.node_name.lower():
+			attrs.append(f'role="{node.ax_node.role}"')
 
-		if not attributes_to_include:
+		return ' '.join(attrs)
+
+	@staticmethod
+	def _has_direct_text(node: SimplifiedNode) -> bool:
+		"""Check if node has direct text children (not nested in other elements)."""
+		for child in node.children:
+			if child.original_node.node_type == NodeType.TEXT_NODE:
+				text = child.original_node.node_value.strip() if child.original_node.node_value else ''
+				if len(text) > 1:
+					return True
+		return False
+
+	@staticmethod
+	def _get_inline_text(node: SimplifiedNode) -> str:
+		"""Get text content to display inline (max 80 chars)."""
+		text_parts = []
+		for child in node.children:
+			if child.original_node.node_type == NodeType.TEXT_NODE:
+				text = child.original_node.node_value.strip() if child.original_node.node_value else ''
+				if text and len(text) > 1:
+					text_parts.append(text)
+
+		if not text_parts:
 			return ''
 
-		# Remove duplicate values (but be more lenient than interactive serializer)
-		ordered_keys = [key for key in all_attributes if key in attributes_to_include]
-
-		if len(ordered_keys) > 1:
-			keys_to_remove = set()
-			seen_values = {}
-
-			for key in ordered_keys:
-				value = attributes_to_include[key]
-				# Only dedupe very long values (>15 chars) to preserve more context
-				if len(value) > 15:
-					if value in seen_values:
-						keys_to_remove.add(key)
-					else:
-						seen_values[value] = key
-
-			for key in keys_to_remove:
-				del attributes_to_include[key]
-
-		# Remove attributes that duplicate accessibility data
-		role = node.ax_node.role if node.ax_node else None
-		if role and node.node_name == role:
-			attributes_to_include.pop('role', None)
-
-		# Remove type attribute if it matches the tag name (e.g. <button type="button">)
-		if 'type' in attributes_to_include and attributes_to_include['type'].lower() == node.node_name.lower():
-			del attributes_to_include['type']
-
-		# Remove invalid attribute if it's false (only show when true)
-		if 'invalid' in attributes_to_include and attributes_to_include['invalid'].lower() == 'false':
-			del attributes_to_include['invalid']
-
-		# Remove aria-expanded if we have expanded (prefer AX tree over HTML attribute)
-		if 'expanded' in attributes_to_include and 'aria-expanded' in attributes_to_include:
-			del attributes_to_include['aria-expanded']
-
-		if attributes_to_include:
-			# For eval, allow longer attribute values (200 chars instead of 100)
-			return ' '.join(f'{key}="{cap_text_length(value, 200)}"' for key, value in attributes_to_include.items())
-
-		return ''
+		combined = ' '.join(text_parts)
+		return cap_text_length(combined, 80)
