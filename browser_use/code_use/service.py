@@ -583,6 +583,20 @@ __code_exec_coro__ = __code_exec__()
 				output = output[:9950] + '\n[Truncated after 10000 characters]'
 			result.append(f'Output: {output}')
 
+		# Add available variables and functions from namespace
+		user_defined_names = []
+		for name, value in self.namespace.items():
+			# Skip private variables, built-ins, and imported modules
+			if name.startswith('_') or name in ['json', 'asyncio', 'Path', 'csv', 're', 'datetime', 'np', 'pd', 'requests', 'BeautifulSoup', 'PdfReader']:
+				continue
+			# Skip built-in functions/tools (navigate, evaluate, done, etc.)
+			if callable(value) and hasattr(value, '__name__') and value.__name__ in ['navigate', 'evaluate', 'done']:
+				continue
+			user_defined_names.append(name)
+
+		if user_defined_names:
+			result.append(f'\nAvailable variables: {", ".join(sorted(user_defined_names))}')
+
 		return '\n'.join(result)
 
 	def _is_task_done(self) -> bool:
