@@ -219,7 +219,11 @@ class CodeUseAgent:
 				if output:
 					logger.info(f'Code output:\n{output}')
 				if browser_state:
-					logger.info(f'Browser state:\n{browser_state}')
+					# Cap browser state logging to 1000 chars
+					if len(browser_state) > 300:
+						logger.info(f'Browser state:\n{browser_state[:300]}...\n[Truncated, full state sent to LLM]')
+					else:
+						logger.info(f'Browser state:\n{browser_state}')
 
 				# Take screenshot for eval tracking
 				screenshot_path = await self._capture_screenshot(step + 1)
@@ -548,7 +552,14 @@ __code_exec_coro__ = __code_exec__()
 			lines.append(f'**Title:** {state.title}')
 			lines.append('')
 			lines.append('**DOM Structure:**')
-			lines.append(dom_html[:40000])
+
+			# Truncate DOM if too long and notify LLM
+			max_dom_length = 40000
+			if len(dom_html) > max_dom_length:
+				lines.append(dom_html[:max_dom_length])
+				lines.append(f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total.]')
+			else:
+				lines.append(dom_html)
 
 			browser_state_text = '\n'.join(lines)
 			screenshot = state.screenshot if include_screenshot else None
