@@ -1,7 +1,9 @@
 """Code-use agent service - Jupiter notebook-like code execution for browser automation."""
 
+import asyncio
 import logging
 import traceback
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +13,10 @@ from browser_use.dom.service import DomService
 from browser_use.filesystem.file_system import FileSystem
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import AssistantMessage, BaseMessage, SystemMessage, UserMessage
+from browser_use.screenshots.service import ScreenshotService
 from browser_use.tools.service import Tools
+from browser_use.utils import time_execution_sync
+from uuid_extensions import uuid7str
 
 from .namespace import create_namespace
 from .views import ExecutionStatus, NotebookSession
@@ -39,6 +44,7 @@ class CodeUseAgent:
 		available_file_paths: list[str] | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_steps: int = 100,
+		**kwargs,
 	):
 		"""
 		Initialize the code-use agent.
@@ -54,7 +60,11 @@ class CodeUseAgent:
 			available_file_paths: Optional list of available file paths
 			sensitive_data: Optional sensitive data dictionary
 			max_steps: Maximum number of execution steps
+			**kwargs: Additional keyword arguments for compatibility (ignored)
 		"""
+		# Log and ignore unknown kwargs for compatibility
+		if kwargs:
+			logger.debug(f'Ignoring additional kwargs for CodeUseAgent compatibility: {list(kwargs.keys())}')
 		self.task = task
 		self.llm = llm
 		self.browser_session = browser_session
@@ -68,8 +78,16 @@ class CodeUseAgent:
 
 		self.session = NotebookSession()
 		self.namespace: dict[str, Any] = {}
-		self.history: list[BaseMessage] = []
+		self.history: list[BaseMessage] = []  # LLM conversation history
+		self.complete_history: list[dict] = []  # Eval system history with model_output and result
 		self.dom_service: DomService | None = None
+
+		# Initialize screenshot service for eval tracking
+		self.id = uuid7str()
+		timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+		base_tmp = Path('/tmp')
+		self.agent_directory = base_tmp / f'browser_use_code_agent_{self.id}_{timestamp}'
+		self.screenshot_service = ScreenshotService(agent_directory=self.agent_directory)
 
 	async def run(self) -> NotebookSession:
 		"""
@@ -109,8 +127,8 @@ class CodeUseAgent:
 			logger.info(f'\n\n\n\nStep {step + 1}/{self.max_steps}')
 
 			try:
-				# Get code from LLM
-				code = await self._get_code_from_llm()
+				# Get code from LLM (this also adds to self.history)
+				code, full_llm_response = await self._get_code_from_llm()
 
 				if not code or code.strip() == '':
 					logger.warning('LLM returned empty code')
@@ -126,6 +144,18 @@ class CodeUseAgent:
 					logger.info(f'Code output:\n{output}')
 				if browser_state:
 					logger.info(f'Browser state:\n{browser_state}')
+
+				# Take screenshot for eval tracking
+				screenshot_path = await self._capture_screenshot(step + 1)
+
+				# Add step to complete_history for eval system
+				await self._add_step_to_complete_history(
+					model_output_code=code,
+					full_llm_response=full_llm_response,
+					output=output,
+					error=error,
+					screenshot_path=screenshot_path
+				)
 
 				# Check if task is done
 				if self._is_task_done():
@@ -143,13 +173,20 @@ class CodeUseAgent:
 
 		return self.session
 
-	async def _get_code_from_llm(self) -> str:
-		"""Get Python code from the LLM."""
+	async def _get_code_from_llm(self) -> tuple[str, str]:
+		"""Get Python code from the LLM.
+
+		Returns:
+			Tuple of (extracted_code, full_llm_response)
+		"""
 		# Call LLM with history
 		response = await self.llm.ainvoke(self.history)
 
 		# Log the LLM's raw output for debugging
 		logger.info(f'LLM Response:\n{response.completion}')
+
+		# Store the full response
+		full_response = response.completion
 
 		# Extract code from response
 		code = response.completion
@@ -170,7 +207,7 @@ class CodeUseAgent:
 		# Add to history
 		self.history.append(AssistantMessage(content=response.completion))
 
-		return code
+		return code, full_response
 
 	async def _execute_code(self, code: str) -> tuple[str | None, str | None, str | None]:
 		"""
@@ -201,24 +238,27 @@ class CodeUseAgent:
 
 			try:
 				# Wrap code in async function to handle top-level await
-				# Use globals() to ensure variables persist across cells
+				# The function will execute in the namespace context
 				wrapped_code = f"""
 async def __code_use_exec__():
-	_globals = globals()
 {chr(10).join('	' + line for line in code.split(chr(10)))}
 	# Update globals with any new variables defined in this cell
 	_locals = locals()
 	for _key in list(_locals.keys()):
 		if not _key.startswith('_'):
-			_globals[_key] = _locals[_key]
+			globals()[_key] = _locals[_key]
 
-import asyncio
-__result__ = asyncio.create_task(__code_use_exec__())
+__result__ = __code_use_exec__()
 """
 
-				# Compile and execute
+				# Add asyncio to namespace if not already there
+				if 'asyncio' not in self.namespace:
+					self.namespace['asyncio'] = asyncio
+
+				# Compile and execute in the namespace context
+				# Using namespace as both globals and locals ensures all variables are accessible
 				compiled_code = compile(wrapped_code, '<code>', 'exec')
-				exec(compiled_code, self.namespace)
+				exec(compiled_code, self.namespace, self.namespace)
 
 				# Wait for the task to complete
 				task = self.namespace.get('__result__')
@@ -386,6 +426,70 @@ __result__ = asyncio.create_task(__code_use_exec__())
 		"""Check if the task is marked as done in the namespace."""
 		# Check if 'done' was called by looking for a special marker in namespace
 		return self.namespace.get('_task_done', False)
+
+	async def _capture_screenshot(self, step_number: int) -> str | None:
+		"""Capture and store screenshot for eval tracking."""
+		if not self.browser_session:
+			return None
+
+		try:
+			# Get browser state summary which includes screenshot
+			state = await self.browser_session.get_browser_state_summary(include_screenshot=True)
+			if state and state.screenshot:
+				# Store screenshot using screenshot service
+				screenshot_path = await self.screenshot_service.store_screenshot(
+					state.screenshot,
+					step_number
+				)
+				return str(screenshot_path) if screenshot_path else None
+		except Exception as e:
+			logger.warning(f'Failed to capture screenshot for step {step_number}: {e}')
+			return None
+
+	async def _add_step_to_complete_history(
+		self,
+		model_output_code: str,
+		full_llm_response: str,
+		output: str | None,
+		error: str | None,
+		screenshot_path: str | None
+	) -> None:
+		"""Add a step to complete_history in eval system format."""
+		# Create result entry matching eval system expectations
+		result_entry = {
+			'extracted_content': output if output else None,
+			'error': error if error else None,
+		}
+
+		# Create history entry matching eval system format
+		# For CodeUseAgent, model_output contains the code and full LLM response
+		history_entry = {
+			'model_output': {
+				'model_output': model_output_code,  # The extracted code
+				'full_response': full_llm_response,  # The complete LLM response including any text/reasoning
+			},
+			'result': [result_entry],  # Always a list
+			'screenshot_path': screenshot_path,
+		}
+
+		self.complete_history.append(history_entry)
+
+	def screenshot_paths(self, n_last: int | None = None) -> list[str | None]:
+		"""
+		Get screenshot paths from complete_history for eval system.
+
+		Args:
+			n_last: Optional number of last screenshots to return
+
+		Returns:
+			List of screenshot file paths (or None for missing screenshots)
+		"""
+		paths = [step.get('screenshot_path') for step in self.complete_history]
+
+		if n_last is not None:
+			return paths[-n_last:] if len(paths) > n_last else paths
+
+		return paths
 
 	async def close(self):
 		"""Close the browser session."""
