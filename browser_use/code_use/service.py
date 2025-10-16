@@ -309,10 +309,8 @@ class CodeUseAgent:
 			if len(parts) > 1:
 				code = parts[1].strip()
 
-		# Add to LLM messages with cell marker
-		cell_number = self.session.current_execution_count + 1  # Next cell number
-		assistant_content = f'--Cell {cell_number}--\n{response.completion}'
-		self._llm_messages.append(AssistantMessage(content=assistant_content))
+		# Add to LLM messages
+		self._llm_messages.append(AssistantMessage(content=response.completion))
 
 		return code, full_response
 
@@ -534,7 +532,7 @@ __code_exec_coro__ = __code_exec__()
 			# Truncate output if too long
 			if len(output) > 10000:
 				output = output[:9950] + '\n[Truncated after 10000 characters]'
-			result.append(f'Output: {output}')
+			result.append(f'{output}')
 
 		return '\n'.join(result)
 
