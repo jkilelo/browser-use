@@ -158,6 +158,143 @@ The text is what the user will see. Include everything needed.
 - **Use optional chaining (`?.`)** to safely access nested properties
 - **Return early** if required elements don't exist to avoid cascading errors
 
+### Passing Python Data to JavaScript (CRITICAL)
+When embedding Python variables in `evaluate()` JavaScript code, use `json.dumps()`:
+
+```python
+# BAD - breaks with quotes/syntax errors:
+selector = 'input[name="email"]'
+await evaluate(f'''
+(function(){{
+	const el = document.querySelector('{selector}');  # BREAKS HERE!
+}})()
+''')
+
+# GOOD - use json.dumps():
+import json
+selector = 'input[name="email"]'
+await evaluate(f'''
+(function(){{
+	const el = document.querySelector({json.dumps(selector)});
+	if (el) el.value = 'test@example.com';
+	return !!el;
+}})()
+''')
+
+# ALSO GOOD - construct strings before f-string:
+form_data = {'email': 'test@example.com', 'password': 'secret'}
+js_code = f'''
+(function(){{
+	const data = {json.dumps(form_data)};
+	document.querySelector('input[name="email"]').value = data.email;
+	document.querySelector('input[name="password"]').value = data.password;
+	return true;
+}})()
+'''
+await evaluate(js_code)
+```
+
+### Robust Selector Strategy
+**Always use semantic selectors first**, then fall back to fragile ones:
+
+```python
+# GOOD - multiple fallback selectors:
+button = await evaluate('''
+(function(){
+	// Try semantic attributes first
+	let btn = document.querySelector('button[aria-label="Submit"]');
+	if (btn) return 'found-by-aria';
+
+	// Try name/id
+	btn = document.querySelector('button[name="submit"], button#submit');
+	if (btn) return 'found-by-name';
+
+	// Try text content
+	btn = Array.from(document.querySelectorAll('button')).find(b =>
+		b.textContent.trim().toLowerCase() === 'submit'
+	);
+	if (btn) return 'found-by-text';
+
+	// Fall back to class
+	btn = document.querySelector('button.submit-btn');
+	if (btn) return 'found-by-class';
+
+	return null;
+}})()
+''')
+
+if not button:
+	print('ERROR: Submit button not found with any selector strategy')
+	# Try alternative approach...
+```
+
+**Verify elements exist before interacting**:
+```python
+# BAD - assumes element exists:
+await evaluate('''
+(function(){
+	document.querySelector('.popup-close').click();
+}})()
+''')
+
+# GOOD - check first:
+closed = await evaluate('''
+(function(){
+	const popup = document.querySelector('.popup-close');
+	if (!popup) return false;
+	popup.click();
+	return true;
+}})()
+''')
+if not closed:
+	print('No popup to close, continuing...')
+```
+
+### Error Recovery Strategy
+**Never give up on the first obstacle** - always try 2-3 alternative approaches:
+
+```python
+# Example: Try multiple ways to search
+async def try_search_strategies(query):
+	# Strategy 1: Use site search
+	await navigate('https://example.com/search')
+	success = await evaluate(f'''
+	(function(){{
+		const input = document.querySelector('input[type="search"]');
+		if (!input) return false;
+		input.value = {json.dumps(query)};
+		const form = input.closest('form');
+		if (form) form.submit();
+		return true;
+	}})()
+	''')
+	if success:
+		return 'site-search'
+
+	# Strategy 2: Try direct URL
+	await navigate(f'https://example.com/search?q={query}')
+	await asyncio.sleep(2)
+	has_results = await evaluate('''
+	(function(){
+		return document.querySelectorAll('.result').length > 0;
+	}})()
+	''')
+	if has_results:
+		return 'direct-url'
+
+	# Strategy 3: Try alternative source
+	await navigate(f'https://alternative-site.com/search?q={query}')
+	await asyncio.sleep(2)
+	return 'alternative-source'
+
+result = await try_search_strategies('test query')
+print(f'Search successful using: {result}')
+```
+
+**Common recovery patterns**:
+- **CAPTCHA/block**: Try alternative sources, use site-specific search instead of Google
+- **Selector fails**: Inspect DOM, try different selector strategies, use text search
+
 ## Your Output
 
 Write valid Python code that will be executed in the persistent namespace. The code will be executed and the result will be shown to you.
