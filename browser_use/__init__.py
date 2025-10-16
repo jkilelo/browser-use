@@ -46,11 +46,12 @@ base_subprocess.BaseSubprocessTransport.__del__ = _patched_del
 # Type stubs for lazy imports - fixes linter warnings
 if TYPE_CHECKING:
 	from browser_use.agent.prompts import SystemPrompt
-	from browser_use.agent.service import Agent
+
+	# from browser_use.agent.service import Agent
 	from browser_use.agent.views import ActionModel, ActionResult, AgentHistoryList
 	from browser_use.browser import BrowserProfile, BrowserSession
 	from browser_use.browser import BrowserSession as Browser
-	from browser_use.code_use.service import CodeUseAgent
+	from browser_use.code_use.service import CodeUseAgent as Agent
 	from browser_use.dom.service import DomService
 	from browser_use.llm import models
 	from browser_use.llm.anthropic.chat import ChatAnthropic
@@ -67,9 +68,9 @@ if TYPE_CHECKING:
 # Lazy imports mapping - only import when actually accessed
 _LAZY_IMPORTS = {
 	# Agent service (heavy due to dependencies)
-	'Agent': ('browser_use.agent.service', 'Agent'),
+	# 'Agent': ('browser_use.agent.service', 'Agent'),
 	# Code-use agent (Jupiter notebook-like execution)
-	'CodeUseAgent': ('browser_use.code_use.service', 'CodeUseAgent'),
+	'Agent': ('browser_use.code_use.service', 'CodeUseAgent'),
 	# System prompt (moderate weight due to agent.views imports)
 	'SystemPrompt': ('browser_use.agent.prompts', 'SystemPrompt'),
 	# Agent views (very heavy - over 1 second!)
@@ -122,7 +123,7 @@ def __getattr__(name: str):
 
 __all__ = [
 	'Agent',
-	'CodeUseAgent',
+	# 'CodeUseAgent',
 	'BrowserSession',
 	'Browser',  # Alias for BrowserSession
 	'BrowserProfile',
