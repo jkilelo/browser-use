@@ -961,6 +961,6 @@ class DOMTreeSerializer:
 				del attributes_to_include[attr]
 
 		if attributes_to_include:
-			return ' '.join(f'{key}={cap_text_length(value, 100)}' for key, value in attributes_to_include.items())
+			return ' '.join(f'{key}={cap_text_length(value, 30)}' for key, value in attributes_to_include.items())
 
 		return ''
