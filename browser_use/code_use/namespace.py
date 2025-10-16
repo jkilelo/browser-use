@@ -213,7 +213,14 @@ def create_namespace(
 		namespace['pypdf'] = PdfReader
 
 	# Add custom evaluate function that returns values directly
-	async def evaluate_wrapper(code: str) -> Any:
+	async def evaluate_wrapper(code: str | None = None, *_args: Any, **kwargs: Any) -> Any:
+		# Handle both positional and keyword argument styles
+		if code is None:
+			# Check if code was passed as keyword arg
+			code = kwargs.get('code', kwargs.get('js_code', kwargs.get('expression', '')))
+		if not code:
+			raise ValueError('No JavaScript code provided to evaluate()')
+		# Ignore any extra arguments (like browser_session if passed)
 		return await evaluate(code, browser_session)
 
 	namespace['evaluate'] = evaluate_wrapper
