@@ -287,9 +287,12 @@ class DOMEvalSerializer:
 
 					attrs.append(f'{attr}="{value}"')
 
-		# Add AX role if different from tag
+		# Add AX role if different from tag and not a presentational role
+		# Skip role="none" and role="presentation" as they indicate purely decorative elements
 		if node.ax_node and node.ax_node.role and node.ax_node.role.lower() != node.node_name.lower():
-			attrs.append(f'role="{node.ax_node.role}"')
+			role_lower = node.ax_node.role.lower()
+			if role_lower not in ('none', 'presentation'):
+				attrs.append(f'role="{node.ax_node.role}"')
 
 		return ' '.join(attrs)
 
