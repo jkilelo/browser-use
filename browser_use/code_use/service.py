@@ -333,9 +333,6 @@ class CodeUseAgent:
 				result_message = self._format_execution_result(code, output, error, current_step=step + 1)
 				self._llm_messages.append(UserMessage(content=result_message))
 
-				# Wait 3 seconds after each step for page stabilization
-				await asyncio.sleep(3)
-
 			except Exception as e:
 				logger.error(f'Error in step {step + 1}: {e}')
 				traceback.print_exc()
@@ -663,8 +660,7 @@ __code_exec_coro__ = __code_exec__()
 			cell.error = error
 			logger.error(f'Code execution error: {error}')
 
-			# Wait 3 seconds for page to stabilize after error
-			await asyncio.sleep(3)
+			await asyncio.sleep(2)
 
 			# Get browser state after error (important for LLM to see state after failure)
 			if self.browser_session and self.dom_service:
