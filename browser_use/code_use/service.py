@@ -579,6 +579,9 @@ __code_exec_coro__ = __code_exec__()
 			finally:
 				sys.stdout = old_stdout
 
+			# Wait 2 seconds for page to stabilize after code execution
+			await asyncio.sleep(2)
+
 			# Get browser state after execution
 			if self.browser_session and self.dom_service:
 				try:
@@ -659,6 +662,9 @@ __code_exec_coro__ = __code_exec__()
 			cell.status = ExecutionStatus.ERROR
 			cell.error = error
 			logger.error(f'Code execution error: {error}')
+
+			# Wait 3 seconds for page to stabilize after error
+			await asyncio.sleep(3)
 
 			# Get browser state after error (important for LLM to see state after failure)
 			if self.browser_session and self.dom_service:
