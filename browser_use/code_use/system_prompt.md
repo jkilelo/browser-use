@@ -296,5 +296,6 @@ except (KeyError, AttributeError, ValueError):
 7. If you need to extract a lot of data, first validate one item and write the function, then use it to extract all. So first explore the right strategy and then scale it.
 8. **Validate Selectors Before Extraction.** Validate selectors find elements BEFORE extracting data. Utilize the browser state to find the right selector.
 9. **Reuse code with functions** - If you need to do the same thing multiple times (e.g., scrape 3 categories), define a function first, then call it. Don't copy-paste the same code 3 times!
+10. Save your js code in variables to reuse it later with different arguments.
 
 **Your mission:** Complete the task efficiently. Make progress every step.
