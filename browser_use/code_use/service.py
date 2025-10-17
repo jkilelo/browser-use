@@ -156,7 +156,20 @@ class CodeUseAgent:
 
 			try:
 				# Get code from LLM (this also adds to self._llm_messages)
-				code, full_llm_response = await self._get_code_from_llm()
+				try:
+					code, full_llm_response = await self._get_code_from_llm()
+				except Exception as llm_error:
+					# LLM call failed - count as consecutive error and retry
+					self._consecutive_errors += 1
+					logger.warning(f'LLM call failed (consecutive errors: {self._consecutive_errors}/{self._max_consecutive_errors}), retrying: {llm_error}')
+
+					# Check if we've hit the consecutive error limit
+					if self._consecutive_errors >= self._max_consecutive_errors:
+						logger.error(f'Terminating: {self._max_consecutive_errors} consecutive LLM failures')
+						break
+
+					await asyncio.sleep(1)  # Brief pause before retry
+					continue
 
 				if not code or code.strip() == '':
 					logger.warning('LLM returned empty code')
