@@ -160,7 +160,7 @@ class DOMEvalSerializer:
 
 			# Add backend node ID notation - [interactive_X] for interactive, [X] for others
 			if node.interactive_index is not None:
-				line += f' [interactive_{node.original_node.backend_node_id}]'
+				line += f' [i_{node.original_node.backend_node_id}]'
 			else:
 				line += f' [{node.original_node.backend_node_id}]'
 
@@ -277,13 +277,13 @@ class DOMEvalSerializer:
 						# For class, limit to first 2 classes to save space
 						classes = value.split()[:2]
 						value = ' '.join(classes)
-						value = cap_text_length(value, 25)
+						value = cap_text_length(value, 40)
 					elif attr == 'href':
 						# For href, cap at 20 chars to save space
-						value = cap_text_length(value, 20)
+						value = cap_text_length(value, 40)
 					else:
 						# Cap at 25 chars for other attributes
-						value = cap_text_length(value, 25)
+						value = cap_text_length(value, 40)
 
 					attrs.append(f'{attr}="{value}"')
 
