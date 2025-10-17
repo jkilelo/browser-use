@@ -931,7 +931,7 @@ class Tools(Generic[Context]):
 		# File System Actions removed - use normal Python file operations instead
 
 		@self.registry.action(
-			"""Execute browser JavaScript. MUST: wrap in IIFE (function(){...})(). Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Add try-catch. Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Never use comments. You are not allowed to use // in code. No human reads this. Use e.g. for hover, drag, zoom, custom selectors, extract/filter links, shadow DOM or to analyse page structure. Limit output.""",
+			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, shadow DOM, or analysing page structure. Limit output size.""",
 		)
 		async def evaluate(code: str, browser_session: BrowserSession):
 			# Execute JavaScript with proper error handling and promise support
