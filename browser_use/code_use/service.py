@@ -726,6 +726,23 @@ __code_exec_coro__ = __code_exec__()
 				lines.append('')
 
 
+			# Add available variables and functions BEFORE DOM structure
+			# This shows what the agent can use in their code
+			default_methods = ['browser', 'file_system', 'json', 'asyncio', 'Path', 'csv', 're', 'datetime',
+							   'np', 'pd', 'plt', 'numpy', 'pandas', 'matplotlib', 'requests', 'BeautifulSoup', 'bs4', 'pypdf', 'PdfReader',
+							   'done', 'evaluate', 'navigate', 'click', 'input_text', 'send_keys', 'upload_file', 'get_selector_from_index', 'wait']
+
+			# Collect user-defined variables (exclude private and internals)
+			user_defined_names = []
+			for name in self.namespace.keys():
+				if not name.startswith('_') and name not in default_methods:
+					user_defined_names.append(name)
+
+			# Build available variables line
+			all_available = default_methods + sorted(user_defined_names)
+			lines.append(f"**Available variables:** {', '.join(all_available)}")
+			lines.append('')
+
 			# Add DOM structure
 			lines.append('**DOM Structure:**')
 
@@ -783,19 +800,6 @@ __code_exec_coro__ = __code_exec__()
 			if len(output) > 10000:
 				output = output[:9950] + '\n[Truncated after 10000 characters]'
 			result.append(f'Output: {output}')
-
-		# Add available variables and functions from namespace
-		user_defined_names = []
-		for name, value in self.namespace.items():
-			# Skip private variables, built-ins, and imported modules
-			if name.startswith('_') or name in ['browser', 'file_system', 'wait', 'json', 'pandas', 'bs4', 'pypdf', 'matplotlib', 'numpy', 'plt', 'done' , 'evaluate', 'navigate', 'asyncio', 'Path', 'csv', 're', 'datetime', 'np', 'pd', 'requests', 'BeautifulSoup', 'PdfReader', 'click', 'input_text', 'send_keys', 'upload_file', 'get_selector_from_index']:
-				continue
-			user_defined_names.append(name)
-
-		if user_defined_names:
-			text = f"Available variables: {', '.join(sorted(user_defined_names))}"
-			if len(text) > 2:
-				result.append(text)
 
 		return '\n'.join(result)
 
