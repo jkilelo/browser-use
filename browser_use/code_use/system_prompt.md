@@ -232,6 +232,12 @@ data = await evaluate('''
 })()
 ''')
 
+## use the text from the screenshot or dom to find the right selectors to then query them. You can be first more general and then more specific. 
+## In the exploration phase you can try multiple things in the same code block. To find the right selectors.
+
+## Try to be efficent, save your code in different variables to reuse it later with different arguments.
+
+
 # Process in Python
 valid_items = [item for item in data if item['title']]
 print(f"Found {len(valid_items)} valid items")
