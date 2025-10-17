@@ -600,12 +600,14 @@ __code_exec_coro__ = __code_exec__()
 		user_defined_names = []
 		for name, value in self.namespace.items():
 			# Skip private variables, built-ins, and imported modules
-			if name.startswith('_') or name in ['browser', 'file_system', 'json', 'pandas', 'bs4', 'pypdf', 'matplotlib', 'numpy', 'plt', 'done' , 'evaluate', 'navigate', 'asyncio', 'Path', 'csv', 're', 'datetime', 'np', 'pd', 'requests', 'BeautifulSoup', 'PdfReader']:
+			if name.startswith('_') or name in ['browser', 'file_system', 'wait', 'json', 'pandas', 'bs4', 'pypdf', 'matplotlib', 'numpy', 'plt', 'done' , 'evaluate', 'navigate', 'asyncio', 'Path', 'csv', 're', 'datetime', 'np', 'pd', 'requests', 'BeautifulSoup', 'PdfReader']:
 				continue
 			user_defined_names.append(name)
 
 		if user_defined_names:
-			result.append(f'\nAvailable variables: {", ".join(sorted(user_defined_names))}')
+			text = f"Available variables: {', '.join(sorted(user_defined_names))}"
+			if len(text) > 2:
+				result.append(text)
 
 		return '\n'.join(result)
 
