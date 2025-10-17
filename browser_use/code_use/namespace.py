@@ -319,8 +319,8 @@ def create_namespace(
 
 	namespace['evaluate'] = evaluate_wrapper
 
-	# Add get_selector_from_backend_node_id helper for code_use mode
-	async def get_selector_from_backend_node_id_wrapper(index: int) -> str:
+	# Add get_selector_from_index helper for code_use mode
+	async def get_selector_from_index_wrapper(index: int) -> str:
 		"""
 		Get the CSS selector for an element by its interactive index.
 
@@ -334,7 +334,7 @@ def create_namespace(
 			str: CSS selector that can be used in JavaScript
 
 		Example:
-			selector = await get_selector_from_backend_node_id(123)
+			selector = await get_selector_from_index(123)
 			await evaluate(f'''
 			(function(){{
 				const el = document.querySelector({json.dumps(selector)});
@@ -391,7 +391,7 @@ def create_namespace(
 
 		raise ValueError(f'Could not generate selector for element index {index}')
 
-	namespace['get_selector_from_backend_node_id'] = get_selector_from_backend_node_id_wrapper
+	namespace['get_selector_from_index'] = get_selector_from_index_wrapper
 
 	# Inject all tools as functions into the namespace
 	# Skip 'evaluate' since we have a custom implementation above
