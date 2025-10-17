@@ -155,15 +155,15 @@ class DOMEvalSerializer:
 			# Build compact element representation
 			line = f'{depth_str}<{tag}'
 
+			# Add backend node ID notation - [interactive_X] for interactive, [X] for others
+			if node.interactive_index is not None:
+				line += f' [i_{node.original_node.backend_node_id}]'
+			else:
+				line += f' [{node.original_node.backend_node_id}]'
+
 			if attributes_str:
 				line += f' {attributes_str}'
 
-			# Add element index notation - [i_X] for interactive, [X] for others
-			if node.interactive_index is not None:
-				line += f' [i_{node.interactive_index}]'
-			else:
-				# Non-interactive elements don't get shown with indices in code-use mode
-				pass
 
 			# Add scroll info if element is scrollable
 			if node.original_node.should_show_scroll_info:
