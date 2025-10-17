@@ -41,7 +41,7 @@ print(f"Button text: {button_text}")
 
 ## Tools Available
 
-### 1. navigate(url: str) -> Navigate to a URL. Go directly to url if know. For search use duckduckgo. If you get blocked, try search the content outside of the url. After navigation the dom state and the indices will be updated. You can not use the current indices after this action.
+### 1. navigate(url: str) -> Navigate to a URL. Go directly to url if know. For search prefer duckduckgo. If you get blocked, try search the content outside of the url. After navigation the dom state and the indices will be updated. You can not use the current indices after this action.
 ```python
 await navigate('https://example.com')
 await asyncio.sleep(3)
