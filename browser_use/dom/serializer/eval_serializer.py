@@ -11,8 +11,8 @@ from browser_use.dom.views import (
 # Critical attributes for query writing and form interaction
 # NOTE: Removed 'id' and 'class' to force more robust structural selectors
 EVAL_KEY_ATTRIBUTES = [
-	# 'id',  # Removed - can have special chars, forces structural selectors
-	# 'class',  # Removed - can have special chars like +, forces structural selectors
+	'id',  # Removed - can have special chars, forces structural selectors
+	'class',  # Removed - can have special chars like +, forces structural selectors
 	'name',
 	'type',
 	'placeholder',
