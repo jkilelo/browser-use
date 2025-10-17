@@ -303,7 +303,7 @@ class CodeUseAgent:
 					break
 
 				# Add result to LLM messages for next iteration (without browser state)
-				result_message = self._format_execution_result(code, output, error)
+				result_message = self._format_execution_result(code, output, error, current_step=step + 1)
 				self._llm_messages.append(UserMessage(content=result_message))
 
 			except Exception as e:
@@ -634,7 +634,7 @@ __code_exec_coro__ = __code_exec__()
 			assert state.dom_state is not None
 			dom_state = state.dom_state
 
-			# Use llm_representation (standard serializer used by Agent)
+			# Use eval_representation (compact serializer for code agents)
 			dom_html = dom_state.eval_representation()
 
 			# Format with URL and title header
@@ -642,7 +642,54 @@ __code_exec_coro__ = __code_exec__()
 			lines.append(f'**URL:** {state.url}')
 			lines.append(f'**Title:** {state.title}')
 			lines.append('')
+
+			# Add tabs info if multiple tabs exist
+			if len(state.tabs) > 1:
+				lines.append('**Tabs:**')
+				current_target_candidates = []
+				# Find tabs that match current URL and title
+				for tab in state.tabs:
+					if tab.url == state.url and tab.title == state.title:
+						current_target_candidates.append(tab.target_id)
+				current_target_id = current_target_candidates[0] if len(current_target_candidates) == 1 else None
+
+				for tab in state.tabs:
+					is_current = ' (current)' if tab.target_id == current_target_id else ''
+					lines.append(f'  - Tab {tab.target_id[-4:]}: {tab.url} - {tab.title[:30]}{is_current}')
+				lines.append('')
+
+			# Add page scroll info if available
+			if state.page_info:
+				pi = state.page_info
+				pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
+				pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
+				total_pages = pi.page_height / pi.viewport_height if pi.viewport_height > 0 else 0
+
+				scroll_info = f'**Page:** {pages_above:.1f} pages above, {pages_below:.1f} pages below'
+				if total_pages > 1.2:  # Only mention total if significantly > 1 page
+					scroll_info += f', {total_pages:.1f} total pages'
+				lines.append(scroll_info)
+				lines.append('')
+
+
+			# Add DOM structure
 			lines.append('**DOM Structure:**')
+
+			# Add scroll position hints for DOM
+			if state.page_info:
+				pi = state.page_info
+				pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
+				pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
+
+				if pages_above > 0:
+					dom_html = f'... {pages_above:.1f} pages above (use evaluate to scroll or extract)\n{dom_html}'
+				else:
+					dom_html = '[Start of page]\n' + dom_html
+
+				if pages_below > 0:
+					dom_html += f'\n... {pages_below:.1f} pages below (use evaluate to scroll or extract)'
+				else:
+					dom_html += '\n[End of page]'
 
 			# Truncate DOM if too long and notify LLM
 			max_dom_length = 60000
@@ -661,9 +708,18 @@ __code_exec_coro__ = __code_exec__()
 			logger.error(f'Failed to get browser state: {e}')
 			return f'Error getting browser state: {e}', None
 
-	def _format_execution_result(self, code: str, output: str | None, error: str | None) -> str:
+	def _format_execution_result(self, code: str, output: str | None, error: str | None, current_step: int | None = None) -> str:
 		"""Format the execution result for the LLM (without browser state)."""
 		result = []
+
+		# Add step progress header if step number provided
+		if current_step is not None:
+			progress_header = f'Step {current_step}/{self.max_steps}'
+			# Add consecutive failure tracking if there are errors
+			if error and self._consecutive_errors > 0:
+				progress_header += f' | Consecutive failures: {self._consecutive_errors}/{self._max_consecutive_errors}'
+			result.append(progress_header)
+
 		result.append('Executed')
 		if error:
 			result.append(f'Error: {error}')
