@@ -232,11 +232,22 @@ data = await evaluate('''
 })()
 ''')
 
-## use the text from the screenshot or dom to find the right selectors to then query them. You can be first more general and then more specific. 
+## use the text from the screenshot or dom to find the right selectors to then query them. You can be first more general and then more specific.
 ## In the exploration phase you can try multiple things in the same code block. To find the right selectors.
 
 ## Try to be efficent, save your code in different variables to reuse it later with different arguments.
 
+## Pagination: If task says "all pages" or "all results", loop through pages until no next button exists:
+```python
+all_data = []
+while True:
+  data = await evaluate('/* extract page */')
+  all_data.extend(data)
+  has_next = await evaluate('(function(){ return document.querySelector("a.next, button[aria-label*=next i]") !== null; })()')
+  if not has_next: break
+  await evaluate('document.querySelector("a.next").click()')
+  await asyncio.sleep(2)
+```
 
 # Process in Python
 valid_items = [item for item in data if item['title']]
