@@ -648,8 +648,9 @@ __code_exec_coro__ = __code_exec__()
 										end_idx = min(len(code_lines), lineno + 2)
 										context_lines = []
 										for idx in range(start_idx, end_idx):
-											marker = '>>> ' if idx == lineno - 1 else '    '
-											context_lines.append(f'{marker}{idx+1}: {code_lines[idx].rstrip()}')
+											actual_line_num = idx + 1
+											marker = '>>> ' if actual_line_num == lineno else '    '
+											context_lines.append(f'{marker}{actual_line_num}: {code_lines[idx].rstrip()}')
 										if context_lines:
 											error += f'\n\nCode context:\n' + '\n'.join(context_lines)
 										break
