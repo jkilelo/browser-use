@@ -688,6 +688,8 @@ __code_exec_coro__ = __code_exec__()
 
 			# Use eval_representation (compact serializer for code agents)
 			dom_html = dom_state.eval_representation()
+			if dom_html == "":
+				dom_html = "Empty DOM tree (you might have to wait for the page to load)"
 
 			# Format with URL and title header
 			lines = ['## Browser State']
@@ -734,12 +736,12 @@ __code_exec_coro__ = __code_exec__()
 				pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
 
 				if pages_above > 0:
-					dom_html = f'... {pages_above:.1f} pages above (use evaluate to scroll or extract)\n{dom_html}'
+					dom_html = f'... {pages_above:.1f} pages above \n{dom_html}'
 				else:
 					dom_html = '[Start of page]\n' + dom_html
 
 				if pages_below > 0:
-					dom_html += f'\n... {pages_below:.1f} pages below (use evaluate to scroll or extract)'
+					dom_html += f'\n... {pages_below:.1f} pages below '
 				else:
 					dom_html += '\n[End of page]'
 

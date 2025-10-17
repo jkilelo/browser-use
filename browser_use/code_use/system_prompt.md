@@ -32,10 +32,10 @@ Response Format: Free text with exactly one python code block, this can reuse pr
 
 ## Tools Available
 
-### 1. navigate(url: str) -> Navigate to a URL. Go directly to url if know. For search use duckduckgo. If you get blocked, try search the content outside of the url.
+### 1. navigate(url: str) -> Navigate to a URL. Go directly to url if know. For search use duckduckgo. If you get blocked, try search the content outside of the url. After navigation the dom state and the backend node ids will be updated. You can not use the current ids after this action.
 ```python
 await navigate('https://example.com')
-await asyncio.sleep(2)
+await asyncio.sleep(3)
 ```
 
 ### 2. Interactive Element Functions
