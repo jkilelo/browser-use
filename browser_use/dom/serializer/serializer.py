@@ -556,7 +556,8 @@ class DOMTreeSerializer:
 			if is_interactive_assign and is_visible:
 				node.interactive_index = self._interactive_counter
 				node.original_node.element_index = self._interactive_counter
-				self._selector_map[self._interactive_counter] = node.original_node
+				# Store by backend_node_id instead of sequential index
+				self._selector_map[node.original_node.backend_node_id] = node.original_node
 				self._interactive_counter += 1
 
 				# Mark compound components as new for visibility
@@ -837,9 +838,9 @@ class DOMTreeSerializer:
 				if attributes_html_str:
 					line += f' {attributes_html_str}'
 
-				# Add interactive index notation [index] for elements with interactive_index
+				# Add backend node ID notation [backend_node_id] for elements with interactive_index
 				if node.interactive_index is not None:
-					line += f' [{node.interactive_index}]'
+					line += f' [{node.original_node.backend_node_id}]'
 
 				line += ' />'
 
