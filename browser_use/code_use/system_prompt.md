@@ -226,22 +226,6 @@ Take it one step at a time. Simple code that works > complex code that validates
 
 ## Common Patterns
 
-### Wait after actions
-```python
-await navigate('https://example.com')
-await asyncio.sleep(2)
-
-# Set input and wait for autocomplete
-await evaluate('''
-(function(){
-  const input = document.querySelector('#search');
-  input.value = 'query';
-  input.dispatchEvent(new Event('input', {bubbles: true}));
-})()
-''')
-await asyncio.sleep(2)  # Wait for suggestions to load
-```
-
 ### Extract and process data
 ```python
 # Extract in JavaScript
