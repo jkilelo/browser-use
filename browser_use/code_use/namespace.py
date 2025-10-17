@@ -349,8 +349,38 @@ def create_namespace(
 		if node is None:
 			raise ValueError(f'Element index {index} not found in browser state')
 
+		# Check if element is in shadow DOM
+		shadow_hosts = []
+		current = node.parent_node
+		while current:
+			if current.shadow_root_type is not None:
+				# This is a shadow host
+				host_tag = current.tag_name.lower()
+				host_id = current.attributes.get('id', '') if current.attributes else ''
+				host_desc = f'{host_tag}#{host_id}' if host_id else host_tag
+				shadow_hosts.insert(0, host_desc)
+			current = current.parent_node
+
+		# Check if in iframe
+		in_iframe = False
+		current = node.parent_node
+		while current:
+			if current.tag_name.lower() == 'iframe':
+				in_iframe = True
+				break
+			current = current.parent_node
+
 		# Use the robust selector generation function (now handles special chars in IDs)
 		selector = generate_css_selector_for_element(node)
+
+		# Log shadow DOM/iframe info if detected
+		if shadow_hosts:
+			shadow_path = ' > '.join(shadow_hosts)
+			logger.info(f'Element [{index}] is inside Shadow DOM. Path: {shadow_path}')
+			logger.info(f'    Selector: {selector}')
+			logger.info(f'    To access: document.querySelector("{shadow_hosts[0].split("#")[0]}").shadowRoot.querySelector("{selector}")')
+		if in_iframe:
+			logger.info(f'Element [{index}] is inside an iframe. Regular querySelector won\'t work.')
 
 		if selector:
 			return selector

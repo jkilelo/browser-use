@@ -62,6 +62,8 @@ Use this functions for simple interactions.
 ### 3. get_selector_from_index(index: int) → str
 To get the selector for one backend node id. If this fails try sematic ortext based selectors.
 
+Shadow DOM: If selector fails, traverse via `.shadowRoot`: `document.querySelector('host').shadowRoot.querySelector('selector')`.
+
 ```python
 selector = await get_selector_from_index(index=123)
 print(f"{selector}")
