@@ -217,7 +217,16 @@ class CodeUseAgent:
 				if error:
 					logger.info(f'Code execution error:\n{error}')
 				if output:
-					logger.info(f'Code output:\n{output}')
+					# Check if this is the final done() output
+					if self._is_task_done():
+						# Show done() output more prominently
+						logger.info(f'✓ Task completed - Final output from done():\n{output}')
+						# Also show files_to_display if they exist in namespace
+						attachments = self.namespace.get('_task_attachments')
+						if attachments:
+							logger.info(f'Files displayed: {", ".join(attachments)}')
+					else:
+						logger.info(f'Code output:\n{output}')
 				if browser_state:
 					# Cap browser state logging to 1000 chars
 					if len(browser_state) > 1000:
@@ -257,6 +266,20 @@ class CodeUseAgent:
 		else:
 			# Loop completed without break - max_steps reached
 			logger.warning(f'Maximum steps ({self.max_steps}) reached without task completion')
+
+		# Log final summary if task was completed
+		if self._is_task_done():
+			logger.info('\n' + '=' * 60)
+			logger.info('TASK COMPLETED SUCCESSFULLY')
+			logger.info('=' * 60)
+			final_result = self.namespace.get('_task_result')
+			if final_result:
+				logger.info(f'\nFinal Output:\n{final_result}')
+
+			attachments = self.namespace.get('_task_attachments')
+			if attachments:
+				logger.info(f'\nFiles Attached:\n{chr(10).join(attachments)}')
+			logger.info('=' * 60 + '\n')
 
 		# Auto-close browser if keep_alive is False
 		await self.close()
@@ -567,7 +590,7 @@ __code_exec_coro__ = __code_exec__()
 			lines.append('**DOM Structure:**')
 
 			# Truncate DOM if too long and notify LLM
-			max_dom_length = 40000
+			max_dom_length = 60000
 			if len(dom_html) > max_dom_length:
 				lines.append(dom_html[:max_dom_length])
 				lines.append(f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]')
