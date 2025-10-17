@@ -578,28 +578,50 @@ __code_exec_coro__ = __code_exec__()
 						error += f'\n{lines[e.lineno - 1]}'
 
 				# Add guidance for common Python syntax errors
-				error += '\n\n⚠️ Python syntax error detected. Review the system prompt rules:'
-				error += '\n  • Do NOT use JavaScript comments (// or /* */) in Python code'
-				error += '\n  • Use json.dumps() when passing Python data to JavaScript'
-				error += '\n  • Check for unterminated strings (quotes/triple-quotes)'
-				error += '\n  • Verify proper indentation and syntax'
-				error += '\n\nThink carefully about how to write valid Python code that follows the examples in the prompt.'
+				error += '\n\n Python syntax error detected. Common causes:'
+				error += '\n  • Using # comments in Python code (never use comments)'
+				error += '\n  • Using JavaScript comments (// or /* */) in Python code'
+				error += '\n  • Unterminated strings (quotes/triple-quotes not closed)'
+				error += '\n  • Wrong indentation or missing colons'
+				error += '\n\nWrite clean Python code without comments. Follow the system prompt examples.'
 			else:
-				# For other errors, only include the last line of the error message
-				# to keep feedback concise and actionable
+				# For other errors, try to extract useful information
 				error_str = str(e)
-				if error_str:
-					# Extract just the last meaningful line from multi-line errors
-					# Split by newlines and take the last non-empty line
-					lines = [line.strip() for line in error_str.split('\n') if line.strip()]
-					if lines:
-						# Take just the last line
-						error = f'{type(e).__name__}: {lines[-1]}'
-					else:
-						error = f'{type(e).__name__}: {error_str}'
-				else:
-					# If no error message, use a generic one
-					error = f'{type(e).__name__} occurred'
+				error = f'{type(e).__name__}: {error_str}' if error_str else f'{type(e).__name__} occurred'
+
+				# For RuntimeError or other exceptions, try to extract traceback info
+				# to show which line in the user's code actually failed
+				if hasattr(e, '__traceback__'):
+					import traceback as tb_module
+					tb_lines = tb_module.format_exception(type(e), e, e.__traceback__)
+
+					# Look for the line in user's code (appears as '<code>')
+					for i, line in enumerate(tb_lines):
+						if '<code>' in line and 'line' in line:
+							# Extract line number from traceback
+							try:
+								import re
+								match = re.search(r'line (\d+)', line)
+								if match:
+									lineno = int(match.group(1))
+									# Get the actual line from user's code
+									code_lines = code.split('\n')
+									if 0 < lineno <= len(code_lines):
+										offending_line = code_lines[lineno - 1]
+										error += f'\nat line {lineno}: {offending_line.strip()}'
+
+										# Show context (2 lines before and after)
+										start_idx = max(0, lineno - 3)
+										end_idx = min(len(code_lines), lineno + 2)
+										context_lines = []
+										for idx in range(start_idx, end_idx):
+											marker = '>>> ' if idx == lineno - 1 else '    '
+											context_lines.append(f'{marker}{idx+1}: {code_lines[idx].rstrip()}')
+										if context_lines:
+											error += f'\n\nCode context:\n' + '\n'.join(context_lines)
+										break
+							except Exception:
+								pass
 
 			cell.status = ExecutionStatus.ERROR
 			cell.error = error
