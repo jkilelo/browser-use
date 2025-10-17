@@ -396,11 +396,14 @@ class CodeUseAgent:
 					# To make variables persist naturally (like Jupyter without needing 'global'):
 					# 1. Extract all assigned variable names from the code
 					# 2. Inject 'global' declarations for variables that already exist in namespace
-					# 3. Return locals() so we can update namespace with new variables
+					# 3. Extract user's explicit global declarations and pre-define those vars
+					# 4. Return locals() so we can update namespace with new variables
 
-					# Find all variable names being assigned (to inject global declarations)
+					# Find all variable names being assigned + user's explicit globals
 					try:
 						assigned_names = set()
+						user_global_names = set()
+
 						for node in ast.walk(tree):
 							if isinstance(node, ast.Assign):
 								for target in node.targets:
@@ -411,9 +414,19 @@ class CodeUseAgent:
 							elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)):
 								if hasattr(node, 'target') and isinstance(node.target, ast.Name):
 									assigned_names.add(node.target.id)
+							elif isinstance(node, ast.Global):
+								# Track user's explicit global declarations
+								user_global_names.update(node.names)
+
+						# Pre-define any user-declared globals that don't exist yet
+						# This prevents NameError when user writes "global foo" before "foo = ..."
+						for name in user_global_names:
+							if name not in self.namespace:
+								self.namespace[name] = None
 
 						# Filter to only existing namespace vars (like Jupyter does)
-						existing_vars = {name for name in assigned_names if name in self.namespace}
+						# Include both: assigned vars that exist + user's explicit globals
+						existing_vars = {name for name in (assigned_names | user_global_names) if name in self.namespace}
 					except:
 						existing_vars = set()
 
