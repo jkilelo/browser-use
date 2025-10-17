@@ -131,20 +131,51 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 				elif 'value' in exc_obj:
 					error_details.append(str(exc_obj['value']))
 
-			# Build comprehensive error message
+			# Build comprehensive error message with full CDP context
 			error_msg = f'JavaScript execution error: {error_text}'
 			if error_details:
 				error_msg += f'\nDetails: {" | ".join(error_details)}'
+
+			# Add line number and context
 			if 'lineNumber' in exception:
-				error_msg += f'\nat line {exception["lineNumber"]}'
-				# Try to extract the offending line from the code
+				line_num = exception['lineNumber']
+				error_msg += f'\nat line {line_num}'
+
+				# Try to extract the offending line and surrounding context
 				try:
 					lines = code.split('\n')
-					line_num = exception['lineNumber'] - 1
-					if 0 <= line_num < len(lines):
-						error_msg += f'\nOffending line: {lines[line_num].strip()}'
+					line_idx = line_num - 1
+					if 0 <= line_idx < len(lines):
+						# Show the offending line
+						offending_line = lines[line_idx].strip()
+						error_msg += f'\nOffending line: {offending_line}'
+
+						# Show 2 lines before and after for context
+						start_idx = max(0, line_idx - 2)
+						end_idx = min(len(lines), line_idx + 3)
+						context_lines = []
+						for i in range(start_idx, end_idx):
+							marker = '>>> ' if i == line_idx else '    '
+							context_lines.append(f'{marker}{i+1}: {lines[i].rstrip()}')
+						if context_lines:
+							error_msg += f'\n\nCode context:\n' + '\n'.join(context_lines)
 				except Exception:
 					pass
+
+			# Add column number if available
+			if 'columnNumber' in exception:
+				error_msg += f' (column {exception["columnNumber"]})'
+
+			# Add stack trace if available
+			if 'stackTrace' in exception and exception['stackTrace'].get('callFrames'):
+				frames = exception['stackTrace']['callFrames']
+				if frames:
+					error_msg += '\n\nStack trace:'
+					for frame in frames[:3]:  # Show first 3 frames
+						func_name = frame.get('functionName', '<anonymous>')
+						line = frame.get('lineNumber', '?')
+						col = frame.get('columnNumber', '?')
+						error_msg += f'\n  at {func_name} (line {line}, col {col})'
 
 			raise RuntimeError(error_msg)
 

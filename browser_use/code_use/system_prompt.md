@@ -35,7 +35,7 @@ await asyncio.sleep(2)  # Wait for page load
 - go directly to url if know or search with duckduckgo if not.
 
 ### 2. evaluate(js_code: str) → Python data
-Execute JavaScript, returns Python dict/list/string/number/bool/None.
+Execute JavaScript via **CDP (Chrome DevTools Protocol)**, returns Python dict/list/string/number/bool/None.
 
 ```python
 # Extract data from page
@@ -55,7 +55,18 @@ print(f"Found {len(products)} products")
 **Requirements:**
 - MUST wrap in IIFE: `(function(){ ... })()`
 - Returns Python data types automatically
-- Do NOT use JavaScript comments (// or /* */) - they cause errors in some browsers
+- Do NOT use JavaScript comments (// or /* */) - they are stripped before execution
+
+**CDP Execution Context:**
+- Your JavaScript runs through **Chrome DevTools Protocol (CDP)**, not directly in the browser
+- CDP is strict about syntax and may reject valid JavaScript with cryptic errors like:
+  - "Offending line: (function(){" - even though the code is valid
+  - Empty error messages when execution fails
+- If you get a CDP error with no clear cause, try:
+  - **Simplifying the JavaScript** - break into smaller steps
+  - **Using different syntax** - avoid complex expressions
+  - **Alternative approaches** - use different selectors or methods
+- CDP errors are NOT your fault - they're limitations of the execution environment
 
 ### 3. done(text: str, success: bool = True, files_to_display: list[str] = None)
 This is what the user will see. Set success if the user task is completed successfully. False if it is impossible to complete the task after many tries.
@@ -148,6 +159,29 @@ await evaluate(f'''
 await evaluate(f"(function(){{ document.querySelector('#{button_id}').click(); }})()")
 ```
 
+**CSS Selector Validation:**
+
+```python
+# ✓ CORRECT - valid CSS selectors:
+await evaluate("(function(){ return document.querySelector('button.submit'); })()")
+await evaluate("(function(){ return document.querySelector('[data-id=\"123\"]'); })()")
+await evaluate("(function(){ return document.querySelector('input[type=\"text\"]'); })()")
+
+# ✗ WRONG - invalid selectors that cause SyntaxError:
+await evaluate("(function(){ return document.querySelector('#'); })()")  # Empty ID
+await evaluate("(function(){ return document.querySelector('div:contains(\"text\")'); })()")  # :contains not valid in querySelector
+await evaluate("(function(){ return document.querySelector('input[value=test]'); })()")  # Missing quotes around value
+
+# For :contains(), use JavaScript filtering instead:
+items = await evaluate('''
+(function(){
+  return Array.from(document.querySelectorAll('div')).filter(d =>
+    d.textContent.includes('search text')
+  ).map(d => d.textContent);
+})()
+''')
+```
+
 ---
 
 ## String Formatting Rules
@@ -178,9 +212,11 @@ await done(text=output, success=True)
 3. **Simplify**: Maybe you're overcomplicating it
 
 **Common fixes:**
-- Selector not found? Try semantic attributes: `[aria-label="Submit"]`, `button[type="submit"]`
-- Navigation failed? Try alternative URL or search via DuckDuckGo
-- Data extraction failed? Check if content is in iframe, shadow DOM, or loaded dynamically
+- **Selector not found?** Try semantic attributes: `[aria-label="Submit"]`, `button[type="submit"]`
+- **Invalid selector?** Check for empty IDs (`#`), `:contains()`, or missing quotes in attribute values
+- **CDP error with valid code?** Simplify JavaScript, break into smaller steps, or try different approach
+- **Navigation failed?** Try alternative URL or search via DuckDuckGo
+- **Data extraction failed?** Check if content is in iframe, shadow DOM, or loaded dynamically
 
 **Don't write validation loops** - keep code simple and focused.
 
