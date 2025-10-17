@@ -342,51 +342,35 @@ def create_namespace(
 			}})()
 			''')
 		"""
+		from browser_use.dom.utils import generate_css_selector_for_element
+
 		# Get element by index from browser session
 		node = await browser_session.get_element_by_index(index)
 		if node is None:
 			raise ValueError(f'Element index {index} not found in browser state')
 
-		# Build CSS selector from node attributes
-		selector_parts = []
+		# Use the robust selector generation function
+		selector = generate_css_selector_for_element(node)
 
-		# Try id first (most specific)
+		if selector:
+			return selector
+
+		# Fallback: try to handle special ID cases
 		if node.attributes and 'id' in node.attributes and node.attributes['id']:
 			element_id = node.attributes['id']
-			# Check if id contains special characters that need escaping
+			# For IDs with special characters, suggest using getElementById
 			if any(char in element_id for char in ['$', '.', ':', '[', ']', ' ']):
-				# Return a note that getElementById should be used instead
 				return f'[USE_GET_ELEMENT_BY_ID]{element_id}'
-			selector_parts.append(f'#{element_id}')
 
-		# Add tag name
-		if node.tag_name:
-			tag_selector = node.tag_name.lower()
-
-			# Add class if available and not too generic
-			if node.attributes and 'class' in node.attributes and node.attributes['class']:
-				classes = node.attributes['class'].strip().split()
-				# Use first 2 classes for specificity
-				for cls in classes[:2]:
-					if cls and not any(char in cls for char in ['$', '.', ':', '[', ']', ' ']):
-						tag_selector += f'.{cls}'
-
-			# Add name attribute if present
-			if node.attributes and 'name' in node.attributes and node.attributes['name']:
-				name = node.attributes['name']
-				if not any(char in name for char in ['"', "'", '[', ']']):
-					tag_selector += f'[name="{name}"]'
-
-			selector_parts.append(tag_selector)
-
-		# Join parts - use the most specific one available
-		if selector_parts and selector_parts[0].startswith('#'):
-			return selector_parts[0]  # ID is sufficient
-		elif selector_parts:
-			return selector_parts[-1]  # Use the tag+class+name selector
-		else:
-			# Fallback to xpath if no good selector
+		# Final fallback to xpath
+		if node.xpath:
 			return f'[USE_XPATH]{node.xpath}'
+
+		# Last resort - just use tag name if available
+		if node.tag_name:
+			return node.tag_name.lower()
+
+		raise ValueError(f'Could not generate selector for element index {index}')
 
 	namespace['get_selector_from_index'] = get_selector_from_index_wrapper
 
