@@ -548,16 +548,17 @@ class DOMTreeSerializer:
 
 		# Skip assigning index to excluded nodes, or ignored by paint order
 		if not node.excluded_by_parent and not node.ignored_by_paint_order:
-			# Regular interactive element assignment (including enhanced compound controls)
-			is_interactive_assign = self._is_interactive_cached(node.original_node)
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 
-			# Only add to selector map if element is both interactive AND visible
+			# Add ALL visible elements to selector map (keyed by backend_node_id)
+			if is_visible and node.original_node.node_type == NodeType.ELEMENT_NODE:
+				self._selector_map[node.original_node.backend_node_id] = node.original_node
+
+			# Assign interactive index only to interactive elements
+			is_interactive_assign = self._is_interactive_cached(node.original_node)
 			if is_interactive_assign and is_visible:
 				node.interactive_index = self._interactive_counter
 				node.original_node.element_index = self._interactive_counter
-				# Store by backend_node_id instead of sequential index
-				self._selector_map[node.original_node.backend_node_id] = node.original_node
 				self._interactive_counter += 1
 
 				# Mark compound components as new for visibility
@@ -838,8 +839,10 @@ class DOMTreeSerializer:
 				if attributes_html_str:
 					line += f' {attributes_html_str}'
 
-				# Add backend node ID notation [backend_node_id] for elements with interactive_index
+				# Add backend node ID notation - [interactive_X] for interactive, [X] for others
 				if node.interactive_index is not None:
+					line += f' [interactive_{node.original_node.backend_node_id}]'
+				else:
 					line += f' [{node.original_node.backend_node_id}]'
 
 				line += ' />'

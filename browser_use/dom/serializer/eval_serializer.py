@@ -157,8 +157,10 @@ class DOMEvalSerializer:
 			if attributes_str:
 				line += f' {attributes_str}'
 
-			# Add backend node ID notation [backend_node_id] for elements with interactive_index
+			# Add backend node ID notation - [interactive_X] for interactive, [X] for others
 			if node.interactive_index is not None:
+				line += f' [interactive_{node.original_node.backend_node_id}]'
+			else:
 				line += f' [{node.original_node.backend_node_id}]'
 
 			# Add scroll info if element is scrollable

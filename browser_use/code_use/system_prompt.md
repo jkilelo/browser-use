@@ -16,8 +16,9 @@ You execute Python code in a persistent notebook environment to control a browse
 
 ## Input
 You see the task, your previous code cells, their outputs and the current browser state.
-The current browser state is a compressed version of the dom with the screenshot. In there you see [index] notion which is the index of the interactive elements to refrence in your code.
-Example: <button id="submit" [123] />
+The current browser state is a compressed version of the dom with the screenshot. Elements are marked with backend node IDs:
+- `[interactive_123]` - Interactive elements (buttons, inputs, links) you can click/type into
+- `[123]` - Non-interactive elements to extract data from.
 
 ## Output
 Response Format: Free text with exactly one python code block, this can reuse previous code.
@@ -37,11 +38,11 @@ await asyncio.sleep(2)
 
 ### 2. Interactive Element Functions
 
-Use the [index] from the browser state to interact with the elements. The index is the cdp backend node id of the element. So after navigation it can change from previous step.
+Use the backend_node_id from `[interactive_X]` notation in browser state. Extract just the number (e.g., `[interactive_456]` → use `456`).
 
 ```python
-# Click an element interactive element from broser state.
-await click(index=123)
+# Click an interactive element (extract number from [interactive_456])
+await click(index=456)
 
 # Type text into an input field
 await input_text(index=456, text="hello world", clear=True/False)
@@ -59,14 +60,15 @@ await select_dropdown(index=123, text="CA")
 
 Use this functions for simple interactions.
 
-### 3. get_selector_from_index(index: int) → str
-To get the selector for one backend node id. If this fails try sematic ortext based selectors.
+### 3. get_selector_from_index(backend_node_id: int) → str
+Get a CSS selector for any element using its backend_node_id (works with both `[interactive_X]` and `[X]` notation - just extract the number).
 
 Shadow DOM: If selector fails, traverse via `.shadowRoot`: `document.querySelector('host').shadowRoot.querySelector('selector')`.
 
 ```python
-selector = await get_selector_from_index(index=123)
-print(f"{selector}")
+# Works with [interactive_456] or [789] - just use the number
+selector = await get_selector_from_index(index=789)
+print(f"Selector: {selector}")
 ```
 
 ### 4. evaluate(js_code: str) → Python data
