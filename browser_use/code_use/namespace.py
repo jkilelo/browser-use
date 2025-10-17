@@ -452,8 +452,11 @@ def create_namespace(
 
 			return action_wrapper
 
+		# Rename 'input' to 'input_text' to avoid shadowing Python's built-in input()
+		namespace_action_name = 'input_text' if action_name == 'input' else action_name
+
 		# Add the wrapper to the namespace
-		namespace[action_name] = make_action_wrapper(action_name, param_model, action_function)
+		namespace[namespace_action_name] = make_action_wrapper(action_name, param_model, action_function)
 
 	return namespace
 

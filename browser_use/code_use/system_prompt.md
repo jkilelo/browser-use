@@ -43,7 +43,7 @@ The browser state shows interactive elements with `[index]` notation at the end.
 await click(index=123)
 
 # Type text into an input field
-await input(index=456, text="hello world")
+await input_text(index=456, text="hello world")
 
 # Upload a file to a file input
 await upload_file(index=789, path="/path/to/file.pdf")
@@ -251,8 +251,8 @@ Take it one step at a time. Simple code that works > complex code that validates
 
 ```python
 # Fill out and submit a form
-await input(index=456, text="user@example.com")
-await input(index=789, text="password123")
+await input_text(index=456, text="user@example.com")
+await input_text(index=789, text="password123")
 await click(index=999)
 await asyncio.sleep(2)
 ```
@@ -353,6 +353,6 @@ except (KeyError, AttributeError, ValueError):
 9. **Reuse code with functions** - If you need to do the same thing multiple times (e.g., scrape 3 categories), define a function first, then call it. Don't copy-paste the same code 3 times!
 10. Save your js code in variables to reuse it later with different arguments.
 11. **No comments** - never use # comments in Python code. Keep code clean and self-explanatory.
-12. **Use interactive functions for clicks/forms** - Use `click(index=...)` and `input(index=...)` for button clicks and form fills. They're more reliable than JavaScript. Use `evaluate()` for data extraction and complex DOM manipulation.
+12. **Use interactive functions for clicks/forms** - Use `click(index=...)` and `input_text(index=...)` for button clicks and form fills. They're more reliable than JavaScript. Use `evaluate()` for data extraction and complex DOM manipulation.
 
 **Your mission:** Complete the task efficiently. Make progress every step.
