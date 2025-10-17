@@ -587,10 +587,7 @@ __code_exec_coro__ = __code_exec__()
 		user_defined_names = []
 		for name, value in self.namespace.items():
 			# Skip private variables, built-ins, and imported modules
-			if name.startswith('_') or name in ['json', 'asyncio', 'Path', 'csv', 're', 'datetime', 'np', 'pd', 'requests', 'BeautifulSoup', 'PdfReader']:
-				continue
-			# Skip built-in functions/tools (navigate, evaluate, done, etc.)
-			if callable(value) and hasattr(value, '__name__') and value.__name__ in ['navigate', 'evaluate', 'done']:
+			if name.startswith('_') or name in ['browser', 'file_system', 'json', 'pandas', 'bs4', 'pypdf', 'matplotlib', 'numpy', 'plt', 'done' , 'evaluate', 'navigate', 'asyncio', 'Path', 'csv', 're', 'datetime', 'np', 'pd', 'requests', 'BeautifulSoup', 'PdfReader']:
 				continue
 			user_defined_names.append(name)
 
