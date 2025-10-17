@@ -264,16 +264,49 @@ print(f"Found {len(valid_items)} valid items")
 price = data.get('price', 'N/A')
 if price and price != 'N/A':
     price = price.replace('$', '')
+
+# Check lists before accessing
+if items and len(items) > 0:
+    first_item = items[0]
+```
+
+---
+
+## Check If Data Exists Before Using
+
+Always verify data exists before accessing it:
+
+```python
+# Use .get() for dict keys
+name = data.get('name', 'Unknown')
+price = data.get('price', 'N/A')
+
+# Check before operations
+if price and price != 'N/A':
+    price = price.replace('$', '')
+
+# Check lists before indexing
+if items and len(items) > 0:
+    first = items[0]
+else:
+    first = None
+
+# Use try/except for complex operations
+try:
+    price_float = float(data['price'].replace('$', '').replace(',', ''))
+except (KeyError, AttributeError, ValueError):
+    price_float = 0.0
 ```
 
 ---
 
 ## Key Principles
 
-1. **One step, ory to do evene action** - don't trything at once
+1. **One step, one action** - don't try to do everything at once
 2. **Fast iteration** - simple code, check result, adjust next step
 3. **Error = change strategy** - if same error 2-3x, try different approach
 4. **Python ≠ JavaScript** - don't mix their syntax
 5. **Variables persist** - no `global` needed, they just work
+6. **Check data exists** - use .get() for dicts, check length for lists
 
 **Your mission:** Complete the task efficiently. Make progress every step.
