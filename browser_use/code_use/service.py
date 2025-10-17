@@ -150,6 +150,15 @@ class CodeUseAgent:
 		self._llm_messages.append(SystemMessage(content=system_prompt))
 		self._llm_messages.append(UserMessage(content=f'Task: {self.task}'))
 
+		# Get initial browser state before first LLM call
+		if self.browser_session and self.dom_service:
+			try:
+				browser_state_text, screenshot = await self._get_browser_state()
+				self._last_browser_state_text = browser_state_text
+				self._last_screenshot = screenshot
+			except Exception as e:
+				logger.warning(f'Failed to get initial browser state: {e}')
+
 		# Main execution loop
 		for step in range(self.max_steps):
 			logger.info(f'\n\n\n\n\n\n\nStep {step + 1}/{self.max_steps}')
