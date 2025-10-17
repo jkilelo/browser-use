@@ -573,6 +573,14 @@ __code_exec_coro__ = __code_exec__()
 					lines = code.split('\n')
 					if 0 < e.lineno <= len(lines):
 						error += f'\n{lines[e.lineno - 1]}'
+
+				# Add guidance for common Python syntax errors
+				error += '\n\n⚠️ Python syntax error detected. Review the system prompt rules:'
+				error += '\n  • Do NOT use JavaScript comments (// or /* */) in Python code'
+				error += '\n  • Use json.dumps() when passing Python data to JavaScript'
+				error += '\n  • Check for unterminated strings (quotes/triple-quotes)'
+				error += '\n  • Verify proper indentation and syntax'
+				error += '\n\nThink carefully about how to write valid Python code that follows the examples in the prompt.'
 			else:
 				# For other errors, only include the last line of the error message
 				# to keep feedback concise and actionable
