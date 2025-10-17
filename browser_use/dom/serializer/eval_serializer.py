@@ -168,10 +168,35 @@ class DOMEvalSerializer:
 	def _serialize_children(node: SimplifiedNode, include_attributes: list[str], depth: int) -> str:
 		"""Helper to serialize all children of a node."""
 		children_output = []
+
+		# Check if parent is a list container (ul, ol)
+		is_list_container = (
+			node.original_node.node_type == NodeType.ELEMENT_NODE
+			and node.original_node.tag_name.lower() in ['ul', 'ol']
+		)
+
+		# Track list items if we're in a list
+		li_count = 0
+		max_list_items = 5
+
 		for child in node.children:
+			# If we're in a list container and this child is an li element
+			if is_list_container and child.original_node.node_type == NodeType.ELEMENT_NODE:
+				if child.original_node.tag_name.lower() == 'li':
+					li_count += 1
+					# Skip li elements after the 5th one
+					if li_count > max_list_items:
+						continue
+
 			child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
 			if child_text:
 				children_output.append(child_text)
+
+		# Add truncation message if we skipped items
+		if is_list_container and li_count > max_list_items:
+			depth_str = depth * '\t'
+			children_output.append(f'{depth_str}... ({li_count - max_list_items} more items - use evaluate to explore more.)')
+
 		return '\n'.join(children_output)
 
 	@staticmethod
