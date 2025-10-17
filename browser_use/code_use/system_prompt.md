@@ -55,7 +55,7 @@ print(f"Found {len(products)} products")
 **Requirements:**
 - MUST wrap in IIFE: `(function(){ ... })()`
 - Returns Python data types automatically
-- Do NOT use JavaScript comments (// or /* */) - they are stripped before execution
+- Do NOT use JavaScript comments (// or /* */) - they are stripped before execution. They break the cdp execution environment.
 
 **CDP Execution Context:**
 - Your JavaScript runs through **Chrome DevTools Protocol (CDP)**, not directly in the browser
@@ -321,5 +321,7 @@ except (KeyError, AttributeError, ValueError):
 4. **Python ≠ JavaScript** - don't mix their syntax
 5. **Variables persist** - no `global` needed, they just work
 6. **Check data exists** - use .get() for dicts, check length for lists
+7. If you need to extract a lot of data, first validate one item and write the function, then use it to extract all. So first explore the right strategy and then scale it. 
+8. **Validate Selectors Before Extraction.** Validate selectors find elements BEFORE extracting data. Utilize the browser state to find the right selector.
 
 **Your mission:** Complete the task efficiently. Make progress every step.

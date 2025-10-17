@@ -152,7 +152,7 @@ class CodeUseAgent:
 
 		# Main execution loop
 		for step in range(self.max_steps):
-			logger.info(f'\n\n\n\nStep {step + 1}/{self.max_steps}')
+			logger.info(f'\n\n\n\n\n\n\nStep {step + 1}/{self.max_steps}')
 
 			try:
 				# Get code from LLM (this also adds to self._llm_messages)
@@ -220,8 +220,8 @@ class CodeUseAgent:
 					logger.info(f'Code output:\n{output}')
 				if browser_state:
 					# Cap browser state logging to 1000 chars
-					if len(browser_state) > 300:
-						logger.info(f'Browser state:\n{browser_state[:300]}...\n[Truncated, full state sent to LLM]')
+					if len(browser_state) > 1000:
+						logger.info(f'Browser state:\n{browser_state[:1000]}...\n[Truncated, full state sent to LLM]')
 					else:
 						logger.info(f'Browser state:\n{browser_state}')
 
@@ -567,7 +567,7 @@ __code_exec_coro__ = __code_exec__()
 			lines.append('**DOM Structure:**')
 
 			# Truncate DOM if too long and notify LLM
-			max_dom_length = 20000
+			max_dom_length = 40000
 			if len(dom_html) > max_dom_length:
 				lines.append(dom_html[:max_dom_length])
 				lines.append(f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]')

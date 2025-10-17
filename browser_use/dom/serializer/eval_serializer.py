@@ -209,14 +209,23 @@ class DOMEvalSerializer:
 			for attr in EVAL_KEY_ATTRIBUTES:
 				if attr in node.attributes:
 					value = str(node.attributes[attr]).strip()
-					if value and attr == 'class':
+					if not value:
+						continue
+
+					# Special handling for different attributes
+					if attr == 'class':
 						# For class, limit to first 2 classes to save space
 						classes = value.split()[:2]
 						value = ' '.join(classes)
-					if value:
-						# Cap at 25 chars
 						value = cap_text_length(value, 25)
-						attrs.append(f'{attr}="{value}"')
+					elif attr == 'href':
+						# For href, cap at 20 chars to save space
+						value = cap_text_length(value, 20)
+					else:
+						# Cap at 25 chars for other attributes
+						value = cap_text_length(value, 25)
+
+					attrs.append(f'{attr}="{value}"')
 
 		# Add AX role if different from tag
 		if node.ax_node and node.ax_node.role and node.ax_node.role.lower() != node.node_name.lower():
