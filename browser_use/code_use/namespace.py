@@ -250,7 +250,26 @@ def create_namespace(
 		result = await namespace['evaluate']('document.title')
 	"""
 	if tools is None:
-		tools = Tools()
+		# For code-use mode, include click, input, send_keys, and upload_file actions
+		# but exclude the more complex ones that aren't needed
+		tools = Tools(
+			exclude_actions=[
+				'scroll',
+				'extract',
+				'find_text',
+				'select_dropdown',
+				'dropdown_options',
+				'screenshot',
+				'search',
+				# 'click',  # Keep for code-use
+				# 'input',  # Keep for code-use
+				'switch',
+				# 'send_keys',  # Keep for code-use
+				'close',
+				'go_back',
+				# 'upload_file',  # Keep for code-use
+			]
+		)
 
 	if available_file_paths is None:
 		available_file_paths = []
@@ -299,6 +318,77 @@ def create_namespace(
 		return await evaluate(code, browser_session)
 
 	namespace['evaluate'] = evaluate_wrapper
+
+	# Add get_selector_from_index helper for code_use mode
+	async def get_selector_from_index_wrapper(index: int) -> str:
+		"""
+		Get the CSS selector for an element by its interactive index.
+
+		This allows you to use the element's index from the browser state to get
+		its CSS selector for use in JavaScript evaluate() calls.
+
+		Args:
+			index: The interactive index from the browser state (e.g., [123])
+
+		Returns:
+			str: CSS selector that can be used in JavaScript
+
+		Example:
+			selector = await get_selector_from_index(123)
+			await evaluate(f'''
+			(function(){{
+				const el = document.querySelector({json.dumps(selector)});
+				if (el) el.click();
+			}})()
+			''')
+		"""
+		# Get element by index from browser session
+		node = await browser_session.get_element_by_index(index)
+		if node is None:
+			raise ValueError(f'Element index {index} not found in browser state')
+
+		# Build CSS selector from node attributes
+		selector_parts = []
+
+		# Try id first (most specific)
+		if node.attributes and 'id' in node.attributes and node.attributes['id']:
+			element_id = node.attributes['id']
+			# Check if id contains special characters that need escaping
+			if any(char in element_id for char in ['$', '.', ':', '[', ']', ' ']):
+				# Return a note that getElementById should be used instead
+				return f'[USE_GET_ELEMENT_BY_ID]{element_id}'
+			selector_parts.append(f'#{element_id}')
+
+		# Add tag name
+		if node.tag_name:
+			tag_selector = node.tag_name.lower()
+
+			# Add class if available and not too generic
+			if node.attributes and 'class' in node.attributes and node.attributes['class']:
+				classes = node.attributes['class'].strip().split()
+				# Use first 2 classes for specificity
+				for cls in classes[:2]:
+					if cls and not any(char in cls for char in ['$', '.', ':', '[', ']', ' ']):
+						tag_selector += f'.{cls}'
+
+			# Add name attribute if present
+			if node.attributes and 'name' in node.attributes and node.attributes['name']:
+				name = node.attributes['name']
+				if not any(char in name for char in ['"', "'", '[', ']']):
+					tag_selector += f'[name="{name}"]'
+
+			selector_parts.append(tag_selector)
+
+		# Join parts - use the most specific one available
+		if selector_parts and selector_parts[0].startswith('#'):
+			return selector_parts[0]  # ID is sufficient
+		elif selector_parts:
+			return selector_parts[-1]  # Use the tag+class+name selector
+		else:
+			# Fallback to xpath if no good selector
+			return f'[USE_XPATH]{node.xpath}'
+
+	namespace['get_selector_from_index'] = get_selector_from_index_wrapper
 
 	# Inject all tools as functions into the namespace
 	# Skip 'evaluate' since we have a custom implementation above

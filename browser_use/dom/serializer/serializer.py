@@ -837,6 +837,10 @@ class DOMTreeSerializer:
 				if attributes_html_str:
 					line += f' {attributes_html_str}'
 
+				# Add interactive index notation [index] for elements with interactive_index
+				if node.interactive_index is not None:
+					line += f' [{node.interactive_index}]'
+
 				line += ' />'
 
 				# Add scroll information only when we should show it
