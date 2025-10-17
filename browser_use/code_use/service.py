@@ -544,7 +544,7 @@ __code_exec_coro__ = __code_exec__()
 			dom_state = state.dom_state
 
 			# Use llm_representation (standard serializer used by Agent)
-			dom_html = dom_state.llm_representation()
+			dom_html = dom_state.eval_representation()
 
 			# Format with URL and title header
 			lines = ['## Browser State']
