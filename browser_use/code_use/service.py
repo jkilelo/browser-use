@@ -727,20 +727,21 @@ __code_exec_coro__ = __code_exec__()
 
 
 			# Add available variables and functions BEFORE DOM structure
-			# This shows what the agent can use in their code
-			default_methods = ['browser', 'file_system', 'json', 'asyncio', 'Path', 'csv', 're', 'datetime',
-							   'np', 'pd', 'plt', 'numpy', 'pandas', 'matplotlib', 'requests', 'BeautifulSoup', 'bs4', 'pypdf', 'PdfReader',
-							   'done', 'evaluate', 'navigate', 'click', 'input_text', 'send_keys', 'upload_file', 'get_selector_from_index', 'wait']
+			# Show useful utilities (json, asyncio, etc.) and user-defined vars, but hide system objects
+			skip_vars = {
+				'browser', 'file_system',  # System objects
+				'np', 'pd', 'plt', 'numpy', 'pandas', 'matplotlib', 'requests', 'BeautifulSoup', 'bs4', 'pypdf', 'PdfReader',  
+			}
 
-			# Collect user-defined variables (exclude private and internals)
-			user_defined_names = []
+			available_vars = []
 			for name in self.namespace.keys():
-				if not name.startswith('_') and name not in default_methods:
-					user_defined_names.append(name)
+				# Skip private vars and system objects/actions
+				if not name.startswith('_') and name not in skip_vars:
+					available_vars.append(name)
 
-			# Build available variables line
-			all_available = default_methods + sorted(user_defined_names)
-			lines.append(f"**Available variables:** {', '.join(all_available)}")
+			# Sort for consistent display
+			available_vars_sorted = sorted(available_vars)
+			lines.append(f"**Available variables:** {', '.join(available_vars_sorted)}")
 			lines.append('')
 
 			# Add DOM structure
