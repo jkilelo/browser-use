@@ -150,6 +150,18 @@ class CodeUseAgent:
 		self._llm_messages.append(SystemMessage(content=system_prompt))
 		self._llm_messages.append(UserMessage(content=f'Task: {self.task}'))
 
+		# Extract URL from task and navigate if found
+		initial_url = self._extract_url_from_task(self.task)
+		if initial_url:
+			try:
+				logger.info(f'Extracted URL from task, navigating to: {initial_url}')
+				# Use the navigate action from namespace
+				await self.namespace['navigate'](initial_url)
+				# Wait for page load
+				await asyncio.sleep(2)
+			except Exception as e:
+				logger.warning(f'Failed to navigate to extracted URL {initial_url}: {e}')
+
 		# Get initial browser state before first LLM call
 		if self.browser_session and self.dom_service:
 			try:
@@ -670,6 +682,44 @@ __code_exec_coro__ = __code_exec__()
 		"""Check if the task is marked as done in the namespace."""
 		# Check if 'done' was called by looking for a special marker in namespace
 		return self.namespace.get('_task_done', False)
+
+	def _extract_url_from_task(self, task: str) -> str | None:
+		"""Extract URL from task string using naive pattern matching."""
+		import re
+
+		# Remove email addresses from task before looking for URLs
+		task_without_emails = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '', task)
+
+		# Look for common URL patterns
+		patterns = [
+			r'https?://[^\s<>"\']+',  # Full URLs with http/https
+			r'(?:www\.)?[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}(?:/[^\s<>"\']*)?',  # Domain names with subdomains and optional paths
+		]
+
+		found_urls = []
+		for pattern in patterns:
+			matches = re.finditer(pattern, task_without_emails)
+			for match in matches:
+				url = match.group(0)
+
+				# Remove trailing punctuation that's not part of URLs
+				url = re.sub(r'[.,;:!?()\[\]]+$', '', url)
+				# Add https:// if missing
+				if not url.startswith(('http://', 'https://')):
+					url = 'https://' + url
+				found_urls.append(url)
+
+		unique_urls = list(set(found_urls))
+		# If multiple URLs found, skip auto-navigation to avoid ambiguity
+		if len(unique_urls) > 1:
+			logger.debug(f'Multiple URLs found ({len(found_urls)}), skipping auto-navigation to avoid ambiguity')
+			return None
+
+		# If exactly one URL found, return it
+		if len(unique_urls) == 1:
+			return unique_urls[0]
+
+		return None
 
 	async def _capture_screenshot(self, step_number: int) -> str | None:
 		"""Capture and store screenshot for eval tracking."""
