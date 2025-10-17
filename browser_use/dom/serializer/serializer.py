@@ -551,8 +551,7 @@ class DOMTreeSerializer:
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 
 			# Add ALL visible elements to selector map (keyed by backend_node_id)
-			if is_visible and node.original_node.node_type == NodeType.ELEMENT_NODE:
-				self._selector_map[node.original_node.backend_node_id] = node.original_node
+			self._selector_map[node.original_node.backend_node_id] = node.original_node
 
 			# Assign interactive index only to interactive elements
 			is_interactive_assign = self._is_interactive_cached(node.original_node)
