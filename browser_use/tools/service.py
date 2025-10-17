@@ -111,9 +111,9 @@ class Tools(Generic[Context]):
 			'search',
 			# 'click',
 			# 'input',
-			'switch',
+			# 'switch',  # ENABLED: switch tab action now available
 			# 'send_keys',
-			'close',
+			# 'close',  # ENABLED: close tab action now available
 			# 'go_back',
 			# 'upload_file',
 		],
@@ -520,7 +520,10 @@ class Tools(Generic[Context]):
 
 		# Tab Management Actions
 
-		@self.registry.action('', param_model=SwitchTabAction)
+		@self.registry.action(
+			'Switch to another open tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use when you need to work with content in a different tab.',
+			param_model=SwitchTabAction,
+		)
 		async def switch(params: SwitchTabAction, browser_session: BrowserSession):
 			# Simple switch tab logic
 			try:
@@ -542,7 +545,10 @@ class Tools(Generic[Context]):
 				memory = f'Attempted to switch to tab #{params.tab_id}'
 				return ActionResult(extracted_content=memory, long_term_memory=memory)
 
-		@self.registry.action('', param_model=CloseTabAction)
+		@self.registry.action(
+			'Close a tab by tab_id. Tab IDs are shown in browser state tabs list (last 4 chars of target_id). Use to clean up tabs you no longer need.',
+			param_model=CloseTabAction,
+		)
 		async def close(params: CloseTabAction, browser_session: BrowserSession):
 			# Simple close tab logic
 			try:
