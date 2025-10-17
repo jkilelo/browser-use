@@ -73,7 +73,9 @@ await select_dropdown(index=123, text="CA")
 
 
 ### 3. get_selector_from_index(backend_node_id: int) → str
-Get a robust CSS selector for any element marker using its backend_node_id (works with both `[i_X]` and `[X]` notation - just extract the number).
+Get a robust CSS selector for any element marker using its backend_node_id (works with both `[i_X]` and `[X]` notation - just extract the number). This generates optimal selectors using IDs, classes, and attributes - much more reliable than manually writing selectors.
+
+Prefer `get_selector_from_index()` + `evaluate()` over manual selectors** - it's faster and more accurate.
 
 Shadow DOM: If selector fails, traverse via `.shadowRoot`: `document.querySelector('host').shadowRoot.querySelector('selector')`.
 
