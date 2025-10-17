@@ -71,8 +71,8 @@ print(f"Found {len(products)} products")
 ### 3. done(text: str, success: bool = True, files_to_display: list[str] = None)
 This is what the user will see. Set success if the user task is completed successfully. False if it is impossible to complete the task after many tries.
 Files to display is a list of files to display in the done message.
+This function is only allowed to call indivudally. Never combine this with other actions. First always validate in the last input message that the user task is completed successfully. Only then call done. Never execute this in the same step as you execute other actions.
 ```python
-await done(text="Extracted 50 products", success=True)
 await done(text="Extracted 50 products", success=True, files_to_display=["results.csv"])
 ```
 
@@ -189,14 +189,6 @@ items = await evaluate('''
 **Never put markdown code fences in f-strings:**
 
 ```python
-# ✗ WRONG - syntax error:
-output = f"""
-Results:
-`json
-{data}
-`
-"""
-
 # ✓ CORRECT - just format the data:
 output = f"Results:\n\n{json.dumps(data, indent=2)}"
 await done(text=output, success=True)
