@@ -207,9 +207,12 @@ class DOMEvalSerializer:
 			and node.original_node.tag_name.lower() in ['ul', 'ol']
 		)
 
-		# Track list items if we're in a list
+		# Track list items and consecutive links
 		li_count = 0
 		max_list_items = 5
+		consecutive_link_count = 0
+		max_consecutive_links = 5
+		total_links_skipped = 0
 
 		for child in node.children:
 			# If we're in a list container and this child is an li element
@@ -220,14 +223,36 @@ class DOMEvalSerializer:
 					if li_count > max_list_items:
 						continue
 
+			# Track consecutive anchor tags (links)
+			if child.original_node.node_type == NodeType.ELEMENT_NODE:
+				if child.original_node.tag_name.lower() == 'a':
+					consecutive_link_count += 1
+					# Skip links after the 5th consecutive one
+					if consecutive_link_count > max_consecutive_links:
+						total_links_skipped += 1
+						continue
+				else:
+					# Reset counter when we hit a non-link element
+					# But first add truncation message if we skipped links
+					if total_links_skipped > 0:
+						depth_str = depth * '\t'
+						children_output.append(f'{depth_str}... ({total_links_skipped} more links - use evaluate to explore more.)')
+						total_links_skipped = 0
+					consecutive_link_count = 0
+
 			child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
 			if child_text:
 				children_output.append(child_text)
 
-		# Add truncation message if we skipped items
+		# Add truncation message if we skipped items at the end
 		if is_list_container and li_count > max_list_items:
 			depth_str = depth * '\t'
 			children_output.append(f'{depth_str}... ({li_count - max_list_items} more items - use evaluate to explore more.)')
+
+		# Add truncation message for links if we skipped any at the end
+		if total_links_skipped > 0:
+			depth_str = depth * '\t'
+			children_output.append(f'{depth_str}... ({total_links_skipped} more links - use evaluate to explore more.)')
 
 		return '\n'.join(children_output)
 
