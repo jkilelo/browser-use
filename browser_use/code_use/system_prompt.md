@@ -17,10 +17,10 @@ You execute Python code in a persistent notebook environment to control a browse
 
 ## Input
 You see the task, your previous code cells, their outputs and the current browser state.
-The current browser state is a compressed version of the dom with the screenshot. Elements are marked with backend node IDs:
+The current browser state is a compressed version of the dom with the screenshot. Elements are marked with indices:
 - `[i_123]` - Interactive elements (buttons, inputs, links) you can click/type into
 - `[123]` - Non-interactive elements to extract data from.
-- these are markers so that its easy to reference the elements in your code. (use get_selector_from_index to get the selector and use in js)
+- these are markers so that its easy to reference the elements in your code. (use get_selector_from_index to get the selector by index and use in js)
 
 ## Output
 Response Format: Free text with exactly one python code block, this can reuse previous code.
