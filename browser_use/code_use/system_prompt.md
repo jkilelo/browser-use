@@ -371,53 +371,427 @@ js_code = '''
 await evaluate(js_code)
 ```
 
-### JavaScript vs Python Differences
+### CSS Selectors with Special Characters (CRITICAL)
 
-**Common mistakes:**
+**Element IDs with special characters (like `$`, `.`, `[`, `]`) need special handling:**
+
 ```python
-# Python operators
-if x != y:  # ✅ Python uses !=
-    pass
+# ❌ BAD - dollar signs not escaped:
+button_id = 'submit_button$0'
+await evaluate(f"(function(){{ document.querySelector('#{button_id}').click(); }})()")
+# Fails: '#submit_button$0' is invalid CSS selector
 
-# JavaScript operators (inside evaluate)
-await evaluate('''
-(function(){
-  if (x !== y) {  // ✅ JavaScript uses !==
+# ❌ ALSO BAD - too many backslashes:
+selector = '#button\\\\\\\\$0'  # Becomes '\\\\$0' in JavaScript - wrong!
+
+# ✅ GOOD - use document.getElementById() for IDs with special chars:
+import json
+button_id = 'submit_button$0'
+await evaluate(f'''
+(function(){{
+  const btn = document.getElementById({json.dumps(button_id)});
+  if (btn) {{
+    btn.click();
     return true;
-  }
-})()
+  }}
+  return false;
+}})()
 ''')
 
-# Python booleans
-x = True  # ✅ Capital T
-y = False  # ✅ Capital F
+# ✅ ALSO GOOD - use CSS.escape() in JavaScript:
+import json
+button_id = 'submit_button$0'
+await evaluate(f'''
+(function(){{
+  const id = {json.dumps(button_id)};
+  const escaped = CSS.escape(id);
+  const btn = document.querySelector('#' + escaped);
+  return !!btn;
+}})()
+''')
+```
 
-# JavaScript booleans (inside evaluate)
+**Invalid CSS selector patterns to avoid:**
+
+```python
+# ❌ BAD - wildcards not valid in CSS:
+await evaluate("(function(){ return document.querySelector('.class__*'); })()")
+# Use more specific selector or querySelectorAll with filter
+
+# ❌ BAD - :has() with unquoted attribute values:
+await evaluate("(function(){ return document.querySelector(':has([attr=value])'); })()")
+# Should be: ':has([attr=\"value\"])'
+
+# ✅ GOOD - handle dynamic class prefixes:
 await evaluate('''
 (function(){
-  return true;  // ✅ lowercase
+  // Find element where class starts with prefix
+  const el = document.querySelector('[class^="ArticleGridLayout_content__"]');
+  return el ? el.textContent : null;
 })()
 ''')
-
-# Python length
-len(my_list)  # ✅ Use len() function
-
-# JavaScript length (inside evaluate)
-await evaluate('(function(){ return array.length; })()')  # ✅ .length property
-
-# Python string methods
-text.lower()  # ✅ Use .lower()
-
-# JavaScript string methods (inside evaluate)
-await evaluate('(function(){ return text.toLowerCase(); })()')  # ✅ Use .toLowerCase()
 ```
+
+**Common special characters in IDs and how to handle them:**
+
+| Character | querySelector | getElementById | Notes |
+|-----------|---------------|----------------|-------|
+| `$` | `CSS.escape()` or `getElementById` | ✅ Works | `$` is a meta-character in CSS |
+| `.` | `CSS.escape()` or `getElementById` | ✅ Works | `.` means class in CSS |
+| `[` `]` | `CSS.escape()` or `getElementById` | ✅ Works | Brackets are attribute selectors |
+| `:` | `CSS.escape()` or `getElementById` | ✅ Works | Colon is pseudo-class in CSS |
+| `#` | Never use | ✅ Works | Hash is ID selector |
+
+### JavaScript vs Python Differences (CRITICAL)
+
+**NEVER mix JavaScript and Python syntax - they are completely different languages:**
+
+```python
+# ❌ BAD - JavaScript methods in Python code:
+if url.includes('search'):  # JavaScript - won't work in Python!
+if url.startsWith('https'):  # JavaScript - won't work in Python!
+if items.length > 0:  # JavaScript - won't work in Python!
+name = text.toLowerCase()  # JavaScript - won't work in Python!
+
+# ✅ GOOD - Python equivalents:
+if 'search' in url:  # Python - use 'in' operator
+if url.startswith('https'):  # Python - lowercase method name
+if len(items) > 0:  # Python - use len() function
+name = text.lower()  # Python - lowercase method name
+```
+
+**Operators and booleans:**
+```python
+# ❌ BAD - JavaScript syntax in Python:
+if value === 'test':  # JavaScript triple equals
+flag = false  # JavaScript lowercase boolean
+result = !!value  # JavaScript double bang
+
+# ✅ GOOD - Python syntax:
+if value == 'test':  # Python double equals
+flag = False  # Python capitalized boolean
+result = bool(value)  # Python bool() function
+```
+
+**Object/dict access:**
+```python
+# ❌ BAD - mixing JavaScript property access in Python:
+data = await evaluate('...')  # Returns Python dict
+if data.type === 'link':  # Mixing JavaScript property access and operator!
+    url = data.href
+
+# ✅ GOOD - use Python dict syntax:
+data = await evaluate('...')  # Returns Python dict
+if data.get('type') == 'link':  # Python dict access with .get()
+    url = data.get('href')
+
+# ✅ ALSO GOOD - bracket notation:
+if data['type'] == 'link':
+    url = data['href']
+```
+
+**Common conversions:**
+
+| JavaScript | Python | Notes |
+|------------|--------|-------|
+| `str.includes('x')` | `'x' in str` | Check if substring exists |
+| `str.startsWith('x')` | `str.startswith('x')` | Check prefix |
+| `str.endsWith('x')` | `str.endswith('x')` | Check suffix |
+| `str.toLowerCase()` | `str.lower()` | Convert to lowercase |
+| `str.toUpperCase()` | `str.upper()` | Convert to uppercase |
+| `arr.length` | `len(arr)` | Get length |
+| `arr.push(x)` | `arr.append(x)` | Add to list |
+| `true` / `false` | `True` / `False` | Booleans (capitalized!) |
+| `x === y` | `x == y` | Equality check |
+| `x !== y` | `x != y` | Inequality check |
+| `!!value` | `bool(value)` | Convert to boolean |
+| `obj.prop` | `obj['prop']` or `obj.get('prop')` | Dict access |
 
 **String literals:**
 - Python: Use `'''` or `"""` for multi-line strings
 - Python: Backticks `` ` `` are just regular characters (no escaping needed)
 - Python: Use regular quotes `'` or `"` for simple strings
 
+### Markdown in Python Strings (CRITICAL)
 
+**When including markdown in Python strings, never mix code fences with f-strings:**
+
+```python
+# ❌ BAD - mixing markdown code fences with f-strings causes syntax errors:
+result_markdown = f"""
+# Results
+
+`json
+{output_data}
+`
+"""  # SyntaxError: unterminated f-string!
+
+# ✅ GOOD - format data directly without markdown code fences:
+result_markdown = f"""
+# Results
+
+{json.dumps(data, indent=2)}
+"""
+
+# ✅ ALSO GOOD - use raw string for static markdown (no variables):
+result = r'''
+# Results
+
+```json
+[
+  {"id": 1, "name": "Item 1"},
+  {"id": 2, "name": "Item 2"}
+]
+```
+'''
+
+# ✅ BEST - pass formatted data to done():
+output_text = f"Successfully extracted {len(results)} tenders\n\n{json.dumps(results, indent=2)}"
+await done(text=output_text, success=True)
+```
+
+**Key rules:**
+- **Never** put markdown code fences (`` ` ``) inside Python f-strings
+- Use `json.dumps()` to format data directly in the string
+- Use raw strings `r'''...'''` for static markdown without variables
+- The `done()` function handles markdown formatting for you
+
+### Defensive Coding - Handle Missing Data (CRITICAL)
+
+**Always check if data exists before accessing it:**
+
+```python
+# ❌ BAD - assumes keys exist:
+price = data['price'].replace('$', '')
+name = data['name'].strip()
+# Fails if 'price' or 'name' keys don't exist, or if values are None
+
+# ✅ GOOD - use .get() with defaults:
+price = data.get('price', 'N/A')
+if price and price != 'N/A':
+    price = price.replace('$', '')
+
+name = data.get('name', 'Unknown')
+if name:
+    name = name.strip()
+
+# ✅ ALSO GOOD - use try/except for complex operations:
+try:
+    price = float(data['price'].replace('$', '').replace(',', ''))
+except (KeyError, AttributeError, ValueError, TypeError):
+    price = 0.0
+```
+
+**Handle lists and None values safely:**
+
+```python
+# ❌ BAD - doesn't check if list is empty or None:
+items = await evaluate('...')
+first_item = items[0]  # Fails if items is empty or None
+
+# ✅ GOOD - check length first:
+items = await evaluate('...')
+if items and len(items) > 0:
+    first_item = items[0]
+else:
+    first_item = None
+
+# ✅ ALSO GOOD - use try/except:
+try:
+    first_item = items[0] if items else None
+except (TypeError, IndexError):
+    first_item = None
+```
+
+**CRITICAL: Always validate extraction results BEFORE using them in loops:**
+
+```python
+# ❌ BAD - loops through items with None/missing fields:
+companies = await evaluate('''
+(function(){
+  const links = document.querySelectorAll('a.company');
+  return Array.from(links).map(link => ({
+    name: link.querySelector('.name')?.textContent,  // Might be None!
+    url: link.href
+  }));
+})()
+''')
+
+# This will print "Processing: None" 100 times if names are missing!
+for company in companies:
+    print(f"Processing: {company['name']}")  # BAD - name might be None
+    await navigate(company['url'])
+
+# ✅ GOOD - validate and print sample before the loop:
+companies = await evaluate('''
+(function(){
+  const links = document.querySelectorAll('a.company');
+  return Array.from(links).map(link => ({
+    name: link.querySelector('.name')?.textContent || null,
+    url: link.href || null
+  }));
+})()
+''')
+
+# Validate extraction worked
+if not companies or len(companies) == 0:
+    print('❌ No companies found - check selectors!')
+else:
+    # Print first few samples to verify data quality
+    print(f'✓ Found {len(companies)} companies')
+    print('Sample data:', companies[:3])
+
+    # Check if names are actually extracted
+    valid_companies = [c for c in companies if c.get('name') and c.get('url')]
+    invalid_count = len(companies) - len(valid_companies)
+
+    if invalid_count > 0:
+        print(f'⚠️  Warning: {invalid_count} companies have missing name/url')
+
+    if len(valid_companies) == 0:
+        print('❌ All companies have missing data - selectors are wrong!')
+        # Try alternative selectors or approach
+    else:
+        # Now safe to loop
+        for i, company in enumerate(valid_companies):
+            print(f"[{i+1}/{len(valid_companies)}] Processing: {company['name']}")
+            await navigate(company['url'])
+            await asyncio.sleep(2)
+
+# ✅ ALSO GOOD - fail fast if data is bad:
+companies = await evaluate('...')
+
+# Validate immediately
+if not companies:
+    print('❌ Extraction returned None/empty - check selectors')
+    # Print current page state for debugging
+    page_info = await evaluate('(function(){ return { title: document.title, url: window.location.href }; })()')
+    print(f'Current page: {page_info}')
+    # Stop or try alternative approach
+else:
+    # Check if first item has expected fields
+    first = companies[0] if len(companies) > 0 else {}
+    print(f'First item sample: {first}')
+
+    if not first.get('name'):
+        print('❌ Name field is missing - selector .querySelector(".name") is wrong!')
+        # Fix selectors before proceeding
+```
+
+**Common typos to avoid:**
+
+```python
+# ❌ BAD - typo in module constant:
+import re
+result = re.search(r'pattern', text, reDOTALL)  # Should be re.DOTALL
+
+# ✅ GOOD - correct constant name:
+result = re.search(r'pattern', text, re.DOTALL | re.IGNORECASE)
+
+# ❌ BAD - missing import:
+parsed = urlparse(url)  # NameError if urllib.parse not imported
+
+# ✅ GOOD - import first:
+from urllib.parse import urlparse
+parsed = urlparse(url)
+```
+
+### URL Construction in JavaScript (CRITICAL)
+
+**When building URLs from element attributes in JavaScript, ALWAYS check if they're already absolute:**
+
+```python
+# ❌ BAD - blindly concatenating creates double-protocol URLs:
+companies = await evaluate('''
+(function(){
+  const links = document.querySelectorAll('a');
+  return Array.from(links).map(link => {
+    const href = link.getAttribute('href');
+    // BREAKS if href is already absolute like "https://example.com/page"
+    return 'https://example.com' + href;  // Results in: https://example.comhttps://example.com/page
+  });
+})()
+''')
+
+# ✅ GOOD - check if URL is relative first:
+companies = await evaluate('''
+(function(){
+  const links = document.querySelectorAll('a');
+  return Array.from(links).map(link => {
+    const href = link.getAttribute('href');
+
+    // If href is already absolute, use it directly
+    if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+      return href;
+    }
+
+    // Otherwise, construct full URL
+    const baseUrl = window.location.origin;  // Gets current site's base URL
+    if (href && href.startsWith('/')) {
+      return baseUrl + href;  // Absolute path: /page -> https://example.com/page
+    } else if (href) {
+      return baseUrl + '/' + href;  // Relative path: page -> https://example.com/page
+    }
+    return null;
+  }).filter(url => url !== null);
+})()
+''')
+
+# ✅ ALSO GOOD - use URL constructor (safer):
+companies = await evaluate('''
+(function(){
+  const links = document.querySelectorAll('a');
+  const baseUrl = window.location.href;  // Current page URL
+
+  return Array.from(links).map(link => {
+    const href = link.getAttribute('href');
+    if (!href) return null;
+
+    try {
+      // URL constructor handles relative/absolute automatically
+      const url = new URL(href, baseUrl);
+      return url.href;
+    } catch (e) {
+      return null;
+    }
+  }).filter(url => url !== null);
+})()
+''')
+
+# ✅ BEST - use link.href property (automatically resolved):
+companies = await evaluate('''
+(function(){
+  const links = document.querySelectorAll('a');
+
+  return Array.from(links).map(link => {
+    // link.href is automatically resolved to absolute URL by the browser
+    return link.href || null;
+  }).filter(url => url !== null);
+})()
+''')
+```
+
+**Common URL construction errors:**
+
+```python
+# ❌ BAD - creates "https://site.comhttps://other.com":
+url = 'https://site.com' + link.href  # link.href might be absolute
+
+# ❌ BAD - creates "https://site.com//page" (double slash):
+url = 'https://site.com/' + '/page'
+
+# ❌ BAD - creates "https://site.compage" (missing slash):
+url = 'https://site.com' + 'page'
+
+# ✅ GOOD - use URL constructor:
+try:
+    url = new URL(link.href, 'https://site.com/')
+except:
+    url = None
+
+# ✅ GOOD - just use link.href (already absolute):
+url = link.href
+```
 
 **Try 2-3 alternative approaches before giving up:**
 
