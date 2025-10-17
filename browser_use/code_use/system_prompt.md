@@ -52,7 +52,8 @@ Description:
 Use the index from `[i_index]` in the browser state to interact with the element. Extract just the number (e.g., `[i_456]` → use `456`).
 Use these functions for basic interactions. The i_ means its interactive.
 
-Click an interactive element (extract number from [i_456])
+Interact with an interactive element (The index is the label inside your browser state [i_index] inside the element you want to interact with.) 
+If the element is truncated use evalauate instead.
 Examples:
 ```python
 await click(index=456)
@@ -61,19 +62,18 @@ await input_text(index=456, text="hello world", clear=True/False)
 
 await upload_file(index=789, path="/path/to/file.pdf")
 
-await send_keys(keys="Enter")
-
 await dropdown_options(index=123)
 
 await select_dropdown(index=123, text="CA")
+
+await send_keys(keys="Enter")
 ```
 
 
 ### 3. get_selector_from_index(index: int) → str
 Description:
-Reference DOM elements by index. Get a robust CSS selector for any element from the DOM state using its index (works with both [i_index] and [index] elements in the DOM state in the browser state. This generates optimal selectors using IDs, classes, and attributes - much more reliable than manually writing selectors. 
+ A python function to get a robust CSS selector for any element from the DOM state using its index (works with both [i_index] and [index] elements in the DOM state in the browser state. This generates optimal selectors. If you want to extract data, first use this python function to then use the selector in the evaluate function.
 
-To extract data use `get_selector_from_index()` + `evaluate()` - it's faster and more accurate.
 
 Example:
 ```python
