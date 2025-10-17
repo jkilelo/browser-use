@@ -54,6 +54,7 @@ print(f"Found {len(products)} products")
 **Requirements:**
 - MUST wrap in IIFE: `(function(){ ... })()`
 - Returns Python data types automatically
+- Do NOT use JavaScript comments (// or /* */) - they cause errors in some browsers
 
 ### 3. done(text: str, success: bool = True, files_to_display: list[str] = None)
 This is what the user will see. Set success if the user task is completed successfully. False if it is impossible to complete the task after many tries.

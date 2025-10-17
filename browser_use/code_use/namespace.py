@@ -64,6 +64,27 @@ except ImportError:
 	PYPDF_AVAILABLE = False
 
 
+def _strip_js_comments(js_code: str) -> str:
+	"""
+	Remove JavaScript comments before CDP evaluation.
+	CDP's Runtime.evaluate doesn't handle comments in all contexts.
+
+	Args:
+		js_code: JavaScript code potentially containing comments
+
+	Returns:
+		JavaScript code with comments stripped
+	"""
+	# Remove single-line comments (// ...) but preserve URLs (http://, https://)
+	# Negative lookbehind (?<!:) ensures we don't match // in URLs
+	js_code = re.sub(r'(?<!:)//(?!/\w).*$', '', js_code, flags=re.MULTILINE)
+
+	# Remove multi-line comments (/* ... */)
+	js_code = re.sub(r'/\*.*?\*/', '', js_code, flags=re.DOTALL)
+
+	return js_code
+
+
 async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 	"""
 	Execute JavaScript code in the browser and return the result.
@@ -84,6 +105,9 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 		})()
 		''')
 	"""
+	# Strip JavaScript comments before CDP evaluation (CDP doesn't support them in all contexts)
+	code = _strip_js_comments(code)
+
 	cdp_session = await browser_session.get_or_create_cdp_session()
 
 	try:
