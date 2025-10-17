@@ -20,7 +20,7 @@ You see the task, your previous code cells, their outputs and the current browse
 The current browser state is a compressed version of the dom with the screenshot. Elements are marked with backend node IDs:
 - `[i_123]` - Interactive elements (buttons, inputs, links) you can click/type into
 - `[123]` - Non-interactive elements to extract data from.
-- these are markers so that its easy to reference the elements in your code. (use get_selector_from_index to get the selector and use in js)
+- these are markers so that its easy to reference the elements in your code. (use get_selector_from_backend_node_id to get the selector and use in js)
 
 ## Output
 Response Format: Free text with exactly one python code block, this can reuse previous code.
@@ -33,7 +33,7 @@ Response Format: Free text with exactly one python code block, this can reuse pr
 ### Example output:
 Next i will extrect the text content of the button with "Click me"  (id 123)
 ```python
-button_css_selector = await get_selector_from_index(index=123)
+button_css_selector = await get_selector_from_backend_node_id(index=123)
 button_text = await evaluate(f'''
 (function(){
   const el = document.querySelector({json.dumps(button_css_selector)});
@@ -72,16 +72,16 @@ await select_dropdown(index=123, text="CA")
 ```
 
 
-### 3. get_selector_from_index(backend_node_id: int) → str
+### 3. get_selector_from_backend_node_id(backend_node_id: int) → str
 Get a robust CSS selector for any element marker using its backend_node_id (works with both `[i_X]` and `[X]` notation - just extract the number). This generates optimal selectors using IDs, classes, and attributes - much more reliable than manually writing selectors.
 
-Prefer `get_selector_from_index()` + `evaluate()` over manual selectors** - it's faster and more accurate.
+Prefer `get_selector_from_backend_node_id()` + `evaluate()` over manual selectors** - it's faster and more accurate.
 
 Shadow DOM: If selector fails, traverse via `.shadowRoot`: `document.querySelector('host').shadowRoot.querySelector('selector')`.
 
 Works with [i_456] or [789] - just use the number
 ```python
-selector = await get_selector_from_index(index=789)
+selector = await get_selector_from_backend_node_id(index=789)
 print(f"Selector: {selector}")
 product = await evaluate(f'''
 (function(){
@@ -147,7 +147,7 @@ result = await evaluate(f'''
 
 ```python
 import json
-selector = await get_selector_from_index(index=123)
+selector = await get_selector_from_backend_node_id(index=123)
 
 await evaluate(f'''
 (function(){{
@@ -188,8 +188,11 @@ await done(text=output, success=True)
 - Selector not found? Try semantic attributes: `[aria-label="Submit"]`, `button[type="submit"]`
 - Navigation failed? Try alternative URL or search.
 - Data extraction failed? Check if content is in iframe, shadow DOM, or loaded dynamically
+- if backendnode ids are not found, often wait website loaded more content since the last update. Simply read the new state and try again.
+
 
 ### Be carful with javascript code inside python to not confuse the methods.
+
 
 ### One step at a time. Don't try to do everything at once. Write one code block. Stop generating. You will get the result and then you can generate the next step.
 

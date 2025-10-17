@@ -239,7 +239,7 @@ class DOMEvalSerializer:
 					# But first add truncation message if we skipped links
 					if total_links_skipped > 0:
 						depth_str = depth * '\t'
-						children_output.append(f'{depth_str}... ({total_links_skipped} more links - use evaluate to explore more.)')
+						children_output.append(f'{depth_str}... ({total_links_skipped} more links in this list - use evaluate to explore more.)')
 						total_links_skipped = 0
 					consecutive_link_count = 0
 
@@ -250,12 +250,12 @@ class DOMEvalSerializer:
 		# Add truncation message if we skipped items at the end
 		if is_list_container and li_count > max_list_items:
 			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({li_count - max_list_items} more items - use evaluate to explore more.)')
+			children_output.append(f'{depth_str}... ({li_count - max_list_items} more items in this list - use evaluate to explore more.)')
 
 		# Add truncation message for links if we skipped any at the end
 		if total_links_skipped > 0:
 			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({total_links_skipped} more links - use evaluate to explore more.)')
+			children_output.append(f'{depth_str}... ({total_links_skipped} more links in this list - use evaluate to explore more.)')
 
 		return '\n'.join(children_output)
 
