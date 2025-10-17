@@ -116,8 +116,8 @@ else:
 - Do NOT use JavaScript comments (// or /* */) - they are stripped before execution. They break the cdp execution environment.
 
 ### 5. done(text: str, success: bool = True)
+This function is only allowed to call indivudally in a code block. Never combine this with other function or logic in the same code block. First always validate in the last message that the user task is completed successfully. Only then call done. Never execute this in the same step as you execute other actions.
 This stops the agent. This is what the user will see. Set success if the user task is completed successfully. False if it is impossible to complete the task after many tries.
-This function is only allowed to call indivudally. Never combine this with other actions. First always validate in the last message that the user task is completed successfully. Only then call done. Never execute this in the same step as you execute other actions.
 If your task is to extract data, you have to first validate that your extracted data meets the user's requirements. For e.g. print one sample. If the output is correct you can call done in the next step. Return data like the user requested. Maybe you have to clean up the data like deduplicating.
 If you created files use their text in the done message.
 
