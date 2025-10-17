@@ -78,7 +78,7 @@ class ChatGoogle(BaseChatModel):
 	top_p: float | None = None
 	seed: int | None = None
 	thinking_budget: int | None = None  # for gemini-2.5 flash and flash-lite models, default will be set to 0
-	max_output_tokens: int | None = 4096
+	max_output_tokens: int | None = 8096
 	config: types.GenerateContentConfigDict | None = None
 	include_system_in_user: bool = False
 	supports_structured_output: bool = True  # New flag
@@ -209,7 +209,7 @@ class ChatGoogle(BaseChatModel):
 
 		# set default for flash, flash-lite, gemini-flash-lite-latest, and gemini-flash-latest models
 		if self.thinking_budget is None and ('gemini-2.5-flash' in self.model or 'gemini-flash' in self.model):
-			self.thinking_budget = 0
+			self.thinking_budget = -1
 
 		if self.thinking_budget is not None:
 			thinking_config_dict: types.ThinkingConfigDict = {'thinking_budget': self.thinking_budget}
