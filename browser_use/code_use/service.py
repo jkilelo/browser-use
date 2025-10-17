@@ -164,8 +164,30 @@ class CodeUseAgent:
 				await self.namespace['navigate'](initial_url)
 				# Wait for page load
 				await asyncio.sleep(2)
+
+				# Record this navigation as a cell in the notebook
+				nav_code = f"await navigate('{initial_url}')"
+				cell = self.session.add_cell(source=nav_code)
+				cell.status = ExecutionStatus.SUCCESS
+				cell.execution_count = self.session.increment_execution_count()
+				cell.output = f'Navigated to {initial_url}'
+
+				# Get browser state after navigation for the cell
+				if self.dom_service:
+					try:
+						browser_state_text, _ = await self._get_browser_state()
+						cell.browser_state = browser_state_text
+					except Exception as state_error:
+						logger.debug(f'Failed to capture browser state for initial navigation cell: {state_error}')
+
 			except Exception as e:
 				logger.warning(f'Failed to navigate to extracted URL {initial_url}: {e}')
+				# Record failed navigation as error cell
+				nav_code = f"await navigate('{initial_url}')"
+				cell = self.session.add_cell(source=nav_code)
+				cell.status = ExecutionStatus.ERROR
+				cell.execution_count = self.session.increment_execution_count()
+				cell.error = str(e)
 
 		# Get initial browser state before first LLM call
 		if self.browser_session and self.dom_service:
