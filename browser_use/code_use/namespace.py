@@ -349,24 +349,13 @@ def create_namespace(
 		if node is None:
 			raise ValueError(f'Element index {index} not found in browser state')
 
-		# Use the robust selector generation function
+		# Use the robust selector generation function (now handles special chars in IDs)
 		selector = generate_css_selector_for_element(node)
 
 		if selector:
 			return selector
 
-		# Fallback: try to handle special ID cases
-		if node.attributes and 'id' in node.attributes and node.attributes['id']:
-			element_id = node.attributes['id']
-			# For IDs with special characters, suggest using getElementById
-			if any(char in element_id for char in ['$', '.', ':', '[', ']', ' ']):
-				return f'[USE_GET_ELEMENT_BY_ID]{element_id}'
-
-		# Final fallback to xpath
-		if node.xpath:
-			return f'[USE_XPATH]{node.xpath}'
-
-		# Last resort - just use tag name if available
+		# Fallback: just use tag name if available
 		if node.tag_name:
 			return node.tag_name.lower()
 

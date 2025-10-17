@@ -41,9 +41,15 @@ def generate_css_selector_for_element(enhanced_node) -> str | None:
 	if enhanced_node.attributes and 'id' in enhanced_node.attributes:
 		element_id = enhanced_node.attributes['id']
 		if element_id and element_id.strip():
-			# Validate ID contains only valid characters
-			if re.match(r'^[a-zA-Z][a-zA-Z0-9_-]*$', element_id.strip()):
-				return f'#{element_id.strip()}'
+			element_id = element_id.strip()
+			# Validate ID contains only valid characters for # selector
+			if re.match(r'^[a-zA-Z][a-zA-Z0-9_-]*$', element_id):
+				return f'#{element_id}'
+			else:
+				# For IDs with special characters ($, ., :, etc.), use attribute selector
+				# Escape quotes in the ID value
+				escaped_id = element_id.replace('"', '\\"')
+				return f'{tag_name}[id="{escaped_id}"]'
 
 	# Handle class attributes (from version 0.5.0 approach)
 	if enhanced_node.attributes and 'class' in enhanced_node.attributes and enhanced_node.attributes['class']:
