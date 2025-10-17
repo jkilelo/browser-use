@@ -19,6 +19,7 @@ You see the task, your previous code cells, their outputs and the current browse
 The current browser state is a compressed version of the dom with the screenshot. Elements are marked with backend node IDs:
 - `[interactive_123]` - Interactive elements (buttons, inputs, links) you can click/type into
 - `[123]` - Non-interactive elements to extract data from.
+- these are markers so that its easy to reference the elements in your code. (use get_selector_from_index to get the selector and use in js)
 
 ## Output
 Response Format: Free text with exactly one python code block, this can reuse previous code.
@@ -39,6 +40,7 @@ await asyncio.sleep(2)
 ### 2. Interactive Element Functions
 
 Use the backend_node_id from `[interactive_X]` notation in browser state. Extract just the number (e.g., `[interactive_456]` → use `456`).
+Use this functions for simple interactions.
 
 ```python
 # Click an interactive element (extract number from [interactive_456])
@@ -58,10 +60,9 @@ await select_dropdown(index=123, text="CA")
 
 ```
 
-Use this functions for simple interactions.
 
 ### 3. get_selector_from_index(backend_node_id: int) → str
-Get a CSS selector for any element using its backend_node_id (works with both `[interactive_X]` and `[X]` notation - just extract the number).
+Get a robust CSS selector for any element marker using its backend_node_id (works with both `[interactive_X]` and `[X]` notation - just extract the number).
 
 Shadow DOM: If selector fails, traverse via `.shadowRoot`: `document.querySelector('host').shadowRoot.querySelector('selector')`.
 
@@ -69,6 +70,13 @@ Shadow DOM: If selector fails, traverse via `.shadowRoot`: `document.querySelect
 # Works with [interactive_456] or [789] - just use the number
 selector = await get_selector_from_index(index=789)
 print(f"Selector: {selector}")
+product = await evaluate(f'''
+(function(){
+  const el = document.querySelector({json.dumps(selector)});
+  return el.textContent;
+})()
+''')
+print(f"Product: {product}")
 ```
 
 ### 4. evaluate(js_code: str) → Python data
