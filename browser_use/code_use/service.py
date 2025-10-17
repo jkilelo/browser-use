@@ -129,8 +129,11 @@ class CodeUseAgent:
 			self.browser_session = BrowserSession(browser_profile=self.browser_profile)
 			await self.browser_session.start()
 
-		# Initialize DOM service
-		self.dom_service = DomService(browser_session=self.browser_session)
+		# Initialize DOM service with cross-origin iframe support enabled
+		self.dom_service = DomService(
+			browser_session=self.browser_session,
+			cross_origin_iframes=True,  # Enable for code-use agent to access forms in iframes
+		)
 
 		# Create namespace with all tools
 		self.namespace = create_namespace(
