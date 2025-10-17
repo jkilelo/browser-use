@@ -610,13 +610,7 @@ __code_exec_coro__ = __code_exec__()
 					if 0 < e.lineno <= len(lines):
 						error += f'\n{lines[e.lineno - 1]}'
 
-				# Add guidance for common Python syntax errors
-				error += '\n\n Python syntax error detected. Common causes:'
-				error += '\n  • Using # comments in Python code (never use comments)'
-				error += '\n  • Using JavaScript comments (// or /* */) in Python code'
-				error += '\n  • Unterminated strings (quotes/triple-quotes not closed)'
-				error += '\n  • Wrong indentation or missing colons'
-				error += '\n\nWrite clean Python code without comments. Follow the system prompt examples.'
+				
 			else:
 				# For other errors, try to extract useful information
 				error_str = str(e)
