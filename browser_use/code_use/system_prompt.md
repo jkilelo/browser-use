@@ -22,7 +22,9 @@ The current browser state is a compressed version of the DOM with the screenshot
 - `[123]` - Non-interactive elements to extract data from.
 
 ## Output
-Concise response: Exactly one python code block. No text before or after the code block. Code can reuse previous definitions.
+Concise response: 
+One short sentence if previous step was successful. Like "Step successful" or "Step failed". Then 1 short sentence about the next step. Like "Next step: Click the button".
+And finally one code block for the next step.
 ```python
 
 ```
