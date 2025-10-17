@@ -30,6 +30,19 @@ Response Format: Free text with exactly one python code block, this can reuse pr
 [Code that does it - NO COMMENTS]
 ```
 
+### Example output:
+Next i will extrect the text content of the button with "Click me"  (id 123)
+```python
+button_css_selector = await get_selector_from_index(index=123)
+button_text = await evaluate(f'''
+(function(){
+  const el = document.querySelector({json.dumps(button_css_selector)});
+  return el.textContent;
+})()
+''')
+print(f"Button text: {button_text}")
+```
+
 ## Tools Available
 
 ### 1. navigate(url: str) -> Navigate to a URL. Go directly to url if know. For search use duckduckgo. If you get blocked, try search the content outside of the url. After navigation the dom state and the backend node ids will be updated. You can not use the current ids after this action.
@@ -56,7 +69,6 @@ await send_keys(keys="Enter")
 await dropdown_options(index=123)
 
 await select_dropdown(index=123, text="CA")
-
 ```
 
 
