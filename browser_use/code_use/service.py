@@ -333,6 +333,9 @@ class CodeUseAgent:
 				result_message = self._format_execution_result(code, output, error, current_step=step + 1)
 				self._llm_messages.append(UserMessage(content=result_message))
 
+				# Wait 3 seconds after each step for page stabilization
+				await asyncio.sleep(3)
+
 			except Exception as e:
 				logger.error(f'Error in step {step + 1}: {e}')
 				traceback.print_exc()
@@ -730,7 +733,7 @@ __code_exec_coro__ = __code_exec__()
 			# Show useful utilities (json, asyncio, etc.) and user-defined vars, but hide system objects
 			skip_vars = {
 				'browser', 'file_system',  # System objects
-				'np', 'pd', 'plt', 'numpy', 'pandas', 'matplotlib', 'requests', 'BeautifulSoup', 'bs4', 'pypdf', 'PdfReader',  
+				'np', 'pd', 'plt', 'numpy', 'pandas', 'matplotlib', 'requests', 'BeautifulSoup', 'bs4', 'pypdf', 'PdfReader',  'wait'
 			}
 
 			available_vars = []
@@ -764,7 +767,7 @@ __code_exec_coro__ = __code_exec__()
 					dom_html += '\n[End of page]'
 
 			# Truncate DOM if too long and notify LLM
-			max_dom_length = 60000
+			max_dom_length = 40000
 			if len(dom_html) > max_dom_length:
 				lines.append(dom_html[:max_dom_length])
 				lines.append(f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]')
