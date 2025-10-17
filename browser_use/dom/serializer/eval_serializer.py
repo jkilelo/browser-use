@@ -8,7 +8,7 @@ from browser_use.dom.views import (
 	SimplifiedNode,
 )
 
-# Only the most critical attributes for query writing
+# Critical attributes for query writing and form interaction
 EVAL_KEY_ATTRIBUTES = [
 	'id',
 	'class',
@@ -22,6 +22,28 @@ EVAL_KEY_ATTRIBUTES = [
 	'data-testid',
 	'alt',  # for images
 	'title',  # useful for tooltips/link context
+	# State attributes (critical for form interaction)
+	'checked',
+	'selected',
+	'disabled',
+	'required',
+	'readonly',
+	# ARIA states
+	'aria-expanded',
+	'aria-pressed',
+	'aria-checked',
+	'aria-selected',
+	'aria-invalid',
+	# Validation attributes (help agents avoid brute force)
+	'pattern',
+	'min',
+	'max',
+	'minlength',
+	'maxlength',
+	'step',
+	'aria-valuemin',
+	'aria-valuemax',
+	'aria-valuenow',
 ]
 
 # Semantic elements that should always be shown
@@ -134,6 +156,12 @@ class DOMEvalSerializer:
 
 			if attributes_str:
 				line += f' {attributes_str}'
+
+			# Add scroll info if element is scrollable
+			if node.original_node.should_show_scroll_info:
+				scroll_text = node.original_node.get_scroll_info_text()
+				if scroll_text:
+					line += f' scroll="{scroll_text}"'
 
 			# Add inline text if present (keep it on same line for compactness)
 			inline_text = DOMEvalSerializer._get_inline_text(node)
@@ -271,6 +299,13 @@ class DOMEvalSerializer:
 		line = f'{depth_str}<{tag}'
 		if attributes_str:
 			line += f' {attributes_str}'
+
+		# Add scroll info for iframe content
+		if node.original_node.should_show_scroll_info:
+			scroll_text = node.original_node.get_scroll_info_text()
+			if scroll_text:
+				line += f' scroll="{scroll_text}"'
+
 		line += ' />'
 		formatted_text.append(line)
 
