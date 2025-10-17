@@ -182,7 +182,17 @@ class CodeUseAgent:
 
 				if not code or code.strip() == '':
 					logger.warning('LLM returned empty code')
-					break
+					self._consecutive_errors += 1
+
+					# new state
+					if self.browser_session and self.dom_service:
+						try:
+							browser_state_text, screenshot = await self._get_browser_state()
+							self._last_browser_state_text = browser_state_text
+							self._last_screenshot = screenshot
+						except Exception as e:
+							logger.warning(f'Failed to get new browser state: {e}')
+					continue
 
 				# Check if LLM output multiple code blocks (policy violation)
 				has_multiple_blocks = False
