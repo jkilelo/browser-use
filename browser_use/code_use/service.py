@@ -97,6 +97,8 @@ class CodeUseAgent:
 		self._last_screenshot: str | None = None  # Track last screenshot (base64)
 		self._consecutive_errors = 0  # Track consecutive errors for auto-termination
 		self._max_consecutive_errors = 5  # Maximum consecutive errors before termination
+		self._last_llm_usage: Any | None = None  # Track last LLM call usage stats
+		self._step_start_time: float = 0.0  # Track step start time for duration calculation
 
 		# Initialize screenshot service for eval tracking
 		self.id = uuid7str()
@@ -177,6 +179,9 @@ class CodeUseAgent:
 		# Main execution loop
 		for step in range(self.max_steps):
 			logger.info(f'\n\n\n\n\n\n\nStep {step + 1}/{self.max_steps}')
+
+			# Start timing this step
+			self._step_start_time = datetime.now().timestamp()
 
 			try:
 				# Get code from LLM (this also adds to self._llm_messages)
@@ -376,6 +381,9 @@ class CodeUseAgent:
 
 		# Call LLM with message history (including temporary browser state message)
 		response = await self.llm.ainvoke(messages_to_send)
+
+		# Store usage stats from this LLM call
+		self._last_llm_usage = response.usage
 
 		# Log the LLM's raw output for debugging
 		logger.info(f'LLM Response:\n{response.completion}')
@@ -871,12 +879,12 @@ __code_exec_coro__ = __code_exec__()
 		}
 
 		# Create metadata entry (eval system uses this for token counting and timing)
-		# CodeUseAgent doesn't track these yet, so provide empty/null values
+		step_end_time = datetime.now().timestamp()
 		metadata_entry = {
-			'input_tokens': None,  # Token counting not implemented in CodeUseAgent yet
-			'output_tokens': None,
-			'step_start_time': None,  # Timing not implemented yet
-			'step_end_time': None,
+			'input_tokens': self._last_llm_usage.prompt_tokens if self._last_llm_usage else None,
+			'output_tokens': self._last_llm_usage.completion_tokens if self._last_llm_usage else None,
+			'step_start_time': self._step_start_time,
+			'step_end_time': step_end_time,
 		}
 
 		# Create history entry matching eval system format
