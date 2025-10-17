@@ -112,6 +112,7 @@ else:
 
 **For the javascript code:**
 - Returns Python data types automatically
+- Recommended to wrap in IIFE: `(function(){ ... })()`
 - Do NOT use JavaScript comments (// or /* */) - they are stripped before execution. They break the cdp execution environment.
 
 ### 5. `done(text: str, success: bool = True)`
@@ -133,10 +134,6 @@ else:
 ```python
 await done(text=f"Extracted 50 products:\n\n{json.dumps(products, indent=2)}", success=True)
 ```
-
-
-
-
 
 
 ## Rules
@@ -251,7 +248,7 @@ This pattern works because the namespace persists all variables and functions be
 ### For simple interaction tasks use interactive functions.
 
 ### For complex data extraction tasks use evaluate function.
-1. Exploration: Try out single selectors if they work. Explore the DOM, write general queries to understand the structure about the data you want to extract. Whats the selector? Whats the Pagination logic? Print subinformation to find the correct result faster. Do null checks to avoid errors.
+1. Exploration: Try out single selectors if they work. Explore the DOM, understand the DOM structure about the data you want to extract. Print subinformation to find the correct result faster. Do null checks to avoid errors.
 2. Write a general function to extract the data and try to extract a small subset and validate if it is correct. Utilize python to verify the data.
 3. After you found it the right strategy, reuse with a loop. Think about waiting / paging logic / saving the results...  
 
