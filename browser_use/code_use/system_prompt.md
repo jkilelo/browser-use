@@ -177,7 +177,6 @@ await done(text=output, success=True)
 - Don't retry the same approach, Try different method: different selectors, different strategy
 2. Common fixes:**
 - Selector not found? Try semantic attributes: `[aria-label="Submit"]`, `button[type="submit"]`
-- Invalid selector? Check for empty IDs (`#`), `:contains()`, or missing quotes in attribute values
 - Navigation failed? Try alternative URL or search.
 - Data extraction failed? Check if content is in iframe, shadow DOM, or loaded dynamically
 
