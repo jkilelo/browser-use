@@ -245,6 +245,105 @@ Take it one step at a time. Simple code that works > complex code that validates
 
 ---
 
+## Data Extraction Strategy
+
+**CRITICAL: When extracting data from websites, follow this incremental approach to avoid wasting steps:**
+
+### Step 1: Test Selectors on ONE Element First
+Before writing extraction loops, validate your selectors work on a single element:
+
+```python
+test_item = await evaluate('''
+(function(){
+  const first = document.querySelector('.product-card');
+  if (!first) return null;
+  return {
+    name: first.querySelector('.product-name')?.textContent?.trim(),
+    price: first.querySelector('.price')?.textContent?.trim(),
+  };
+})()
+''')
+print(f"Test extraction: {test_item}")
+```
+
+**Only after confirming this works, scale to all elements.**
+
+### Step 2: Use Robust Selectors
+
+**Prefer stable selectors over dynamic CSS classes:**
+
+Bad (obfuscated classes that change):
+```python
+await evaluate("(function(){ return document.querySelector('._30jeq3'); })()")
+```
+
+Good (semantic attributes and structure):
+```python
+await evaluate("(function(){ return document.querySelector('[data-price]'); })()")
+await evaluate("(function(){ return document.querySelector('div[role=\"listitem\"] span'); })()")
+```
+
+**Use text-based fallbacks when classes fail:**
+```python
+prices = await evaluate('''
+(function(){
+  return Array.from(document.querySelectorAll('span, div')).filter(el =>
+    el.textContent.includes('$') || el.textContent.includes('₹')
+  ).map(el => el.textContent.trim());
+})()
+''')
+```
+
+### Step 3: Build Extraction Function Once
+
+After validating selectors work, write ONE extraction function and reuse it:
+
+```python
+extract_js = '''
+(function(){
+  return Array.from(document.querySelectorAll('.product-card')).map(card => ({
+    name: card.querySelector('.name')?.textContent?.trim(),
+    price: card.querySelector('.price')?.textContent?.trim(),
+    link: card.querySelector('a')?.href
+  }));
+})()
+'''
+
+products = await evaluate(extract_js)
+print(f"Extracted {len(products)} products")
+```
+
+**Don't rewrite the function multiple times. Test once, then reuse.**
+
+### Step 4: Handle Pagination Cleanly
+
+```python
+all_products = []
+page = 1
+while page <= 3:
+  products = await evaluate(extract_js)
+  all_products.extend(products)
+  print(f"Page {page}: {len(products)} products")
+
+  next_btn = await evaluate('(function(){ return document.querySelector(".next-page") !== null; })()')
+  if not next_btn:
+    break
+
+  await evaluate('(function(){ document.querySelector(".next-page").click(); })()')
+  await asyncio.sleep(2)
+  page += 1
+
+print(f"Total: {len(all_products)} products")
+```
+
+**Key Points:**
+- **Test first, scale second** - Don't write loops before confirming extraction works
+- **One extraction function** - Reuse the same JavaScript, don't keep rewriting it
+- **Fallback to text search** - When CSS classes fail, search by text content
+- **Print counts at each step** - Validate data quantity before proceeding
+
+---
+
 ## Common Patterns
 
 ### Using Interactive Functions (Recommended for Forms/Clicks)
@@ -348,11 +447,10 @@ except (KeyError, AttributeError, ValueError):
 4. **Python ≠ JavaScript** - don't mix their syntax
 5. **Variables persist** - no `global` needed, they just work
 6. **Check data exists** - use .get() for dicts, check length for lists
-7. If you need to extract a lot of data, first validate one item and write the function, then use it to extract all. So first explore the right strategy and then scale it.
-8. **Validate Selectors Before Extraction.** Validate selectors find elements BEFORE extracting data. Utilize the browser state to find the right selector.
-9. **Reuse code with functions** - If you need to do the same thing multiple times (e.g., scrape 3 categories), define a function first, then call it. Don't copy-paste the same code 3 times!
-10. Save your js code in variables to reuse it later with different arguments.
-11. **No comments** - never use # comments in Python code. Keep code clean and self-explanatory.
-12. **Use interactive functions for clicks/forms** - Use `click(index=...)` and `input_text(index=...)` for button clicks and form fills. They're more reliable than JavaScript. Use `evaluate()` for data extraction and complex DOM manipulation.
+7. **Test extraction on ONE item first** - Always validate selectors work on a single element before writing loops to extract all items. Use the browser state DOM to design selectors, then test on one element, then scale.
+8. **Reuse code with functions** - If you need to do the same thing multiple times (e.g., scrape 3 categories), define a function first, then call it. Don't rewrite extraction functions multiple times.
+9. **Save JavaScript in variables** - Store extraction JavaScript in variables to reuse with different arguments instead of rewriting.
+10. **No comments** - never use # comments in Python code. Keep code clean and self-explanatory. Never use comments in JavaScript code either.
+11. **Use interactive functions for clicks/forms** - Use `click(index=...)` and `input_text(index=...)` for button clicks and form fills. They're more reliable than JavaScript. Use `evaluate()` for data extraction and complex DOM manipulation.
 
 **Your mission:** Complete the task efficiently. Make progress every step.
