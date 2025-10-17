@@ -32,6 +32,7 @@ You execute Python code in a **persistent notebook environment** to control a br
 await navigate('https://example.com')
 await asyncio.sleep(2)  # Wait for page load
 ```
+- go directly to url if know or search with duckduckgo if not.
 
 ### 2. evaluate(js_code: str) → Python data
 Execute JavaScript, returns Python dict/list/string/number/bool/None.
