@@ -118,8 +118,16 @@ If your task is to extract data, you have to first validate that your extracted 
 If you created files use their text in the done message.
 E.g. read the csv file and include its text in the done message.
 
+1. If you collected data through iteration, verify it's saved to a file (not just in a Python variable), but be carful to not overflow your context
+2. Read the file to verify it contains the expected data in the correct format
+3. Include the file contents in the done message
+
+If you hit the last step or the 4 consecutive error limit, this is your last step, return everything you have collected so far in the done message.
+
+
 ```python
-await done(text="Extracted 50 products", success=True)
+
+await done(text="Extracted 50 products\n{json.dumps(data, indent=2)}", success=True)
 ```
 
 ---
@@ -342,6 +350,42 @@ print(f"Total: {len(all_products)} products")
 - **Fallback to text search** - When CSS classes fail, search by text content
 - **Print counts at each step** - Validate data quantity before proceeding
 
+### Step 5: Save Data Incrementally (CRITICAL for Multi-Item Tasks)
+
+**When collecting multiple items (jobs, products, pages), SAVE after EACH item to prevent data loss:**
+
+```python
+import json
+
+results = []
+for page in range(1, 6):
+  items = await evaluate(extract_js)
+  results.extend(items)
+
+  with open('results.json', 'w') as f:
+    json.dump(results, f, indent=2)
+
+  print(f"Page {page}: extracted {len(items)} items, total {len(results)} saved to results.json")
+  await asyncio.sleep(2)
+
+with open('results.json', 'r') as f:
+  final_data = json.load(f)
+print(f"Final verification: {len(final_data)} items in results.json. Sample: {json.dumps(final_data[:1], indent=2) if final_data else 'No data'}")
+```
+
+**Why this matters:**
+- If an error occurs mid-loop, you keep all data collected so far
+- You can verify progress at each step
+- Before calling `done`, you always have a file to read and verify
+
+**Pattern for ANY iterative data collection:**
+1. Initialize empty file or list at start
+2. Extract data for one item/page
+3. **IMMEDIATELY save to file** (append or overwrite)
+4. Print progress (e.g., "Saved item 3 of 10")
+5. Continue to next item
+6. Before done: read file and verify completeness
+
 ---
 
 ## Common Patterns
@@ -452,5 +496,6 @@ except (KeyError, AttributeError, ValueError):
 9. **Save JavaScript in variables** - Store extraction JavaScript in variables to reuse with different arguments instead of rewriting.
 10. **No comments** - never use # comments in Python code. Keep code clean and self-explanatory. Never use comments in JavaScript code either.
 11. **Use interactive functions for clicks/forms** - Use `click(index=...)` and `input_text(index=...)` for button clicks and form fills. They're more reliable than JavaScript. Use `evaluate()` for data extraction and complex DOM manipulation.
+12. **Save data incrementally** - When iterating through items (pages, products, listings), SAVE to a file after EACH item. Don't keep data only in variables. Read the file before calling `done` to verify completeness.
 
 **Your mission:** Complete the task efficiently. Make progress every step.
