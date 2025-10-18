@@ -158,15 +158,6 @@ async def _ensure_jquery_loaded(browser_session: BrowserSession) -> None:
 			session_id=cdp_session.session_id,
 		)
 
-		# Check if jQuery injection succeeded
-		final_check = await cdp_session.cdp_client.send.Runtime.evaluate(
-			params={'expression': '(function(){ return typeof jQuery !== "undefined"; })()', 'returnByValue': True},
-			session_id=cdp_session.session_id,
-		)
-		jquery_available = final_check.get('result', {}).get('value', False)
-
-		if not jquery_available:
-			logger.warning('jQuery injection completed but jQuery is not available - may be CSP restrictions')
 
 	except Exception as e:
 		# If jQuery injection fails, log but continue (page might have CSP restrictions)
@@ -223,71 +214,8 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 					error_details.append(str(exc_obj['value']))
 
 			# Build comprehensive error message with full CDP context
-			error_msg = f'JavaScript execution error: {error_text}'
-			if error_details:
-				error_msg += f'\nDetails: {" | ".join(error_details)}'
-
-			# Track if this is a cryptic error with no useful info
-			is_cryptic_error = False
-			line_num = exception.get('lineNumber')
-			col_num = exception.get('columnNumber')
-
-			# Check for cryptic "line 0 column 0" errors
-			if (line_num == 0 or line_num is None) and (col_num == 0 or col_num is None):
-				is_cryptic_error = True
-
-			# Add line number and context
-			if line_num is not None:
-				error_msg += f'\nat line {line_num}'
-
-				# Try to extract the offending line and surrounding context
-				try:
-					lines = code.split('\n')
-					line_idx = line_num - 1
-					if 0 <= line_idx < len(lines):
-						# Show the offending line
-						offending_line = lines[line_idx].strip()
-						error_msg += f'\nOffending line: {offending_line}'
-
-						# Show 2 lines before and after for context
-						start_idx = max(0, line_idx - 2)
-						end_idx = min(len(lines), line_idx + 3)
-						context_lines = []
-						for i in range(start_idx, end_idx):
-							marker = '>>> ' if i == line_idx else '    '
-							context_lines.append(f'{marker}{i+1}: {lines[i].rstrip()}')
-						if context_lines:
-							error_msg += f'\n\nCode context:\n' + '\n'.join(context_lines)
-				except Exception:
-					pass
-
-			# Add column number if available
-			if col_num is not None:
-				error_msg += f' (column {col_num})'
-
-			# Add stack trace if available
-			if 'stackTrace' in exception and exception['stackTrace'].get('callFrames'):
-				frames = exception['stackTrace']['callFrames']
-				if frames:
-					error_msg += '\n\nStack trace:'
-					for frame in frames[:3]:  # Show first 3 frames
-						func_name = frame.get('functionName', '<anonymous>')
-						line = frame.get('lineNumber', '?')
-						col = frame.get('columnNumber', '?')
-						error_msg += f'\n  at {func_name} (line {line}, col {col})'
-
-			# Add guidance for cryptic CDP errors
-			if is_cryptic_error:
-				error_msg += '\n\n💡 This is a cryptic CDP error with no useful location info. This is a CDP environment limitation, not your fault.'
-				error_msg += '\n  • Simplify the JavaScript - break into smaller steps'
-				error_msg += '\n  • Use different selectors or DOM methods'
-				error_msg += '\n  • Try an alternative strategy to achieve the same goal'
-				# Show first 200 chars of the JS code
-				code_preview = code[:100].replace('\n', ' ')
-				if len(code) > 100:
-					code_preview += '... Truncated'
-				error_msg += f'\n\nYour JS code: {code_preview}'
-
+			error_msg = f'JavaScript execution error: {error_text} + {error_details}'
+		
 			raise RuntimeError(error_msg)
 
 		# Get the result data
