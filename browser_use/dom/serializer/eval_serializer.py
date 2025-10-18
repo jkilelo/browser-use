@@ -11,30 +11,27 @@ from browser_use.dom.views import (
 # Critical attributes for query writing and form interaction
 EVAL_KEY_ATTRIBUTES = [
 	'id',
-	'class',
 	'name',
 	'type',
 	'placeholder',
 	'aria-label',
 	'role',
 	'value',
-	'href',
+	# 'href'
+	# 'class',
 	'data-testid',
-	'alt',  # for images
-	'title',  # useful for tooltips/link context
-	# State attributes (critical for form interaction)
+	'alt',
+	'title',
 	'checked',
 	'selected',
 	'disabled',
 	'required',
 	'readonly',
-	# ARIA states
 	'aria-expanded',
 	'aria-pressed',
 	'aria-checked',
 	'aria-selected',
 	'aria-invalid',
-	# Validation attributes (help agents avoid brute force)
 	'pattern',
 	'min',
 	'max',
@@ -144,7 +141,6 @@ class DOMEvalSerializer:
 				if attributes_str:
 					line += f' {attributes_str}'
 
-
 				# Add scroll info if element is scrollable
 				if node.original_node.should_show_scroll_info:
 					scroll_text = node.original_node.get_scroll_info_text()
@@ -207,23 +203,13 @@ class DOMEvalSerializer:
 						continue
 
 					# Special handling for different attributes
-					if attr == 'class':
-						# For class, limit to first 2 classes to save space BUT keep them complete
-						# This prevents invalid CSS selectors like ".MuiGrid2-root.MuiGrid2-di..."
-						classes = value.split()[:2]
-						value = ' '.join(classes)
-						# Do NOT truncate class names - they must be complete for querySelector
-					elif attr == 'id':
-						# Keep full id for querySelector compatibility
+					if attr == 'id':
 						pass
 					elif attr == 'href':
-						# Keep full href for navigation
 						pass
 					elif attr in ('data-testid', 'name', 'role', 'type'):
-						# Keep selector-critical attributes complete
 						pass
 					else:
-						# Cap at 25 chars for other attributes (text content, labels, etc.)
 						value = cap_text_length(value, 25)
 
 					attributes_to_include[attr] = value
@@ -344,7 +330,9 @@ class DOMEvalSerializer:
 							if html_child.tag_name.lower() == 'body':
 								for body_child in html_child.children:
 									# Recursively process body children
-									DOMEvalSerializer._serialize_document_node(body_child, formatted_text, include_attributes, depth + 2)
+									DOMEvalSerializer._serialize_document_node(
+										body_child, formatted_text, include_attributes, depth + 2
+									)
 							break
 
 		return '\n'.join(formatted_text)
