@@ -297,12 +297,10 @@ class DOMEvalSerializer:
 
 					attrs.append(f'{attr}="{value}"')
 
-		# Add AX role if different from tag and not a meaningless/presentational role
-		# Skip role="none", "presentation", and "generic" as they indicate decorative or semantically empty elements
-		if node.ax_node and node.ax_node.role and node.ax_node.role.lower() != node.node_name.lower():
-			role_lower = node.ax_node.role.lower()
-			if role_lower not in ('none', 'presentation', 'generic'):
-				attrs.append(f'role="{node.ax_node.role}"')
+		# Note: We intentionally don't add role from ax_node here because:
+		# 1. If role is explicitly set in HTML, it's already captured above via EVAL_KEY_ATTRIBUTES
+		# 2. Inferred roles from AX tree (like link, listitem, LineBreak) are redundant with the tag name
+		# 3. This reduces noise - <a href="..." role="link"> is redundant, we already know <a> is a link
 
 		return ' '.join(attrs)
 
