@@ -120,10 +120,6 @@ class DOMEvalSerializer:
 			tag = node.original_node.tag_name.lower()
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 
-			# Skip invisible elements (except iframes which might have visible content)
-			if not is_visible and tag not in ['iframe', 'frame']:
-				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
-
 			# Special handling for iframes - show them with their content
 			if tag in ['iframe', 'frame']:
 				return DOMEvalSerializer._serialize_iframe(node, include_attributes, depth)
@@ -132,27 +128,28 @@ class DOMEvalSerializer:
 			attributes_str = DOMEvalSerializer._build_compact_attributes(node.original_node)
 
 			# Check element properties
-			has_useful_attrs = bool(attributes_str)
 			has_text_content = DOMEvalSerializer._has_direct_text(node)
 			has_children = len(node.children) > 0
+			has_interactive_index = node.interactive_index is not None
 
-			# Build compact element representation
-			# Always show tag to preserve DOM structure
+			# Build element representation
+			# Always show tag to preserve complete DOM structure
 			line = f'{depth_str}<{tag}'
 
-			# Only add attributes if element has them
-			if attributes_str:
-				line += f' {attributes_str}'
+			# Add attributes only for interactive elements or elements with useful attributes
+			if attributes_str or has_interactive_index:
+				if attributes_str:
+					line += f' {attributes_str}'
 
-			# Add interactive index notation [index] for elements with interactive_index
-			if node.interactive_index is not None:
-				line += f' [{node.interactive_index}]'
+				# Add interactive index notation [index] for elements with interactive_index
+				if has_interactive_index:
+					line += f' [{node.interactive_index}]'
 
-			# Add scroll info if element is scrollable
-			if node.original_node.should_show_scroll_info:
-				scroll_text = node.original_node.get_scroll_info_text()
-				if scroll_text:
-					line += f' scroll="{scroll_text}"'
+				# Add scroll info if element is scrollable
+				if node.original_node.should_show_scroll_info:
+					scroll_text = node.original_node.get_scroll_info_text()
+					if scroll_text:
+						line += f' scroll="{scroll_text}"'
 
 			# Add inline text if present (keep it on same line for compactness)
 			inline_text = DOMEvalSerializer._get_inline_text(node)
@@ -188,58 +185,11 @@ class DOMEvalSerializer:
 		"""Helper to serialize all children of a node."""
 		children_output = []
 
-		# Check if parent is a list container (ul, ol)
-		is_list_container = (
-			node.original_node.node_type == NodeType.ELEMENT_NODE
-			and node.original_node.tag_name.lower() in ['ul', 'ol']
-		)
-
-		# Track list items and consecutive links
-		li_count = 0
-		max_list_items = 5
-		consecutive_link_count = 0
-		max_consecutive_links = 5
-		total_links_skipped = 0
-
+		# Serialize all children to preserve complete DOM structure
 		for child in node.children:
-			# If we're in a list container and this child is an li element
-			if is_list_container and child.original_node.node_type == NodeType.ELEMENT_NODE:
-				if child.original_node.tag_name.lower() == 'li':
-					li_count += 1
-					# Skip li elements after the 5th one
-					if li_count > max_list_items:
-						continue
-
-			# Track consecutive anchor tags (links)
-			if child.original_node.node_type == NodeType.ELEMENT_NODE:
-				if child.original_node.tag_name.lower() == 'a':
-					consecutive_link_count += 1
-					# Skip links after the 5th consecutive one
-					if consecutive_link_count > max_consecutive_links:
-						total_links_skipped += 1
-						continue
-				else:
-					# Reset counter when we hit a non-link element
-					# But first add truncation message if we skipped links
-					if total_links_skipped > 0:
-						depth_str = depth * '\t'
-						children_output.append(f'{depth_str}... ({total_links_skipped} more links - use evaluate to explore more.)')
-						total_links_skipped = 0
-					consecutive_link_count = 0
-
 			child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
 			if child_text:
 				children_output.append(child_text)
-
-		# Add truncation message if we skipped items at the end
-		if is_list_container and li_count > max_list_items:
-			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({li_count - max_list_items} more items - use evaluate to explore more.)')
-
-		# Add truncation message for links if we skipped any at the end
-		if total_links_skipped > 0:
-			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({total_links_skipped} more links - use evaluate to explore more.)')
 
 		return '\n'.join(children_output)
 
@@ -263,8 +213,8 @@ class DOMEvalSerializer:
 						value = ' '.join(classes)
 						value = cap_text_length(value, 25)
 					elif attr == 'href':
-						# For href, cap at 20 chars to save space
-						value = cap_text_length(value, 20)
+						# Keep full href for navigation
+						pass
 					else:
 						# Cap at 25 chars for other attributes
 						value = cap_text_length(value, 25)
@@ -402,23 +352,13 @@ class DOMEvalSerializer:
 		if dom_node.node_type == NodeType.ELEMENT_NODE:
 			tag = dom_node.tag_name.lower()
 
-			# Skip invisible and non-semantic elements
-			is_visible = dom_node.snapshot_node and dom_node.is_visible
-			if not is_visible:
-				return
-
-			# Check if semantic or has useful attributes
-			is_semantic = tag in SEMANTIC_ELEMENTS
+			# Build compact attributes string
 			attributes_str = DOMEvalSerializer._build_compact_attributes(dom_node)
 
-			if not is_semantic and not attributes_str:
-				# Skip but process children
-				for child in dom_node.children:
-					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth)
-				return
-
-			# Build element line
+			# Build element line - always show tag to preserve structure
 			line = f'{depth_str}<{tag}'
+
+			# Only add attributes if element has them
 			if attributes_str:
 				line += f' {attributes_str}'
 

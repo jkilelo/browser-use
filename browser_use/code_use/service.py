@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,7 @@ from browser_use.llm.messages import (
 from browser_use.screenshots.service import ScreenshotService
 from browser_use.tokens.service import TokenCost
 from browser_use.tools.service import Tools
+from browser_use.utils import URL_PATTERN
 
 from .namespace import create_namespace
 from .views import ExecutionStatus, NotebookSession
@@ -54,6 +56,7 @@ class CodeUseAgent:
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_steps: int = 100,
 		use_vision: bool = True,
+		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
 		"""
@@ -87,6 +90,7 @@ class CodeUseAgent:
 		self.sensitive_data = sensitive_data
 		self.max_steps = max_steps
 		self.use_vision = use_vision
+		self._url_shortening_limit = _url_shortening_limit
 
 		self.session = NotebookSession()
 		self.namespace: dict[str, Any] = {}
@@ -401,6 +405,9 @@ class CodeUseAgent:
 			self._last_browser_state_text = None
 			self._last_screenshot = None
 
+		# Replace long URLs with shorter ones before sending to LLM
+		urls_replaced = self._process_messsages_and_replace_long_urls_shorter_ones(messages_to_send)
+
 		# Call LLM with message history (including temporary browser state message)
 		response = await self.llm.ainvoke(messages_to_send)
 
@@ -413,8 +420,12 @@ class CodeUseAgent:
 		# Store the full response
 		full_response = response.completion
 
+		# Replace any shortened URLs in the LLM response back to original URLs
+		if urls_replaced:
+			full_response = self._replace_shortened_urls_in_string(full_response, urls_replaced)
+
 		# Extract code from response
-		code = response.completion
+		code = full_response
 
 		# Try to extract code from markdown code blocks
 		# IMPORTANT: Only extract the FIRST code block to enforce single-step execution
@@ -444,8 +455,8 @@ class CodeUseAgent:
 						'The agent should output ONE code block per step.'
 					)
 
-		# Add to LLM messages
-		self._llm_messages.append(AssistantMessage(content=response.completion))
+		# Add to LLM messages (use full_response with URLs replaced back)
+		self._llm_messages.append(AssistantMessage(content=full_response))
 
 		return code, full_response
 
@@ -527,7 +538,7 @@ class CodeUseAgent:
 						# Filter to only existing namespace vars (like Jupyter does)
 						# Include both: assigned vars that exist + user's explicit globals
 						existing_vars = {name for name in (assigned_names | user_global_names) if name in self.namespace}
-					except:
+					except Exception:
 						existing_vars = set()
 
 					# Build global declaration if needed
@@ -648,7 +659,7 @@ __code_exec_coro__ = __code_exec__()
 											marker = '>>> ' if idx == lineno - 1 else '    '
 											context_lines.append(f'{marker}{idx+1}: {code_lines[idx].rstrip()}')
 										if context_lines:
-											error += f'\n\nCode context:\n' + '\n'.join(context_lines)
+											error += '\n\nCode context:\n' + '\n'.join(context_lines)
 										break
 							except Exception:
 								pass
@@ -1048,3 +1059,88 @@ __code_exec_coro__ = __code_exec__()
 	async def __aexit__(self, exc_type, exc_val, exc_tb):
 		"""Async context manager exit."""
 		await self.close()
+
+	# region - URL replacement
+	def _replace_urls_in_text(self, text: str) -> tuple[str, dict[str, str]]:
+		"""Replace URLs in a text string"""
+
+		replaced_urls: dict[str, str] = {}
+
+		def replace_url(match: re.Match) -> str:
+			"""Url can only have 1 query and 1 fragment"""
+			import hashlib
+
+			original_url = match.group(0)
+
+			# Find where the query/fragment starts
+			query_start = original_url.find('?')
+			fragment_start = original_url.find('#')
+
+			# Find the earliest position of query or fragment
+			after_path_start = len(original_url)  # Default: no query/fragment
+			if query_start != -1:
+				after_path_start = min(after_path_start, query_start)
+			if fragment_start != -1:
+				after_path_start = min(after_path_start, fragment_start)
+
+			# Split URL into base (up to path) and after_path (query + fragment)
+			base_url = original_url[:after_path_start]
+			after_path = original_url[after_path_start:]
+
+			# If after_path is within the limit, don't shorten
+			if len(after_path) <= self._url_shortening_limit:
+				return original_url
+
+			# If after_path is too long, truncate and add hash
+			if after_path:
+				truncated_after_path = after_path[: self._url_shortening_limit]
+				# Create a short hash of the full after_path content
+				hash_obj = hashlib.md5(after_path.encode('utf-8'))
+				short_hash = hash_obj.hexdigest()[:7]
+				# Create shortened URL
+				shortened = f'{base_url}{truncated_after_path}...{short_hash}'
+				# Only use shortened URL if it's actually shorter than the original
+				if len(shortened) < len(original_url):
+					replaced_urls[shortened] = original_url
+					return shortened
+
+			return original_url
+
+		return URL_PATTERN.sub(replace_url, text), replaced_urls
+
+	def _process_messsages_and_replace_long_urls_shorter_ones(self, input_messages: list[BaseMessage]) -> dict[str, str]:
+		"""Replace long URLs with shorter ones
+		? @dev edits input_messages in place
+
+		returns:
+			tuple[filtered_input_messages, urls we replaced {shorter_url: original_url}]
+		"""
+		urls_replaced: dict[str, str] = {}
+
+		# Process each message, in place
+		for message in input_messages:
+			# no need to process SystemMessage, we have control over that anyway
+			if isinstance(message, (UserMessage, AssistantMessage)):
+				if isinstance(message.content, str):
+					# Simple string content
+					message.content, replaced_urls = self._replace_urls_in_text(message.content)
+					urls_replaced.update(replaced_urls)
+
+				elif isinstance(message.content, list):
+					# List of content parts
+					for part in message.content:
+						if isinstance(part, ContentPartTextParam):
+							part.text, replaced_urls = self._replace_urls_in_text(part.text)
+							urls_replaced.update(replaced_urls)
+
+		return urls_replaced
+
+	@staticmethod
+	def _replace_shortened_urls_in_string(text: str, url_replacements: dict[str, str]) -> str:
+		"""Replace all shortened URLs in a string with their original URLs."""
+		result = text
+		for shortened_url, original_url in url_replacements.items():
+			result = result.replace(shortened_url, original_url)
+		return result
+
+	# endregion - URL replacement
