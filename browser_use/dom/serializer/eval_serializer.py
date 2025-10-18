@@ -11,7 +11,7 @@ from browser_use.dom.views import (
 # Critical attributes for query writing and form interaction
 EVAL_KEY_ATTRIBUTES = [
 	'id',
-	'class',
+	# 'class',
 	'name',
 	'type',
 	'placeholder',
@@ -141,13 +141,14 @@ class DOMEvalSerializer:
 			if not is_semantic and not has_useful_attrs and not has_text_content:
 				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
 
+			# Only show elements that are interactive or have AX node
+			is_interactive = node.interactive_index is not None
+			has_ax_node = node.original_node.ax_node is not None
+			if not is_interactive and not has_ax_node:
+				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
+
 			# Collapse single-child wrappers without useful attributes
-			if (
-				tag in COLLAPSIBLE_CONTAINERS
-				and not has_useful_attrs
-				and not has_text_content
-				and len(node.children) == 1
-			):
+			if tag in COLLAPSIBLE_CONTAINERS and not has_useful_attrs and not has_text_content and len(node.children) == 1:
 				# Skip this wrapper and just show the child
 				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
 
@@ -202,10 +203,10 @@ class DOMEvalSerializer:
 		children_output = []
 
 		# Check if parent is a list container (ul, ol)
-		is_list_container = (
-			node.original_node.node_type == NodeType.ELEMENT_NODE
-			and node.original_node.tag_name.lower() in ['ul', 'ol']
-		)
+		is_list_container = node.original_node.node_type == NodeType.ELEMENT_NODE and node.original_node.tag_name.lower() in [
+			'ul',
+			'ol',
+		]
 
 		# Track list items and consecutive links
 		li_count = 0
@@ -236,7 +237,9 @@ class DOMEvalSerializer:
 					# But first add truncation message if we skipped links
 					if total_links_skipped > 0:
 						depth_str = depth * '\t'
-						children_output.append(f'{depth_str}... ({total_links_skipped} more links - use evaluate to explore more.)')
+						children_output.append(
+							f'{depth_str}... ({total_links_skipped} more links - use evaluate to explore more.)'
+						)
 						total_links_skipped = 0
 					consecutive_link_count = 0
 
@@ -355,7 +358,9 @@ class DOMEvalSerializer:
 							if html_child.tag_name.lower() == 'body':
 								for body_child in html_child.children:
 									# Recursively process body children
-									DOMEvalSerializer._serialize_document_node(body_child, formatted_text, include_attributes, depth + 2)
+									DOMEvalSerializer._serialize_document_node(
+										body_child, formatted_text, include_attributes, depth + 2
+									)
 							break
 
 		return '\n'.join(formatted_text)
