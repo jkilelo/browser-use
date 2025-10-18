@@ -208,7 +208,7 @@ class CodeUseAgent:
 			try:
 				# Get code from LLM (this also adds to self._llm_messages)
 				try:
-					code, full_llm_response = await self._get_code_from_llm()
+					python_code, full_llm_response, js_code = await self._get_code_from_llm()
 				except Exception as llm_error:
 					# LLM call failed - count as consecutive error and retry
 					self._consecutive_errors += 1
@@ -222,7 +222,8 @@ class CodeUseAgent:
 					await asyncio.sleep(1)  # Brief pause before retry
 					continue
 
-				if not code or code.strip() == '':
+				# Check if both codes are empty
+				if (not python_code or python_code.strip() == '') and (not js_code or js_code.strip() == ''):
 					logger.warning('LLM returned empty code')
 					self._consecutive_errors += 1
 
@@ -243,8 +244,8 @@ class CodeUseAgent:
 				elif '```' in full_llm_response:
 					has_multiple_blocks = full_llm_response.count('```') > 2
 
-				# Execute code
-				output, error, browser_state = await self._execute_code(code)
+				# Execute code (JS first if present, then Python)
+				output, error, browser_state = await self._execute_code(python_code, js_code)
 
 				# If multiple blocks detected, add warning to the output
 				if has_multiple_blocks and not error:
@@ -268,7 +269,7 @@ class CodeUseAgent:
 						)
 						# Add termination message to complete history before breaking
 						await self._add_step_to_complete_history(
-							model_output_code=code,
+							model_output_code=python_code,
 							full_llm_response=f'[Terminated after {self._max_consecutive_errors} consecutive errors]',
 							output=None,
 							error=f'Auto-terminated: {self._max_consecutive_errors} consecutive errors without progress',
@@ -313,7 +314,7 @@ class CodeUseAgent:
 
 				# Add step to complete_history for eval system
 				await self._add_step_to_complete_history(
-					model_output_code=code,
+					model_output_code=python_code,
 					full_llm_response=full_llm_response,
 					output=output,
 					error=error,
@@ -330,7 +331,9 @@ class CodeUseAgent:
 					break
 
 				# Add result to LLM messages for next iteration (without browser state)
-				result_message = self._format_execution_result(code, output, error, current_step=step + 1)
+				# Include both JS and Python code in the result message
+				combined_code = f'```js\n{js_code}\n```\n\n```python\n{python_code}\n```' if js_code else python_code
+				result_message = self._format_execution_result(combined_code, output, error, current_step=step + 1)
 				self._llm_messages.append(UserMessage(content=result_message))
 
 			except Exception as e:
@@ -363,11 +366,11 @@ class CodeUseAgent:
 
 		return self.session
 
-	async def _get_code_from_llm(self) -> tuple[str, str]:
-		"""Get Python code from the LLM.
+	async def _get_code_from_llm(self) -> tuple[str, str, str | None]:
+		"""Get code from the LLM (supports both Python and JS blocks).
 
 		Returns:
-			Tuple of (extracted_code, full_llm_response)
+			Tuple of (python_code, full_llm_response, js_code_or_none)
 		"""
 		# Prepare messages for this request
 		# Include browser state as separate message if available (not accumulated in history)
@@ -413,54 +416,68 @@ class CodeUseAgent:
 		# Store the full response
 		full_response = response.completion
 
-		# Extract code from response
-		code = response.completion
+		# Extract code blocks from response
+		# Support both single ```python block OR ```js + ```python blocks
+		js_code = None
+		python_code = response.completion
 
-		# Try to extract code from markdown code blocks
-		# IMPORTANT: Only extract the FIRST code block to enforce single-step execution
-		if '```python' in code:
-			# Extract code between ```python and ```
-			parts = code.split('```python')
+		# Check for ```js block first
+		if '```js' in response.completion or '```javascript' in response.completion:
+			# Extract JS code
+			js_marker = '```js' if '```js' in response.completion else '```javascript'
+			parts = response.completion.split(js_marker)
 			if len(parts) > 1:
-				code_part = parts[1].split('```')[0]
-				code = code_part.strip()
+				js_code = parts[1].split('```')[0].strip()
+				logger.info(f'Extracted JS block ({len(js_code)} chars)')
 
-				# Check if there are multiple code blocks and warn
+			# Now extract Python code if present
+			if '```python' in response.completion:
+				py_parts = response.completion.split('```python')
+				if len(py_parts) > 1:
+					python_code = py_parts[1].split('```')[0].strip()
+				else:
+					# No Python block found but JS was present
+					python_code = ''
+			else:
+				# No Python block, only JS
+				python_code = ''
+
+		elif '```python' in python_code:
+			# Extract Python code only (no JS block)
+			parts = python_code.split('```python')
+			if len(parts) > 1:
+				python_code = parts[1].split('```')[0].strip()
+
+				# Check if there are multiple python blocks and warn
 				if len(parts) > 2:
 					logger.warning(
-						'⚠️ LLM output contains multiple code blocks. Only executing the FIRST one. '
-						'The agent should output ONE code block per step.'
+						'⚠️ LLM output contains multiple Python code blocks. Only executing the FIRST one.'
 					)
-		elif '```' in code:
-			# Extract code between ``` and ```
-			parts = code.split('```')
+		elif '```' in python_code:
+			# Extract code between ``` and ``` (no language specified)
+			parts = python_code.split('```')
 			if len(parts) > 1:
-				code = parts[1].strip()
-
-				# Check if there are multiple code blocks and warn
-				if len(parts) > 3:  # More than 3 means more than 1 code block (opening, content, closing = 3 parts)
-					logger.warning(
-						'⚠️ LLM output contains multiple code blocks. Only executing the FIRST one. '
-						'The agent should output ONE code block per step.'
-					)
+				python_code = parts[1].strip()
 
 		# Add to LLM messages
 		self._llm_messages.append(AssistantMessage(content=response.completion))
 
-		return code, full_response
+		return python_code, full_response, js_code
 
-	async def _execute_code(self, code: str) -> tuple[str | None, str | None, str | None]:
+	async def _execute_code(self, python_code: str, js_code: str | None = None) -> tuple[str | None, str | None, str | None]:
 		"""
-		Execute Python code in the namespace.
+		Execute code (JS first if present, then Python) in the namespace.
 
 		Args:
-			code: The Python code to execute
+			python_code: The Python code to execute
+			js_code: Optional JavaScript code to execute first (result stored in js_result)
 
 		Returns:
 			Tuple of (output, error, browser_state)
 		"""
-		# Create new cell
-		cell = self.session.add_cell(source=code)
+		# Create new cell (store both codes if JS present)
+		cell_source = f'```js\n{js_code}\n```\n\n```python\n{python_code}\n```' if js_code else python_code
+		cell = self.session.add_cell(source=cell_source)
 		cell.status = ExecutionStatus.RUNNING
 		cell.execution_count = self.session.increment_execution_count()
 
@@ -469,6 +486,32 @@ class CodeUseAgent:
 		browser_state = None
 
 		try:
+			# Execute JS code first if present
+			if js_code and js_code.strip():
+				logger.info('Executing JS block first...')
+				try:
+					# Execute JS via evaluate and store result in namespace
+					js_result = await self.namespace['evaluate'](js_code)
+					self.namespace['js_result'] = js_result
+					logger.info(f'JS execution successful, stored in js_result (type: {type(js_result).__name__})')
+				except Exception as js_error:
+					# JS execution failed - return error immediately
+					error = f'JavaScript Error: {str(js_error)}'
+					cell.status = ExecutionStatus.ERROR
+					cell.error = error
+					logger.error(f'JS execution error: {error}')
+
+					# Get browser state after error
+					if self.browser_session and self.dom_service:
+						try:
+							browser_state_text, screenshot = await self._get_browser_state()
+							self._last_browser_state_text = browser_state_text
+							self._last_screenshot = screenshot
+							browser_state = browser_state_text
+						except Exception:
+							pass
+
+					return output, error, browser_state
 			# Capture output
 			import ast
 			import io
@@ -482,10 +525,31 @@ class CodeUseAgent:
 				if 'asyncio' not in self.namespace:
 					self.namespace['asyncio'] = asyncio
 
+				# Skip Python execution if empty
+				if not python_code or python_code.strip() == '':
+					# JS-only execution completed successfully
+					output_value = sys.stdout.getvalue()
+					if output_value:
+						output = output_value
+					cell.status = ExecutionStatus.SUCCESS
+					cell.output = output
+
+					# Get browser state
+					if self.browser_session and self.dom_service:
+						try:
+							browser_state_text, screenshot = await self._get_browser_state()
+							self._last_browser_state_text = browser_state_text
+							self._last_screenshot = screenshot
+							browser_state = browser_state_text
+						except Exception:
+							pass
+
+					return output, error, browser_state
+
 				# Check if code contains await expressions - if so, wrap in async function
 				# This mimics how Jupyter/IPython handles top-level await
 				try:
-					tree = ast.parse(code, mode='exec')
+					tree = ast.parse(python_code, mode='exec')
 					has_await = any(isinstance(node, (ast.Await, ast.AsyncWith, ast.AsyncFor)) for node in ast.walk(tree))
 				except SyntaxError:
 					# If parse fails, let exec handle the error
@@ -536,7 +600,7 @@ class CodeUseAgent:
 						vars_str = ', '.join(sorted(existing_vars))
 						global_decl = f'    global {vars_str}\n'
 
-					indented_code = '\n'.join('    ' + line if line.strip() else line for line in code.split('\n'))
+					indented_code = '\n'.join('    ' + line if line.strip() else line for line in python_code.split('\n'))
 					wrapped_code = f"""async def __code_exec__():
 {global_decl}{indented_code}
     # Return locals so we can update the namespace
@@ -565,7 +629,7 @@ __code_exec_coro__ = __code_exec__()
 				else:
 					# No await - execute directly at module level for natural variable scoping
 					# This means x = x + 10 will work without needing 'global x'
-					compiled_code = compile(code, '<code>', 'exec')
+					compiled_code = compile(python_code, '<code>', 'exec')
 					exec(compiled_code, self.namespace, self.namespace)
 
 				# Get output
@@ -604,9 +668,9 @@ __code_exec_coro__ = __code_exec__()
 				# Show the problematic line from the code
 				if e.text:
 					error += f'\n{e.text}'
-				elif e.lineno and code:
+				elif e.lineno and python_code:
 					# If e.text is empty, extract the line from the code
-					lines = code.split('\n')
+					lines = python_code.split('\n')
 					if 0 < e.lineno <= len(lines):
 						error += f'\n{lines[e.lineno - 1]}'
 
@@ -632,7 +696,7 @@ __code_exec_coro__ = __code_exec__()
 								if match:
 									lineno = int(match.group(1))
 									# Get the actual line from user's code
-									code_lines = code.split('\n')
+									code_lines = python_code.split('\n')
 									if 0 < lineno <= len(code_lines):
 										offending_line = code_lines[lineno - 1]
 										error += f'\nat line {lineno}: {offending_line.strip()}'
