@@ -110,6 +110,81 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 
 	cdp_session = await browser_session.get_or_create_cdp_session()
 
+	# Inject jQuery and Lodash if not already present (for convenience with DOM queries and data processing)
+	try:
+		# Check if jQuery is already loaded
+		jquery_check = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': 'typeof jQuery !== "undefined" && typeof $ !== "undefined"', 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		jquery_exists = jquery_check.get('result', {}).get('value', False)
+
+		if not jquery_exists:
+			# Inject jQuery from CDN
+			jquery_injection = '''
+			(function() {
+				if (typeof jQuery === 'undefined') {
+					var script = document.createElement('script');
+					script.src = 'https://code.jquery.com/jquery-3.7.1.slim.min.js';
+					script.integrity = 'sha256-kmHvs0B+OpCW5GVHUNjv9rOmY0IvSIRcf7zGUDTDQM8=';
+					script.crossOrigin = 'anonymous';
+					document.head.appendChild(script);
+					return new Promise(resolve => {
+						script.onload = () => resolve(true);
+						script.onerror = () => resolve(false);
+					});
+				}
+				return true;
+			})()
+			'''
+			inject_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': jquery_injection, 'returnByValue': True, 'awaitPromise': True},
+				session_id=cdp_session.session_id,
+			)
+
+			# Wait a moment for jQuery to be available
+			if inject_result.get('result', {}).get('value'):
+				await asyncio.sleep(0.1)  # Brief wait for jQuery to initialize
+	except Exception as jquery_error:
+		# jQuery injection failed, but continue anyway - user code might not need it
+		logger.debug(f'jQuery injection failed (non-critical): {jquery_error}')
+
+	# Inject Lodash if not already present (for data processing and manipulation)
+	try:
+		lodash_check = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': 'typeof _ !== "undefined"', 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		lodash_exists = lodash_check.get('result', {}).get('value', False)
+
+		if not lodash_exists:
+			# Inject Lodash from CDN
+			lodash_injection = '''
+			(function() {
+				if (typeof _ === 'undefined') {
+					var script = document.createElement('script');
+					script.src = 'https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js';
+					script.integrity = 'sha256-qXBd/EfAdjOA2FGrGAG+b3YBn2tn5A6bhz+LSgYD96k=';
+					script.crossOrigin = 'anonymous';
+					document.head.appendChild(script);
+					return new Promise(resolve => {
+						script.onload = () => resolve(true);
+						script.onerror = () => resolve(false);
+					});
+				}
+				return true;
+			})()
+			'''
+			inject_result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': lodash_injection, 'returnByValue': True, 'awaitPromise': True},
+				session_id=cdp_session.session_id,
+			)
+
+			if inject_result.get('result', {}).get('value'):
+				await asyncio.sleep(0.1)  # Brief wait for Lodash to initialize
+	except Exception as lodash_error:
+		logger.debug(f'Lodash injection failed (non-critical): {lodash_error}')
+
 	try:
 		# Execute JavaScript with proper error handling
 		result = await cdp_session.cdp_client.send.Runtime.evaluate(

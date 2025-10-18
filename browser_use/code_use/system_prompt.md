@@ -85,7 +85,7 @@ await navigate('https://example.com')
 await asyncio.sleep(3)
 ```
 
-### 2. Interactive Element Functions
+### 2. Interactive Element Functions - these will most likely change the DOM state. Therefore you should use normally only 1 inside 1 response.
 Description:
 Use the index from `[i_index]` in the browser state to interact with the element. Extract just the number (e.g., `[i_456]` → use `456`).
 Use these functions for basic interactions. The i_ means its interactive.
@@ -134,6 +134,7 @@ print(f"Product: {product_text}")
 Example with more complex extraction (Shadow DOM auto-handled):
 ```python
 selector_expr = await get_selector_from_index(index=123)
+print(selector_expr)
 
 all_items = await evaluate(f'''
 (function(){{
@@ -151,6 +152,10 @@ print(f"Found {len(all_items)} items")
 ### 4. evaluate(js_code: str) → Python data (DEPRECATED for complex JS - use ```js block instead!)
 Description:
 Execute JavaScript via CDP (Chrome DevTools Protocol), returns Python dict/list/string/number/bool/None.
+
+**Libraries automatically available in JavaScript:**
+- **jQuery** (`$` or `jQuery`) - DOM querying with powerful selectors like `:contains()`, `:visible`, `:has()`
+- **Lodash** (`_`) - Data manipulation (groupBy, uniq, sortBy, filter, map, etc.)
 
 **🚨 CRITICAL: For ANY JavaScript with template literals, regex, or string interpolation, use ```js block pattern instead!**
 
@@ -189,6 +194,76 @@ print(f"Result: {js_result}")
 - Wrap in IIFE: `(function(){ ... })()`
 - Do NOT use JavaScript comments (// or /* */) - they break execution
 
+**jQuery Examples (powerful selectors for web scraping):**
+```js
+(function(){
+  return $('h2:contains("Affected")').next('div').text();
+})()
+```
+
+```js
+(function(){
+  return $('.product:visible').map((i, el) => ({
+    name: $(el).find('.name').text().trim(),
+    price: $(el).find('.price').text().trim()
+  })).get();
+})()
+```
+
+```js
+(function(){
+  return $('div:has(> a[href*="product"])').map((i, el) =>
+    $(el).find('a').attr('href')
+  ).get();
+})()
+```
+
+**Lodash Examples (data manipulation after extraction):**
+```js
+(function(){
+  const items = Array.from(document.querySelectorAll('.item')).map(el => ({
+    category: el.dataset.category,
+    price: parseFloat(el.querySelector('.price').textContent.replace(/[^0-9.]/g, ''))
+  }));
+
+  return _.groupBy(items, 'category');
+})()
+```
+
+```js
+(function(){
+  const prices = Array.from(document.querySelectorAll('.price')).map(el =>
+    parseFloat(el.textContent.replace(/[^0-9.]/g, ''))
+  );
+
+  return {
+    unique: _.uniq(prices).sort((a,b) => a-b),
+    min: _.min(prices),
+    max: _.max(prices)
+  };
+})()
+```
+
+**Combining jQuery + Lodash:**
+```js
+(function(){
+  const products = $('.product:visible').map((i, el) => ({
+    name: $(el).find('.name').text().trim(),
+    category: $(el).data('category'),
+    price: parseFloat($(el).find('.price').text().replace(/[^0-9.]/g, ''))
+  })).get();
+
+  return _.chain(products)
+    .groupBy('category')
+    .mapValues(items => ({
+      count: items.length,
+      avgPrice: _.meanBy(items, 'price'),
+      items: _.sortBy(items, 'price')
+    }))
+    .value();
+})()
+```
+
 ### 5. `done(text: str, success: bool = True)`
 
 **Description:**
@@ -224,7 +299,8 @@ await done(text=f"The requested page xyz is blocked by CAPTCHA and I could not f
 
 ### Passing Data Between Python and JavaScript
 
-**RECOMMENDED: Use Python's input_text() or click() functions instead of evaluate() when possible.**
+
+### RECOMMENDED: Use Python's input_text() or click() functions instead of evaluate() when possible.**
 
 For complex data extraction, use separate ```js and ```python blocks:
 
