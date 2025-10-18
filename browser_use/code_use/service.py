@@ -662,58 +662,9 @@ __code_exec_coro__ = __code_exec__()
 			# without the full traceback to keep output clean
 			if isinstance(e, SyntaxError):
 				error = f'{type(e).__name__}: {e.msg}'
-				if e.lineno:
-					error += f' at line {e.lineno}'
-				# Show the problematic line from the code
-				if e.text:
-					error += f'\n{e.text}'
-				elif e.lineno and python_code:
-					# If e.text is empty, extract the line from the code
-					lines = python_code.split('\n')
-					if 0 < e.lineno <= len(lines):
-						error += f'\n{lines[e.lineno - 1]}'
-
-				
 			else:
-				# For other errors, try to extract useful information
-				error_str = str(e)
-				error = f'{type(e).__name__}: {error_str}' if error_str else f'{type(e).__name__} occurred'
-
-				# For RuntimeError or other exceptions, try to extract traceback info
-				# to show which line in the user's code actually failed
-				if hasattr(e, '__traceback__'):
-					import traceback as tb_module
-					tb_lines = tb_module.format_exception(type(e), e, e.__traceback__)
-
-					# Look for the line in user's code (appears as '<code>')
-					for i, line in enumerate(tb_lines):
-						if '<code>' in line and 'line' in line:
-							# Extract line number from traceback
-							try:
-								import re
-								match = re.search(r'line (\d+)', line)
-								if match:
-									lineno = int(match.group(1))
-									# Get the actual line from user's code
-									code_lines = python_code.split('\n')
-									if 0 < lineno <= len(code_lines):
-										offending_line = code_lines[lineno - 1]
-										error += f'\nat line {lineno}: {offending_line.strip()}'
-
-										# Show context (2 lines before and after)
-										start_idx = max(0, lineno - 3)
-										end_idx = min(len(code_lines), lineno + 2)
-										context_lines = []
-										for idx in range(start_idx, end_idx):
-											actual_line_num = idx + 1
-											marker = '>>> ' if actual_line_num == lineno else '    '
-											context_lines.append(f'{marker}{actual_line_num}: {code_lines[idx].rstrip()}')
-										if context_lines:
-											error += f'\n\nCode context:\n' + '\n'.join(context_lines)
-										break
-							except Exception:
-								pass
-
+				error = f'{type(e).__name__}: {str(e)}'
+				
 			cell.status = ExecutionStatus.ERROR
 			cell.error = error
 			logger.error(f'Code execution error: {error}')
