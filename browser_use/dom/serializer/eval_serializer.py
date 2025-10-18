@@ -119,7 +119,7 @@ class DOMEvalSerializer:
 			return False
 
 		if search_pagination(node):
-			return 'PAGINATION DETECTED: Extract ALL pages before calling done()'
+			return 'Pagination available'
 		return None
 
 	@staticmethod
