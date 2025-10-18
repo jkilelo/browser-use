@@ -91,6 +91,38 @@ class DOMEvalSerializer:
 	"""Ultra-concise DOM serializer for quick LLM query writing."""
 
 	@staticmethod
+	def _detect_pagination(node: SimplifiedNode | None) -> str | None:
+		"""Detect pagination indicators and return concise note if found."""
+		if not node:
+			return None
+
+		def search_pagination(n: SimplifiedNode) -> bool:
+			if n.original_node.node_type == NodeType.ELEMENT_NODE:
+				text = n.original_node.get_all_children_text().lower()
+				attrs = n.original_node.attributes or {}
+				tag = n.original_node.tag_name.lower()
+
+				# Check for pagination patterns
+				if any([
+					'next' in text and 'page' in text,
+					'prev' in text and 'page' in text,
+					'load more' in text,
+					'show more' in text,
+					any('pagination' in str(v).lower() for v in attrs.values()),
+					tag == 'nav' and 'page' in text,
+				]):
+					return True
+
+			for child in n.children:
+				if search_pagination(child):
+					return True
+			return False
+
+		if search_pagination(node):
+			return 'PAGINATION DETECTED: Extract ALL pages before calling done()'
+		return None
+
+	@staticmethod
 	def serialize_tree(node: SimplifiedNode | None, include_attributes: list[str], depth: int = 0) -> str:
 		"""
 		Serialize DOM tree focusing on semantic/interactive elements.
@@ -105,6 +137,11 @@ class DOMEvalSerializer:
 		"""
 		if not node:
 			return ''
+
+		# Detect pagination at root level
+		pagination_note = None
+		if depth == 0:
+			pagination_note = DOMEvalSerializer._detect_pagination(node)
 
 		# Skip excluded nodes but process children
 		if hasattr(node, 'excluded_by_parent') and node.excluded_by_parent:
@@ -197,6 +234,10 @@ class DOMEvalSerializer:
 				children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1)
 				if children_text:
 					formatted_text.append(children_text)
+
+		# Prepend pagination note if detected at root level
+		if pagination_note and depth == 0:
+			formatted_text.insert(0, pagination_note)
 
 		return '\n'.join(formatted_text)
 
