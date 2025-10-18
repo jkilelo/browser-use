@@ -26,6 +26,7 @@ from browser_use.llm.messages import (
 from browser_use.screenshots.service import ScreenshotService
 from browser_use.tokens.service import TokenCost
 from browser_use.tools.service import Tools
+from browser_use.utils import replace_shortened_urls_in_text, shorten_urls_in_text
 
 from .namespace import create_namespace
 from .views import ExecutionStatus, NotebookSession
@@ -54,6 +55,7 @@ class CodeUseAgent:
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_steps: int = 100,
 		use_vision: bool = True,
+		_url_shortening_limit: int = 25,
 		**kwargs,
 	):
 		"""
@@ -71,6 +73,7 @@ class CodeUseAgent:
 			sensitive_data: Optional sensitive data dictionary
 			max_steps: Maximum number of execution steps
 			use_vision: Whether to include screenshots in LLM messages (default: True)
+			_url_shortening_limit: Maximum length for URL query+fragment before shortening (default: 25)
 			**kwargs: Additional keyword arguments for compatibility (ignored)
 		"""
 		# Log and ignore unknown kwargs for compatibility
@@ -87,6 +90,7 @@ class CodeUseAgent:
 		self.sensitive_data = sensitive_data
 		self.max_steps = max_steps
 		self.use_vision = use_vision
+		self._url_shortening_limit = _url_shortening_limit
 
 		self.session = NotebookSession()
 		self.namespace: dict[str, Any] = {}
@@ -236,24 +240,8 @@ class CodeUseAgent:
 							logger.warning(f'Failed to get new browser state: {e}')
 					continue
 
-				# Check if LLM output multiple code blocks (policy violation)
-				has_multiple_blocks = False
-				if '```python' in full_llm_response:
-					has_multiple_blocks = full_llm_response.count('```python') > 1
-				elif '```' in full_llm_response:
-					has_multiple_blocks = full_llm_response.count('```') > 2
-
 				# Execute code
 				output, error, browser_state = await self._execute_code(code)
-
-				# If multiple blocks detected, add warning to the output
-				if has_multiple_blocks and not error:
-					warning_msg = (
-						'\n\n⚠️ WARNING: You output multiple code blocks. '
-						'Only the FIRST code block was executed. '
-						'Please output ONE code block per step.'
-					)
-					output = (output + warning_msg) if output else warning_msg.strip()
 
 				# Track consecutive errors
 				if error:
@@ -401,6 +389,21 @@ class CodeUseAgent:
 			self._last_browser_state_text = None
 			self._last_screenshot = None
 
+		# Shorten URLs in messages before sending to LLM
+		url_replacements: dict[str, str] = {}
+		for message in messages_to_send:
+			if isinstance(message, (UserMessage, AssistantMessage)):
+				if isinstance(message.content, str):
+					# Simple string content
+					message.content, replaced_urls = shorten_urls_in_text(message.content, self._url_shortening_limit)
+					url_replacements.update(replaced_urls)
+				elif isinstance(message.content, list):
+					# List of content parts
+					for part in message.content:
+						if isinstance(part, ContentPartTextParam):
+							part.text, replaced_urls = shorten_urls_in_text(part.text, self._url_shortening_limit)
+							url_replacements.update(replaced_urls)
+
 		# Call LLM with message history (including temporary browser state message)
 		response = await self.llm.ainvoke(messages_to_send)
 
@@ -413,38 +416,56 @@ class CodeUseAgent:
 		# Store the full response
 		full_response = response.completion
 
-		# Extract code from response
-		code = response.completion
+		# Restore original URLs in the LLM response
+		if url_replacements:
+			full_response = replace_shortened_urls_in_text(full_response, url_replacements)
 
-		# Try to extract code from markdown code blocks
-		# IMPORTANT: Only extract the FIRST code block to enforce single-step execution
-		if '```python' in code:
-			# Extract code between ```python and ```
-			parts = code.split('```python')
-			if len(parts) > 1:
-				code_part = parts[1].split('```')[0]
-				code = code_part.strip()
+		# Extract all code blocks from response and combine them
+		code = full_response
 
-				# Check if there are multiple code blocks and warn
-				if len(parts) > 2:
-					logger.warning(
-						'⚠️ LLM output contains multiple code blocks. Only executing the FIRST one. '
-						'The agent should output ONE code block per step.'
-					)
-		elif '```' in code:
-			# Extract code between ``` and ```
-			parts = code.split('```')
-			if len(parts) > 1:
-				code = parts[1].strip()
+		# Find all code blocks with their language tags
+		import re
 
-				# Check if there are multiple code blocks and warn
-				if len(parts) > 3:  # More than 3 means more than 1 code block (opening, content, closing = 3 parts)
-					logger.warning(
-						'⚠️ LLM output contains multiple code blocks. Only executing the FIRST one. '
-						'The agent should output ONE code block per step.'
-					)
+		# Pattern to match code blocks: ```language\ncode\n```
+		block_pattern = r'```(\w+)?\n(.*?)```'
+		matches = re.findall(block_pattern, code, re.DOTALL)
 
-		# Add to LLM messages
+		if matches:
+			# Extract blocks and build combined code
+			combined_blocks = []
+			js_block_count = 0
+
+			for lang, block_code in matches:
+				lang = lang.lower() if lang else 'python'
+				block_code = block_code.strip()
+
+				if not block_code:
+					continue
+
+				if lang in ['js', 'javascript']:
+					# JavaScript block: wrap in evaluate() and store result with unique variable name
+					js_block_count += 1
+					result_var = 'js_result' if js_block_count == 1 else f'js_result_{js_block_count}'
+					combined_blocks.append(f'{result_var} = await evaluate("""{block_code}""")')
+					logger.info(f'JavaScript block {js_block_count} detected: will execute via evaluate() and store as {result_var}')
+				elif lang == 'python' or not lang:
+					# Python block: add directly
+					combined_blocks.append(block_code)
+				else:
+					# Unknown language: treat as Python
+					combined_blocks.append(block_code)
+
+			if combined_blocks:
+				code = '\n'.join(combined_blocks)
+				if len(combined_blocks) > 1:
+					logger.info(f'Multiple code blocks detected: {len(combined_blocks)} blocks will execute sequentially')
+			else:
+				code = ''
+		else:
+			# No code blocks found with fences, return empty
+			code = ''
+
+		# Add to LLM messages (use original response from LLM, not the restored one)
 		self._llm_messages.append(AssistantMessage(content=response.completion))
 
 		return code, full_response

@@ -64,11 +64,12 @@ from browser_use.telemetry.views import AgentTelemetryEvent
 from browser_use.tools.registry.views import ActionModel
 from browser_use.tools.service import Tools
 from browser_use.utils import (
-	URL_PATTERN,
 	_log_pretty_path,
 	check_latest_browser_use_version,
 	get_browser_use_version,
 	get_git_info,
+	replace_shortened_urls_in_text,
+	shorten_urls_in_text,
 	time_execution_async,
 	time_execution_sync,
 )
@@ -1027,50 +1028,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	# region - URL replacement
 	def _replace_urls_in_text(self, text: str) -> tuple[str, dict[str, str]]:
 		"""Replace URLs in a text string"""
-
-		replaced_urls: dict[str, str] = {}
-
-		def replace_url(match: re.Match) -> str:
-			"""Url can only have 1 query and 1 fragment"""
-			import hashlib
-
-			original_url = match.group(0)
-
-			# Find where the query/fragment starts
-			query_start = original_url.find('?')
-			fragment_start = original_url.find('#')
-
-			# Find the earliest position of query or fragment
-			after_path_start = len(original_url)  # Default: no query/fragment
-			if query_start != -1:
-				after_path_start = min(after_path_start, query_start)
-			if fragment_start != -1:
-				after_path_start = min(after_path_start, fragment_start)
-
-			# Split URL into base (up to path) and after_path (query + fragment)
-			base_url = original_url[:after_path_start]
-			after_path = original_url[after_path_start:]
-
-			# If after_path is within the limit, don't shorten
-			if len(after_path) <= self._url_shortening_limit:
-				return original_url
-
-			# If after_path is too long, truncate and add hash
-			if after_path:
-				truncated_after_path = after_path[: self._url_shortening_limit]
-				# Create a short hash of the full after_path content
-				hash_obj = hashlib.md5(after_path.encode('utf-8'))
-				short_hash = hash_obj.hexdigest()[:7]
-				# Create shortened URL
-				shortened = f'{base_url}{truncated_after_path}...{short_hash}'
-				# Only use shortened URL if it's actually shorter than the original
-				if len(shortened) < len(original_url):
-					replaced_urls[shortened] = original_url
-					return shortened
-
-			return original_url
-
-		return URL_PATTERN.sub(replace_url, text), replaced_urls
+		return shorten_urls_in_text(text, self._url_shortening_limit)
 
 	def _process_messsages_and_replace_long_urls_shorter_ones(self, input_messages: list[BaseMessage]) -> dict[str, str]:
 		"""Replace long URLs with shorter ones
@@ -1168,10 +1126,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 	@staticmethod
 	def _replace_shortened_urls_in_string(text: str, url_replacements: dict[str, str]) -> str:
 		"""Replace all shortened URLs in a string with their original URLs."""
-		result = text
-		for shortened_url, original_url in url_replacements.items():
-			result = result.replace(shortened_url, original_url)
-		return result
+		return replace_shortened_urls_in_text(text, url_replacements)
 
 	# endregion - URL replacement
 

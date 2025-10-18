@@ -668,3 +668,94 @@ def _log_pretty_url(s: str, max_len: int | None = 22) -> str:
 	if max_len is not None and len(s) > max_len:
 		return s[:max_len] + '…'
 	return s
+
+
+def shorten_url(url: str, url_shortening_limit: int = 25) -> tuple[str, dict[str, str]]:
+	"""
+	Shorten a single URL by truncating query/fragment if too long.
+
+	Args:
+		url: The URL to potentially shorten
+		url_shortening_limit: Maximum length for query+fragment before shortening
+
+	Returns:
+		Tuple of (shortened_url, url_map) where url_map maps {shortened: original}
+	"""
+	import hashlib
+
+	url_map: dict[str, str] = {}
+
+	# Find where the query/fragment starts
+	query_start = url.find('?')
+	fragment_start = url.find('#')
+
+	# Find the earliest position of query or fragment
+	after_path_start = len(url)  # Default: no query/fragment
+	if query_start != -1:
+		after_path_start = min(after_path_start, query_start)
+	if fragment_start != -1:
+		after_path_start = min(after_path_start, fragment_start)
+
+	# Split URL into base (up to path) and after_path (query + fragment)
+	base_url = url[:after_path_start]
+	after_path = url[after_path_start:]
+
+	# If after_path is within the limit, don't shorten
+	if len(after_path) <= url_shortening_limit:
+		return url, url_map
+
+	# If after_path is too long, truncate and add hash
+	if after_path:
+		truncated_after_path = after_path[:url_shortening_limit]
+		# Create a short hash of the full after_path content
+		hash_obj = hashlib.md5(after_path.encode('utf-8'))
+		short_hash = hash_obj.hexdigest()[:7]
+		# Create shortened URL
+		shortened = f'{base_url}{truncated_after_path}...{short_hash}'
+		# Only use shortened URL if it's actually shorter than the original
+		if len(shortened) < len(url):
+			url_map[shortened] = url
+			return shortened, url_map
+
+	return url, url_map
+
+
+def shorten_urls_in_text(text: str, url_shortening_limit: int = 25) -> tuple[str, dict[str, str]]:
+	"""
+	Find and shorten URLs in a text string.
+
+	Args:
+		text: The text containing URLs to shorten
+		url_shortening_limit: Maximum length for URL query+fragment before shortening
+
+	Returns:
+		Tuple of (text_with_shortened_urls, url_map) where url_map maps {shortened: original}
+	"""
+	replaced_urls: dict[str, str] = {}
+
+	def replace_url(match: re.Match) -> str:
+		"""Process each URL match"""
+		original_url = match.group(0)
+		shortened_url, url_map = shorten_url(original_url, url_shortening_limit)
+		replaced_urls.update(url_map)
+		return shortened_url
+
+	result_text = URL_PATTERN.sub(replace_url, text)
+	return result_text, replaced_urls
+
+
+def replace_shortened_urls_in_text(text: str, url_replacements: dict[str, str]) -> str:
+	"""
+	Replace all shortened URLs in a string with their original URLs.
+
+	Args:
+		text: The text containing shortened URLs
+		url_replacements: Dict mapping {shortened_url: original_url}
+
+	Returns:
+		Text with shortened URLs replaced by originals
+	"""
+	result = text
+	for shortened_url, original_url in url_replacements.items():
+		result = result.replace(shortened_url, original_url)
+	return result

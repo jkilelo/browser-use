@@ -276,8 +276,8 @@ class DOMEvalSerializer:
 						value = ' '.join(classes)
 						value = cap_text_length(value, 25)
 					elif attr == 'href':
-						# For href, cap at 20 chars to save space
-						value = cap_text_length(value, 20)
+						# For href, keep the full URL (don't shorten)
+						pass
 					else:
 						# Cap at 25 chars for other attributes
 						value = cap_text_length(value, 25)
