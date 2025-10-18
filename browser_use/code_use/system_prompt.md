@@ -417,19 +417,31 @@ soup = BeautifulSoup(html, 'html.parser')
 
 products = []
 for link in soup.find_all('a', title=True):
-    container = link.find_parent('div') or link.find_parent('article') or link.find_parent('li')
-    text = container.get_text() if container else link.get_text()
+    container = link.find_parent('div')
+    if not container:
+        continue
 
-    prices = re.findall(r'₹([\d,]+)', text)
-    discount = re.search(r'(\d+% off)', text)
+    for _ in range(3):
+        parent = container.find_parent('div')
+        if parent:
+            container = parent
 
-    if prices and link.get('href'):
+    text = container.get_text()
+
+    price_pattern = r'₹([\d,]+)\s*(?:₹([\d,]+))?\s*(\d+% off)?'
+    match = re.search(price_pattern, text)
+
+    if match and link.get('href'):
+        deal_price = '₹' + match.group(1)
+        mrp = '₹' + match.group(2) if match.group(2) else deal_price
+        discount = match.group(3) if match.group(3) else 'N/A'
+
         products.append({
-            'url': link['href'],
+            'url': 'https://www.example.com' + link['href'],
             'name': link['title'],
-            'deal_price': '₹' + prices[0],
-            'mrp': '₹' + prices[1] if len(prices) > 1 else 'N/A',
-            'discount': discount.group(1) if discount else 'N/A'
+            'deal_price': deal_price,
+            'mrp': mrp,
+            'discount': discount
         })
 
 print(f"Extracted {len(products)} products")
@@ -455,19 +467,31 @@ async def extract_products(category_name):
 
     products = []
     for link in soup.find_all('a', title=True):
-        container = link.find_parent('div') or link.find_parent('article') or link.find_parent('li')
-        text = container.get_text() if container else link.get_text()
+        container = link.find_parent('div')
+        if not container:
+            continue
 
-        prices = re.findall(r'₹([\d,]+)', text)
-        discount = re.search(r'(\d+% off)', text)
+        for _ in range(3):
+            parent = container.find_parent('div')
+            if parent:
+                container = parent
 
-        if prices and link.get('href'):
+        text = container.get_text()
+
+        price_pattern = r'₹([\d,]+)\s*(?:₹([\d,]+))?\s*(\d+% off)?'
+        match = re.search(price_pattern, text)
+
+        if match and link.get('href'):
+            deal_price = '₹' + match.group(1)
+            mrp = '₹' + match.group(2) if match.group(2) else deal_price
+            discount = match.group(3) if match.group(3) else 'N/A'
+
             products.append({
-                'url': link['href'],
+                'url': 'https://www.example.com' + link['href'],
                 'name': link['title'],
-                'deal_price': '₹' + prices[0],
-                'mrp': '₹' + prices[1] if len(prices) > 1 else 'N/A',
-                'discount': discount.group(1) if discount else 'N/A',
+                'deal_price': deal_price,
+                'mrp': mrp,
+                'discount': discount,
                 'category': category_name
             })
     return products
@@ -540,19 +564,26 @@ async def extract_products(category_name):
 
     products = []
     for link in soup.find_all('a', title=True):
-        container = link.find_parent('div') or link.find_parent('article')
-        text = container.get_text() if container else link.get_text()
+        container = link.find_parent('div')
+        if not container:
+            continue
 
-        prices = re.findall(r'₹([\d,]+)', text)
-        discount = re.search(r'(\d+% off)', text)
+        for _ in range(3):
+            parent = container.find_parent('div')
+            if parent:
+                container = parent
 
-        if prices and link.get('href'):
+        text = container.get_text()
+        price_pattern = r'₹([\d,]+)\s*(?:₹([\d,]+))?\s*(\d+% off)?'
+        match = re.search(price_pattern, text)
+
+        if match and link.get('href'):
             products.append({
-                'url': link['href'],
+                'url': 'https://www.example.com' + link['href'],
                 'name': link['title'],
-                'deal_price': '₹' + prices[0],
-                'mrp': '₹' + prices[1] if len(prices) > 1 else 'N/A',
-                'discount': discount.group(1) if discount else 'N/A',
+                'deal_price': '₹' + match.group(1),
+                'mrp': '₹' + match.group(2) if match.group(2) else '₹' + match.group(1),
+                'discount': match.group(3) if match.group(3) else 'N/A',
                 'category': category_name
             })
     return products
