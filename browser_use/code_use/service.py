@@ -742,20 +742,18 @@ __code_exec_coro__ = __code_exec__()
 		if not self.browser_session or not self.dom_service:
 			return 'Browser state not available', None
 
+		# Build browser state defensively - keep what we can even if DOM serialization fails
+		lines = []
+		screenshot = None
+
 		try:
 			# Get full browser state including screenshot if use_vision is enabled
 			include_screenshot = True
 			state = await self.browser_session.get_browser_state_summary(include_screenshot=include_screenshot)
-			assert state.dom_state is not None
-			dom_state = state.dom_state
-
-			# Use eval_representation (compact serializer for code agents)
-			dom_html = dom_state.eval_representation()
-			if dom_html == "":
-				dom_html = "Empty DOM tree (you might have to wait for the page to load)"
+			screenshot = state.screenshot if include_screenshot else None
 
 			# Format with URL and title header
-			lines = ['## Browser State']
+			lines.append('## Browser State')
 			lines.append(f'**URL:** {state.url}')
 			lines.append(f'**Title:** {state.title}')
 			lines.append('')
@@ -807,41 +805,60 @@ __code_exec_coro__ = __code_exec__()
 			lines.append(f"**Available variables:** {', '.join(available_vars_sorted)}")
 			lines.append('')
 
-			# Add DOM structure
+			# Add DOM structure - wrap in try/except to keep partial state on error
 			lines.append('**DOM Structure:**')
 
-			# Add scroll position hints for DOM
-			if state.page_info:
-				pi = state.page_info
-				pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
-				pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
+			try:
+				assert state.dom_state is not None
+				dom_state = state.dom_state
 
-				if pages_above > 0:
-					dom_html = f'... {pages_above:.1f} pages above \n{dom_html}'
+				# Use eval_representation (compact serializer for code agents)
+				dom_html = dom_state.eval_representation()
+				if dom_html == "":
+					dom_html = "Empty DOM tree (you might have to wait for the page to load)"
+
+				# Add scroll position hints for DOM
+				if state.page_info:
+					pi = state.page_info
+					pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
+					pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
+
+					if pages_above > 0:
+						dom_html = f'... {pages_above:.1f} pages above \n{dom_html}'
+					else:
+						dom_html = '[Start of page]\n' + dom_html
+
+					if pages_below > 0:
+						dom_html += f'\n... {pages_below:.1f} pages below '
+					else:
+						dom_html += '\n[End of page]'
+
+				# Truncate DOM if too long and notify LLM
+				max_dom_length = 40000
+				if len(dom_html) > max_dom_length:
+					lines.append(dom_html[:max_dom_length])
+					lines.append(f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]')
 				else:
-					dom_html = '[Start of page]\n' + dom_html
-
-				if pages_below > 0:
-					dom_html += f'\n... {pages_below:.1f} pages below '
-				else:
-					dom_html += '\n[End of page]'
-
-			# Truncate DOM if too long and notify LLM
-			max_dom_length = 40000
-			if len(dom_html) > max_dom_length:
-				lines.append(dom_html[:max_dom_length])
-				lines.append(f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]')
-			else:
-				lines.append(dom_html)
-
-			browser_state_text = '\n'.join(lines)
-			screenshot = state.screenshot if include_screenshot else None
-
-			return browser_state_text, screenshot
+					lines.append(dom_html)
+			except Exception as dom_error:
+				# DOM serialization failed - but keep the rest of the browser state
+				lines.append(f'[Error serializing DOM: {dom_error}]')
+				lines.append('[Use evaluate() to explore the page manually]')
+				logger.error(f'DOM serialization error in _get_browser_state: {dom_error}', exc_info=True)
 
 		except Exception as e:
-			logger.error(f'Failed to get browser state: {e}')
-			return f'Error getting browser state: {e}', None
+			# Critical error getting browser state - return what we have
+			logger.error(f'Failed to get browser state: {e}', exc_info=True)
+			if not lines:
+				# Nothing was built - return error message
+				return f'Error getting browser state: {e}', None
+			else:
+				# Some partial state was built - append error and return it
+				lines.append('')
+				lines.append(f'[Browser state partially available - error during retrieval: {e}]')
+
+		browser_state_text = '\n'.join(lines)
+		return browser_state_text, screenshot
 
 	def _format_execution_result(self, code: str, output: str | None, error: str | None, current_step: int | None = None) -> str:
 		"""Format the execution result for the LLM (without browser state)."""
