@@ -367,38 +367,47 @@ class Tools(Generic[Context]):
 			param_model=UploadFileAction,
 		)
 		async def upload_file(
-			params: UploadFileAction, browser_session: BrowserSession, available_file_paths: list[str], file_system: FileSystem
+			params: UploadFileAction,
+			browser_session: BrowserSession,
+			available_file_paths: list[str],
+			file_system: FileSystem,
 		):
-			# Check if file is in available_file_paths (user-provided or downloaded files)
-			# For remote browsers (is_local=False), we allow absolute remote paths even if not tracked locally
-			if params.path not in available_file_paths:
-				# Also check if it's a recently downloaded file that might not be in available_file_paths yet
-				downloaded_files = browser_session.downloaded_files
-				if params.path not in downloaded_files:
-					# Finally, check if it's a file in the FileSystem service
-					if file_system and file_system.get_dir():
-						# Check if the file is actually managed by the FileSystem service
-						# The path should be just the filename for FileSystem files
-						file_obj = file_system.get_file(params.path)
-						if file_obj:
-							# File is managed by FileSystem, construct the full path
-							file_system_path = str(file_system.get_dir() / params.path)
-							params = UploadFileAction(index=params.index, path=file_system_path)
+			# Path validation logic:
+			# 1. If available_file_paths provided (security mode), enforce it as a whitelist
+			# 2. If no whitelist, for local browsers just check file exists
+			# 3. For remote browsers, allow any path (assume it exists remotely)
+
+			# If whitelist provided, validate path is in it
+			if available_file_paths:
+				if params.path not in available_file_paths:
+					# Also check if it's a recently downloaded file
+					downloaded_files = browser_session.downloaded_files
+					if params.path not in downloaded_files:
+						# Finally, check if it's a file in the FileSystem service (if provided)
+						if file_system is not None and file_system.get_dir():
+							# Check if the file is actually managed by the FileSystem service
+							# The path should be just the filename for FileSystem files
+							file_obj = file_system.get_file(params.path)
+							if file_obj:
+								# File is managed by FileSystem, construct the full path
+								file_system_path = str(file_system.get_dir() / params.path)
+								params = UploadFileAction(index=params.index, path=file_system_path)
+							else:
+								# If browser is remote, allow passing a remote-accessible absolute path
+								if not browser_session.is_local:
+									pass
+								else:
+									msg = f'File path {params.path} is not available. Upload files must be in available_file_paths, downloaded_files, or a file managed by file_system.'
+									logger.error(f'❌ {msg}')
+									return ActionResult(error=msg)
 						else:
 							# If browser is remote, allow passing a remote-accessible absolute path
 							if not browser_session.is_local:
 								pass
 							else:
-								msg = f'File path {params.path} is not available. Upload files must be in available_file_paths, downloaded_files, or a file managed by file_system.'
+								msg = f'File path {params.path} is not available. Upload files must be in available_file_paths or downloaded_files.'
 								logger.error(f'❌ {msg}')
 								return ActionResult(error=msg)
-					else:
-						# If browser is remote, allow passing a remote-accessible absolute path
-						if not browser_session.is_local:
-							pass
-						else:
-							msg = f'File path {params.path} is not available. Upload files must be in available_file_paths, downloaded_files, or a file managed by file_system.'
-							raise BrowserError(message=msg, long_term_memory=msg)
 
 			# For local browsers, ensure the file exists on the local filesystem
 			if browser_session.is_local:
