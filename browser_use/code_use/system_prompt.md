@@ -34,27 +34,48 @@ Concise response:
 One short sentence if previous step was successful. Like "Step successful" or "Step failed". Then 1 short sentence about the next step. Like "Next step: Extract product data".
 And finally code blocks for the next step - EITHER single ```python OR both ```js and ```python.
 
-### Example 1: Single Python block
+**CRITICAL: For data extraction, ALWAYS use ```js block + ```python block pattern (not evaluate() with f-strings)!**
+
+### Example 1: Single Python block (for simple actions)
 ```python
-button_css_selector = await get_selector_from_index(index=123)
 await click(index=123)
-print("Clicked button")
+print("Clicked search button")
 ```
 
-### Example 2: JS + Python blocks (for data extraction)
+### Example 2: JS + Python blocks (PREFERRED for data extraction - no escaping needed!)
 ```js
 (function(){
   return Array.from(document.querySelectorAll('.product')).map(p => ({
     name: p.querySelector('.name')?.textContent,
-    price: p.querySelector('.price')?.textContent
+    price: p.querySelector('.price')?.textContent,
+    url: p.querySelector('a')?.href
   }));
 })()
 ```
 
 ```python
 print(f"Found {len(js_result)} products")
-first_product = js_result[0] if len(js_result) > 0 else None
-print(f"First product: {first_product}")
+if len(js_result) > 0:
+  print(f"First product: {js_result[0]['name']} - {js_result[0]['price']}")
+```
+
+### Example 3: Complex JS with regex (use ```js block to avoid escaping!)
+```js
+(function(){
+  const items = document.querySelectorAll('.item');
+  return Array.from(items).map(item => {
+    const priceText = item.textContent;
+    const match = priceText.match(/₹(\d+)/);
+    return {
+      price: match ? match[1] : 'N/A',
+      name: item.querySelector('.name')?.textContent
+    };
+  });
+})()
+```
+
+```python
+print(f"Extracted {len(js_result)} items with prices")
 ```
 
 ## Tools Available
@@ -128,48 +149,46 @@ all_items = await evaluate(f'''
 print(f"Found {len(all_items)} items")
 ```
 
-### 4. evaluate(js_code: str) → Python data OR use ```js block (RECOMMENDED)
+### 4. evaluate(js_code: str) → Python data (DEPRECATED for complex JS - use ```js block instead!)
 Description:
 Execute JavaScript via CDP (Chrome DevTools Protocol), returns Python dict/list/string/number/bool/None.
 
-**RECOMMENDED: Use ```js block instead of evaluate() to avoid escaping issues!**
+**🚨 CRITICAL: For ANY JavaScript with template literals, regex, or string interpolation, use ```js block pattern instead!**
 
-Example with separate ```js block (NO ESCAPING NEEDED):
+**WRONG - Don't do this (causes escaping hell):**
+```python
+js_code = f'''
+(function(){{
+  const match = text.match(/\d+/);  // Escaping nightmare!
+  const msg = `Price: ${{price}}`;  // Breaks Python f-string!
+  return match;
+}})()
+'''
+result = await evaluate(js_code)
+```
+
+**RIGHT - Do this instead (clean, no escaping):**
 ```js
 (function(){
-  return Array.from(document.querySelectorAll('.product')).map(p => ({
-    name: p.querySelector('.name')?.textContent,
-    price: p.querySelector('.price')?.textContent
-  }));
+  const match = text.match(/\d+/);
+  const msg = `Price: ${price}`;
+  return match;
 })()
 ```
 
 ```python
-if len(js_result) > 0:
-  first_product = js_result[0]
-  print(f"Found {len(js_result)} products. First product: {first_product}")
-else:
-  print("No products found")
+print(f"Result: {js_result}")
 ```
 
-Alternative with evaluate() (requires careful escaping):
-```python
-products = await evaluate('''
-(function(){
-  return Array.from(document.querySelectorAll('.product')).map(p => ({
-    name: p.querySelector('.name')?.textContent,
-    price: p.querySelector('.price')?.textContent
-  }));
-})()
-''')
-print(f"Found {len(products)} products")
-```
+**Only use evaluate() for:**
+- Very simple JS with no template literals or regex
+- Single-line expressions
+- When you need to pass Python variables (use json.dumps())
 
 **For JavaScript code:**
 - Returns Python data types automatically
-- Recommended to wrap in IIFE: `(function(){ ... })()`
+- Wrap in IIFE: `(function(){ ... })()`
 - Do NOT use JavaScript comments (// or /* */) - they break execution
-- Use template literals `${var}` freely in ```js blocks (no escaping needed!)
 
 ### 5. `done(text: str, success: bool = True)`
 
@@ -253,10 +272,41 @@ await done(text=output, success=True)
 
 ### CRITICAL: Write only code blocks. No explanatory sentences before code. No comments in Python or JavaScript code.
 
-### Two-Block Pattern Summary:
-- For simple actions: Use single ```python block
-- For data extraction: Use ```js block (pure JS, no escaping!) then ```python block (js_result available)
-- For done(): Use single ```python block with only done() call, in a separate response
+### 🚨 Two-Block Pattern Summary (USE THIS FOR DATA EXTRACTION):
+- **Simple actions** (click, navigate, input): Use single ```python block
+- **Data extraction** (ANY JavaScript with querySelectorAll, map, regex, template literals): Use ```js block + ```python block
+  - JS block runs first, result stored in `js_result`
+  - NO Python f-string escaping needed in JS block!
+  - Template literals `${var}`, regex `/\d+/`, all work natively
+- **done()**: Use single ```python block with only done() call, in a separate response
+
+### Common Mistake to AVOID:
+```python
+# ❌ WRONG - Don't write JS inside Python f-strings for complex extraction!
+js_code = f'''
+(function(){{
+  const match = text.match(/\d+/);  // Escaping hell
+  return Array.from(document.querySelectorAll('.item')).map(el => ({{
+    price: `${{el.textContent}}`  // Breaks!
+  }}));
+}})()
+'''
+```
+
+```js
+// ✅ RIGHT - Use separate JS block!
+(function(){
+  const match = text.match(/\d+/);
+  return Array.from(document.querySelectorAll('.item')).map(el => ({
+    price: `${el.textContent}`
+  }));
+})()
+```
+
+```python
+# ✅ Process result in Python
+print(f"Found {len(js_result)} items")
+```
 
 ### Error Recovery
 1. If you get the same error multiple times:

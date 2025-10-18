@@ -237,22 +237,21 @@ class CodeUseAgent:
 							logger.warning(f'Failed to get new browser state: {e}')
 					continue
 
-				# Check if LLM output multiple code blocks (policy violation)
-				has_multiple_blocks = False
+				# Check if LLM output multiple PYTHON code blocks (policy violation)
+				# Note: JS + Python blocks are allowed, but multiple Python blocks are not
+				has_multiple_python_blocks = False
 				if '```python' in full_llm_response:
-					has_multiple_blocks = full_llm_response.count('```python') > 1
-				elif '```' in full_llm_response:
-					has_multiple_blocks = full_llm_response.count('```') > 2
+					has_multiple_python_blocks = full_llm_response.count('```python') > 1
 
 				# Execute code (JS first if present, then Python)
 				output, error, browser_state = await self._execute_code(python_code, js_code)
 
-				# If multiple blocks detected, add warning to the output
-				if has_multiple_blocks and not error:
+				# If multiple Python blocks detected, add warning to the output
+				if has_multiple_python_blocks and not error:
 					warning_msg = (
-						'\n\n⚠️ WARNING: You output multiple code blocks. '
-						'Only the FIRST code block was executed. '
-						'Please output ONE code block per step.'
+						'\n\n⚠️ WARNING: You output multiple Python code blocks. '
+						'Only the FIRST Python block was executed. '
+						'Use ONE goal per step: either single ```python OR ```js + ```python.'
 					)
 					output = (output + warning_msg) if output else warning_msg.strip()
 
