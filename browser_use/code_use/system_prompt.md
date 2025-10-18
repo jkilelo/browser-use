@@ -81,47 +81,87 @@ await evaluate(f'''
 ### 4. evaluate(js_code: str) → Python data
 Execute JavaScript via **CDP (Chrome DevTools Protocol)**, returns Python dict/list/string/number/bool/None.
 
-**CRITICAL: Always return structured data from JavaScript, but format in Python to avoid syntax errors:**
+**Three ways to extract data (choose based on complexity):**
 
+#### Option A: BeautifulSoup (Simplest, Most Reliable)
 ```python
-# ✅ BEST PRACTICE: Return structured data, format in Python
-elements = await evaluate('''
+html = await get_html()
+soup = BeautifulSoup(html, 'html.parser')
+
+products = []
+for link in soup.find_all('a', title=True):
+    container = link.find_parent('div')
+    text = container.get_text() if container else ''
+
+    prices = re.findall(r'₹([\d,]+)', text)
+    if prices:
+        products.append({
+            'url': link['href'],
+            'name': link['title'],
+            'price': '₹' + prices[0]
+        })
+
+print(f"Extracted {len(products)} products")
+```
+
+**Why BeautifulSoup is better:**
+- No triple-string parsing errors
+- Standard Python, familiar syntax
+- Better error messages
+- No CDP quirks
+
+#### Option B: js() helper (Avoids String Parsing Issues)
+```python
+extract_js = js('''
+var links = document.querySelectorAll('a[title]');
+return Array.from(links).map(link => {
+  var container = link.closest('div[data-id], article, li');
+  if (!container) container = link.parentElement.parentElement.parentElement;
+  return {
+    url: link.href,
+    name: link.title,
+    raw_text: container ? container.textContent.trim() : ''
+  };
+});
+''')
+
+items = await evaluate(extract_js)
+
+import re
+products = []
+for item in items:
+    prices = re.findall(r'₹([\d,]+)', item['raw_text'])
+    if prices and item['url']:
+        products.append({
+            'url': item['url'],
+            'name': item['name'],
+            'price': '₹' + prices[0]
+        })
+```
+
+**When to use js():**
+- Need to call JavaScript functions (click events, etc.)
+- BeautifulSoup can't see dynamic content
+- Need to extract from shadow DOM
+
+#### Option C: Inline evaluate (Most Error-Prone, Avoid)
+```python
+# ❌ AVOID - Triple-string parsing errors common
+items = await evaluate('''
 (function(){
-  return Array.from(document.querySelectorAll('h3, p')).map(el => ({
-    tag: el.tagName,
-    text: el.textContent.trim()
+  return Array.from(document.querySelectorAll('a')).map(a => ({
+    url: a.href,
+    text: a.textContent
   }));
 })()
 ''')
-
-formatted = ""
-for el in elements:
-    if el['tag'] == 'H3':
-        formatted += f"\n--- {el['text']} ---\n"
-    else:
-        formatted += f"{el['text']}\n"
 ```
 
-**Use structural selectors (child combinator `>`) to navigate the DOM:**
-
-```python
-products = await evaluate('''
-(function(){
-  return Array.from(document.querySelectorAll('div > div > div')).map(container => ({
-    text: container.textContent.trim(),
-    html: container.innerHTML.substring(0, 500)
-  }));
-})()
-''')
-
-print(f"Found {len(products)} containers")
-```
-
-**Requirements:**
+**Requirements for evaluate():**
 - MUST wrap in IIFE: `(function(){ ... })()`
 - **ALWAYS return structured data (dicts/lists), do ALL formatting in Python**
 - Returns Python data types automatically
-- Do NOT use JavaScript comments (// or /* */) - they are stripped before execution. They break the cdp execution environment.
+- Do NOT use JavaScript comments (// or /* */) - they are stripped before execution
 
 **CDP Execution Context:**
 - Your JavaScript runs through **Chrome DevTools Protocol (CDP)**, not directly in the browser
@@ -367,164 +407,192 @@ Take it one step at a time. Simple code that works > complex code that validates
 
 ## Data Extraction Strategy
 
-**CRITICAL: When extracting data from websites, follow this incremental approach to avoid wasting steps:**
+### Primary Method: BeautifulSoup (Use This First)
 
-### Step 1: Test Selectors on ONE Element First
-Before writing extraction loops, validate your selectors work on a single element:
-
-```python
-test_item = await evaluate('''
-(function(){
-  const first = document.querySelector('.product-card');
-  if (!first) return null;
-  return {
-    name: first.querySelector('.product-name')?.textContent?.trim(),
-    price: first.querySelector('.price')?.textContent?.trim(),
-  };
-})()
-''')
-print(f"Test extraction: {test_item}")
-```
-
-**Only after confirming this works, scale to all elements.**
-
-### Step 2: Use Robust Selectors
-
-**Prefer stable selectors over dynamic CSS classes:**
-
-Bad (obfuscated classes that change):
-```python
-await evaluate("(function(){ return document.querySelector('.product-card'); })()")
-```
-
-Good (structural selectors and semantic attributes):
-```python
-await evaluate("(function(){ return document.querySelector('[data-price]'); })()")
-await evaluate("(function(){ return document.querySelector('div[role=\"listitem\"] > div > span'); })()")
-await evaluate("(function(){ return document.querySelectorAll('main > div > div > div'); })()")
-```
-
-**Use structural navigation when semantic attributes are unavailable:**
-```python
-containers = await evaluate('''
-(function(){
-  return Array.from(document.querySelectorAll('body > div > div > div')).map(el => ({
-    text: el.textContent.trim(),
-    links: Array.from(el.querySelectorAll('a')).map(a => a.href)
-  }));
-})()
-''')
-```
-
-**When classes and IDs are unreliable:**
-
-Modern websites use obfuscated classes that change frequently. Extract raw content and parse in Python:
-
-1. **Use structural selectors to find containers, extract text, parse in Python:**
-```python
-products = await evaluate('''
-(function(){
-  return Array.from(document.querySelectorAll('main > div > div > div')).map(container => ({
-    text: container.textContent.trim(),
-    link: container.querySelector('a')?.href
-  }));
-})()
-''')
-
-import re
-for p in products:
-    match = re.search(r'(₹[\d,]+)\s*(₹[\d,]+)?\s*(\d+%\s*off)?', p['text'])
-    if match:
-        p['deal_price'] = match.group(1)
-        p['mrp'] = match.group(2) if match.group(2) else 'N/A'
-        p['discount'] = match.group(3) if match.group(3) else 'N/A'
-```
-
-**The pattern:** Use `div > div > div` structural navigation to find containers → Extract raw text → Parse with regex in Python.
-
-### Step 3: Build Extraction Function Once
-
-After validating selectors work, write ONE extraction function and reuse it:
+**Most reliable for e-commerce/listings - no triple-string errors:**
 
 ```python
-extract_js = '''
-(function(){
-  return Array.from(document.querySelectorAll('.product-card')).map(card => ({
-    name: card.querySelector('.name')?.textContent?.trim(),
-    price: card.querySelector('.price')?.textContent?.trim(),
-    link: card.querySelector('a')?.href
-  }));
-})()
-'''
+html = await get_html()
+soup = BeautifulSoup(html, 'html.parser')
 
-products = await evaluate(extract_js)
+products = []
+for link in soup.find_all('a', title=True):
+    container = link.find_parent('div') or link.find_parent('article') or link.find_parent('li')
+    text = container.get_text() if container else link.get_text()
+
+    prices = re.findall(r'₹([\d,]+)', text)
+    discount = re.search(r'(\d+% off)', text)
+
+    if prices and link.get('href'):
+        products.append({
+            'url': link['href'],
+            'name': link['title'],
+            'deal_price': '₹' + prices[0],
+            'mrp': '₹' + prices[1] if len(prices) > 1 else 'N/A',
+            'discount': discount.group(1) if discount else 'N/A'
+        })
+
 print(f"Extracted {len(products)} products")
+if products:
+    print(f"Sample: {json.dumps(products[0], indent=2)}")
 ```
 
-**Don't rewrite the function multiple times. Test once, then reuse.**
+**Why BeautifulSoup first:**
+- ✅ No triple-string parsing errors
+- ✅ Standard Python syntax (familiar)
+- ✅ Better error messages
+- ✅ No CDP quirks
+- ✅ Works with static HTML (most sites)
 
-### Step 4: Handle Pagination Cleanly
+### Reusable BeautifulSoup Function
+
+**Define once, reuse for multiple categories/pages:**
 
 ```python
+async def extract_products(category_name):
+    html = await get_html()
+    soup = BeautifulSoup(html, 'html.parser')
+
+    products = []
+    for link in soup.find_all('a', title=True):
+        container = link.find_parent('div') or link.find_parent('article') or link.find_parent('li')
+        text = container.get_text() if container else link.get_text()
+
+        prices = re.findall(r'₹([\d,]+)', text)
+        discount = re.search(r'(\d+% off)', text)
+
+        if prices and link.get('href'):
+            products.append({
+                'url': link['href'],
+                'name': link['title'],
+                'deal_price': '₹' + prices[0],
+                'mrp': '₹' + prices[1] if len(prices) > 1 else 'N/A',
+                'discount': discount.group(1) if discount else 'N/A',
+                'category': category_name
+            })
+    return products
+
+books_products = await extract_products("Books")
+print(f"Extracted {len(books_products)} books")
+
+await input_text(index=4, text="Sports")
+await click(index=5)
+await asyncio.sleep(2)
+
+sports_products = await extract_products("Sports")
+print(f"Extracted {len(sports_products)} sports items")
+```
+
+### Alternative: js() Helper (For Dynamic Content)
+
+**If BeautifulSoup returns 0 results (page loads content dynamically via JS):**
+
+```python
+extract_js = js('''
+var links = document.querySelectorAll('a[title], a[href*="product"]');
+return Array.from(links).map(link => {
+  var container = link.closest('div[data-id], article, li');
+  if (!container) container = link.parentElement.parentElement.parentElement;
+  return {
+    url: link.href,
+    name: link.title || link.textContent.trim(),
+    raw_text: container ? container.textContent.trim() : ''
+  };
+});
+''')
+
+items = await evaluate(extract_js)
+
+products = []
+for item in items:
+    prices = re.findall(r'₹([\d,]+)', item['raw_text'])
+    if prices and item['url']:
+        products.append({
+            'url': item['url'],
+            'name': item['name'],
+            'price': '₹' + prices[0]
+        })
+```
+
+**When to use js() instead of BeautifulSoup:**
+- BeautifulSoup returns 0 results (content loaded by JS)
+- Need to interact with page (trigger events, scroll, etc.)
+- Need to extract from shadow DOM / iframes
+
+### Key Principles
+
+- **Try BeautifulSoup first** - Avoids all triple-string parsing issues
+- **Start with links** - Most stable selector on e-commerce sites (`find_all('a', title=True)`)
+- **Extract raw text** - Get container's full text (`container.get_text()`)
+- **Parse in Python** - Use regex for prices, discounts, etc.
+- **Define function once** - Reuse for multiple categories/pages
+- **If 0 results twice** - Switch from BeautifulSoup → js() helper
+- **Don't rewrite code** - If it fails 2-3x, change strategy fundamentally
+
+### Pagination with BeautifulSoup
+
+**Extract multiple categories/pages and save incrementally:**
+
+```python
+async def extract_products(category_name):
+    html = await get_html()
+    soup = BeautifulSoup(html, 'html.parser')
+
+    products = []
+    for link in soup.find_all('a', title=True):
+        container = link.find_parent('div') or link.find_parent('article')
+        text = container.get_text() if container else link.get_text()
+
+        prices = re.findall(r'₹([\d,]+)', text)
+        discount = re.search(r'(\d+% off)', text)
+
+        if prices and link.get('href'):
+            products.append({
+                'url': link['href'],
+                'name': link['title'],
+                'deal_price': '₹' + prices[0],
+                'mrp': '₹' + prices[1] if len(prices) > 1 else 'N/A',
+                'discount': discount.group(1) if discount else 'N/A',
+                'category': category_name
+            })
+    return products
+
 all_products = []
-page = 1
-while page <= 3:
-  products = await evaluate(extract_js)
-  all_products.extend(products)
-  print(f"Page {page}: {len(products)} products")
+categories = ["Books", "Sports", "Beauty"]
 
-  next_btn = await evaluate('(function(){ return document.querySelector(".next-page") !== null; })()')
-  if not next_btn:
-    break
+for category in categories:
+    await input_text(index=4, text=category)
+    await click(index=5)
+    await asyncio.sleep(2)
 
-  await evaluate('(function(){ document.querySelector(".next-page").click(); })()')
-  await asyncio.sleep(2)
-  page += 1
+    products = await extract_products(category)
+    all_products.extend(products)
 
-print(f"Total: {len(all_products)} products")
+    with open('products.json', 'w') as f:
+        json.dump(all_products, f, indent=2)
+
+    print(f"{category}: {len(products)} products, total {len(all_products)} saved")
+    if products:
+        print(f"Sample: {json.dumps(products[0], indent=2)}")
+
+with open('products.json', 'r') as f:
+    final = json.load(f)
+print(f"Final: {len(final)} products. Sample: {json.dumps(final[0], indent=2) if final else 'No data'}")
 ```
 
-**Key Points:**
-- **Test first, scale second** - Don't write loops before confirming extraction works
-- **One extraction function** - Reuse the same JavaScript, don't keep rewriting it
-- **Fallback to text search** - When CSS classes fail, search by text content
-- **Print counts at each step** - Validate data quantity before proceeding
-
-### Step 5: Save Data Incrementally (CRITICAL for Multi-Item Tasks)
-
-**When collecting multiple items (jobs, products, pages), SAVE after EACH item to prevent data loss:**
-
-```python
-import json
-
-results = []
-for page in range(1, 6):
-  items = await evaluate(extract_js)
-  results.extend(items)
-
-  with open('results.json', 'w') as f:
-    json.dump(results, f, indent=2)
-
-  print(f"Page {page}: extracted {len(items)} items, total {len(results)} saved to results.json")
-  await asyncio.sleep(2)
-
-with open('results.json', 'r') as f:
-  final_data = json.load(f)
-print(f"Final verification: {len(final_data)} items in results.json. Sample: {json.dumps(final_data[:1], indent=2) if final_data else 'No data'}")
-```
-
-**Why this matters:**
-- If an error occurs mid-loop, you keep all data collected so far
-- You can verify progress at each step
-- Before calling `done`, you always have a file to read and verify
+**Why this pattern works:**
+- **BeautifulSoup** - No triple-string errors, standard Python
+- **One function** - Reuse extraction logic, don't rewrite it
+- **Save after each** - Never lose data if error occurs
+- **Print samples** - Verify quality at each step
+- **Read before done** - Confirm completeness
 
 **Pattern for ANY iterative data collection:**
-1. Initialize empty file or list at start
-2. Extract data for one item/page
-3. **IMMEDIATELY save to file** (append or overwrite)
-4. Print progress (e.g., "Saved item 3 of 10")
-5. Continue to next item
-6. Before done: read file and verify completeness
+1. Define BeautifulSoup function once
+2. Loop through items/pages/categories
+3. **IMMEDIATELY save to file** after each iteration
+4. Print progress with sample
+5. Before done: read file and verify completeness
 
 ---
 
@@ -559,47 +627,66 @@ await asyncio.sleep(1)
 await click(index=123)
 ```
 
-### Extract and process data
+### Extract Data: BeautifulSoup Pattern
 
-Using standard DOM:
+**Most reliable for e-commerce/listings (use this first):**
+
 ```python
-data = await evaluate('''
-(function(){
-  return Array.from(document.querySelectorAll('.item')).map(el => ({
-    title: el.querySelector('.title')?.textContent,
-    link: el.href
-  }));
-})()
-''')
+html = await get_html()
+soup = BeautifulSoup(html, 'html.parser')
 
-valid_items = [item for item in data if item['title']]
-print(f"Found {len(valid_items)} valid items")
+products = []
+for link in soup.find_all('a', title=True):
+    container = link.find_parent('div') or link.find_parent('article')
+    text = container.get_text() if container else link.get_text()
+
+    prices = re.findall(r'₹([\d,]+)', text)
+    if prices and link.get('href'):
+        products.append({
+            'url': link['href'],
+            'name': link['title'],
+            'price': '₹' + prices[0]
+        })
+
+print(f"Extracted {len(products)} products")
 ```
 
-Using structural navigation:
+**Alternative: Use js() helper if BeautifulSoup returns 0:**
 ```python
-data = await evaluate('''
-(function(){
-  return Array.from(document.querySelectorAll('main > div > article')).map(item => ({
-    title: item.querySelector('h2, h3')?.textContent?.trim(),
-    price: item.querySelector('[data-price], span')?.textContent?.trim()
-  }));
-})()
+extract_js = js('''
+var links = document.querySelectorAll('a[title]');
+return Array.from(links).map(link => ({
+  url: link.href,
+  name: link.title,
+  text: link.parentElement.textContent
+}));
 ''')
-print(f"Found {len(data)} items with prices")
+
+items = await evaluate(extract_js)
 ```
 
-### Pagination
-If task says "all pages" or "all results", loop through pages:
+### Pagination with Next Button
+
 ```python
 all_data = []
-while True:
-  data = await evaluate('...')
-  all_data.extend(data)
+page = 1
+
+while page <= 5:
+  items = await evaluate('...')
+  all_data.extend(items)
+
+  with open('data.json', 'w') as f:
+    json.dump(all_data, f, indent=2)
+
+  print(f"Page {page}: {len(items)} items, total {len(all_data)} saved")
+
   has_next = await evaluate('(function(){ return document.querySelector("a.next, button[aria-label*=next i]") !== null; })()')
-  if not has_next: break
-  await evaluate('document.querySelector("a.next").click()')
+  if not has_next:
+    break
+
+  await click(next_button_index)
   await asyncio.sleep(2)
+  page += 1
 ```
 
 ### Safe data access

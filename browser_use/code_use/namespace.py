@@ -158,7 +158,6 @@ async def _ensure_jquery_loaded(browser_session: BrowserSession) -> None:
 			session_id=cdp_session.session_id,
 		)
 
-
 	except Exception as e:
 		# If jQuery injection fails, log but continue (page might have CSP restrictions)
 		logger.warning(f'jQuery injection failed: {type(e).__name__}: {e}')
@@ -215,7 +214,7 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 
 			# Build comprehensive error message with full CDP context
 			error_msg = f'JavaScript execution error: {error_text} + {error_details}'
-		
+
 			raise RuntimeError(error_msg)
 
 		# Get the result data
@@ -337,6 +336,61 @@ def create_namespace(
 		return await evaluate(code, browser_session)
 
 	namespace['evaluate'] = evaluate_wrapper
+
+	# Add js() helper to avoid triple-string parsing issues
+	def js(code: str) -> str:
+		"""
+		Helper to pass JavaScript code to evaluate() without triple-quote parsing issues.
+
+		Usage:
+			extract_products = js('''
+			var links = document.querySelectorAll('a[title]');
+			return Array.from(links).map(link => ({
+				url: link.href,
+				name: link.title
+			}));
+			''')
+
+			products = await evaluate(extract_products)
+		"""
+		# Wrap in IIFE if not already wrapped
+		stripped = code.strip()
+		if not (stripped.startswith('(function()') or stripped.startswith('(async function()')):
+			return f'(function(){{{code}}})()'
+		return code
+
+	namespace['js'] = js
+
+	# Add get_html() helper for BeautifulSoup-based extraction
+	async def get_html() -> str:
+		"""
+		Get the current page's HTML as a string for parsing with BeautifulSoup.
+
+		Uses HTMLSerializer to get complete DOM including shadow roots and iframes.
+
+		Usage:
+			html = await get_html()
+			soup = BeautifulSoup(html, 'html.parser')
+			products = soup.find_all('a', title=True)
+			for product in products:
+				print(product['title'], product['href'])
+		"""
+		from browser_use.dom.serializer.html_serializer import HTMLSerializer
+
+		# Get the current browser state
+		state = await browser_session.get_browser_state_summary(include_screenshot=False, cached=True)
+		if not state.dom_state or not state.dom_state._root:
+			raise RuntimeError('No DOM tree available. Make sure the page is loaded.')
+
+		# Get the original EnhancedDOMTreeNode from the SimplifiedNode
+		root_node = state.dom_state._root.original_node
+
+		# Serialize using HTMLSerializer (includes shadow DOM and iframes)
+		serializer = HTMLSerializer(extract_links=True)
+		html = serializer.serialize(root_node)
+		return html
+
+	namespace['get_html'] = get_html
 
 	# Add get_selector_from_index helper for code_use mode
 	async def get_selector_from_index_wrapper(index: int) -> str:
