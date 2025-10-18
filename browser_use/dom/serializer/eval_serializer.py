@@ -85,6 +85,9 @@ SEMANTIC_ELEMENTS = {
 # Container elements that can be collapsed if they only wrap one child
 COLLAPSIBLE_CONTAINERS = {'div', 'span', 'section', 'article'}
 
+# Structural containers that should be kept even if invisible (for DOM structure)
+STRUCTURAL_CONTAINERS = {'html', 'body', 'div', 'main', 'section'}
+
 
 class DOMEvalSerializer:
 	"""Ultra-concise DOM serializer for quick LLM query writing."""
@@ -120,8 +123,9 @@ class DOMEvalSerializer:
 			tag = node.original_node.tag_name.lower()
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 
-			# Skip invisible elements (except iframes which might have visible content)
-			if not is_visible and tag not in ['iframe', 'frame']:
+			# Skip invisible elements (except iframes, structural containers)
+			# Keep structural containers even if invisible to maintain DOM hierarchy
+			if not is_visible and tag not in ['iframe', 'frame'] and tag not in STRUCTURAL_CONTAINERS:
 				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
 
 			# Special handling for iframes - show them with their content
@@ -187,9 +191,13 @@ class DOMEvalSerializer:
 			pass
 
 		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
-			# Shadow DOM - just show children directly with minimal marker
+			# Shadow DOM - show with mode indicator (open/closed)
 			if node.children:
-				formatted_text.append(f'{depth_str}#shadow')
+				# Try to get shadow DOM mode if available
+				shadow_mode = ''
+				if hasattr(node.original_node, 'shadow_root_type') and node.original_node.shadow_root_type:
+					shadow_mode = f' mode="{node.original_node.shadow_root_type}"'
+				formatted_text.append(f'{depth_str}#shadow{shadow_mode}')
 				children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1)
 				if children_text:
 					formatted_text.append(children_text)
@@ -207,12 +215,26 @@ class DOMEvalSerializer:
 			and node.original_node.tag_name.lower() in ['ul', 'ol']
 		)
 
+		# Check if parent is a table body
+		is_table_body = (
+			node.original_node.node_type == NodeType.ELEMENT_NODE
+			and node.original_node.tag_name.lower() in ['tbody', 'table']
+		)
+
 		# Track list items and consecutive links
 		li_count = 0
 		max_list_items = 5
 		consecutive_link_count = 0
 		max_consecutive_links = 5
 		total_links_skipped = 0
+
+		# Track table rows
+		tr_count = 0
+		max_table_rows = 8
+
+		# Track repeated class patterns for product cards/search results
+		class_counts: dict[str, int] = {}
+		max_repeated_class_items = 6
 
 		for child in node.children:
 			# If we're in a list container and this child is an li element
@@ -222,6 +244,25 @@ class DOMEvalSerializer:
 					# Skip li elements after the 5th one
 					if li_count > max_list_items:
 						continue
+
+			# If we're in a table body and this child is a tr element
+			if is_table_body and child.original_node.node_type == NodeType.ELEMENT_NODE:
+				if child.original_node.tag_name.lower() == 'tr':
+					tr_count += 1
+					# Skip rows after the 8th one
+					if tr_count > max_table_rows:
+						continue
+
+			# Track repeated class patterns (product cards, search results, etc.)
+			if child.original_node.node_type == NodeType.ELEMENT_NODE:
+				if child.original_node.attributes and 'class' in child.original_node.attributes:
+					class_value = child.original_node.attributes['class']
+					# Only track if class has multiple words (more specific)
+					if ' ' in class_value:
+						class_counts[class_value] = class_counts.get(class_value, 0) + 1
+						# Skip items with same class after 6th occurrence
+						if class_counts[class_value] > max_repeated_class_items:
+							continue
 
 			# Track consecutive anchor tags (links)
 			if child.original_node.node_type == NodeType.ELEMENT_NODE:
@@ -247,12 +288,24 @@ class DOMEvalSerializer:
 		# Add truncation message if we skipped items at the end
 		if is_list_container and li_count > max_list_items:
 			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({li_count - max_list_items} more items - use evaluate to explore more.)')
+			children_output.append(f'{depth_str}... +{li_count - max_list_items} more')
+
+		# Add truncation message for table rows
+		if is_table_body and tr_count > max_table_rows:
+			depth_str = depth * '\t'
+			children_output.append(f'{depth_str}... +{tr_count - max_table_rows} rows')
+
+		# Add truncation message for repeated class patterns
+		for class_value, count in class_counts.items():
+			if count > max_repeated_class_items:
+				depth_str = depth * '\t'
+				children_output.append(f'{depth_str}... +{count - max_repeated_class_items} more similar')
+				break  # Only show one message per container
 
 		# Add truncation message for links if we skipped any at the end
 		if total_links_skipped > 0:
 			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({total_links_skipped} more links - use evaluate to explore more.)')
+			children_output.append(f'{depth_str}... +{total_links_skipped} more links')
 
 		return '\n'.join(children_output)
 
