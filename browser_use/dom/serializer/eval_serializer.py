@@ -92,14 +92,14 @@ class DOMEvalSerializer:
 	@staticmethod
 	def serialize_tree(node: SimplifiedNode | None, include_attributes: list[str], depth: int = 0) -> str:
 		"""
-		Serialize DOM tree focusing on semantic/interactive elements.
+		Serialize complete DOM tree structure for LLM understanding.
 
-		Strategy for conciseness:
+		Strategy:
+		- Show ALL elements to preserve DOM structure
+		- Non-interactive elements show just tag name
+		- Interactive elements show full attributes + [index]
 		- Self-closing tags only (no closing tags)
-		- Skip meaningless containers (divs/spans without useful attributes)
-		- Prioritize semantic elements
-		- Flatten single-child wrappers
-		- Limit text to 80 chars
+		- Limit text to 25 chars inline
 		- Minimal shadow/iframe notation
 		"""
 		if not node:
@@ -131,29 +131,16 @@ class DOMEvalSerializer:
 			# Build compact attributes string
 			attributes_str = DOMEvalSerializer._build_compact_attributes(node.original_node)
 
-			# Decide if this element should be shown
-			is_semantic = tag in SEMANTIC_ELEMENTS
+			# Check element properties
 			has_useful_attrs = bool(attributes_str)
 			has_text_content = DOMEvalSerializer._has_direct_text(node)
 			has_children = len(node.children) > 0
 
-			# Skip generic containers without useful attributes or semantic value
-			if not is_semantic and not has_useful_attrs and not has_text_content:
-				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
-
-			# Collapse single-child wrappers without useful attributes
-			if (
-				tag in COLLAPSIBLE_CONTAINERS
-				and not has_useful_attrs
-				and not has_text_content
-				and len(node.children) == 1
-			):
-				# Skip this wrapper and just show the child
-				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
-
 			# Build compact element representation
+			# Always show tag to preserve DOM structure
 			line = f'{depth_str}<{tag}'
 
+			# Only add attributes if element has them
 			if attributes_str:
 				line += f' {attributes_str}'
 
