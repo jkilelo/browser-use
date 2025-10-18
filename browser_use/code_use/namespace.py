@@ -158,40 +158,38 @@ async def _ensure_jquery_loaded(browser_session: BrowserSession) -> None:
 			session_id=cdp_session.session_id,
 		)
 
-		# Check if jQuery injection succeeded
-		final_check = await cdp_session.cdp_client.send.Runtime.evaluate(
-			params={'expression': '(function(){ return typeof jQuery !== "undefined"; })()', 'returnByValue': True},
-			session_id=cdp_session.session_id,
-		)
-		jquery_available = final_check.get('result', {}).get('value', False)
-
-		if not jquery_available:
-			logger.warning('jQuery injection completed but jQuery is not available - may be CSP restrictions')
 
 	except Exception as e:
 		# If jQuery injection fails, log but continue (page might have CSP restrictions)
 		logger.warning(f'jQuery injection failed: {type(e).__name__}: {e}')
 
 
-async def evaluate(code: str, browser_session: BrowserSession) -> Any:
+async def evaluate(code: str, browser_session: BrowserSession, **elements: int) -> Any:
 	"""
 	Execute JavaScript code in the browser and return the result.
 
 	Args:
 		code: JavaScript code to execute (must be wrapped in IIFE)
+		**elements: Optional element arguments - pass bu IDs that will be resolved to element references
 
 	Returns:
 		The result of the JavaScript execution
 
-	Example:
+	Example (simple - no elements):
 		result = await evaluate('''
 		(function(){
-			return Array.from(document.querySelectorAll('.product')).map(p => ({
-				name: p.querySelector('.name').textContent,
-				price: p.querySelector('.price').textContent
-			}))
+			return document.title;
 		})()
 		''')
+
+	Example (with element arguments - works across shadow DOM):
+		result = await evaluate('''
+		(function(button, input){
+			input.value = "test";
+			button.click();
+			return true;
+		})()
+		''', button=123, input=456)
 	"""
 	# Ensure jQuery is loaded for advanced selectors
 	await _ensure_jquery_loaded(browser_session)
@@ -201,113 +199,101 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 
 	cdp_session = await browser_session.get_or_create_cdp_session()
 
-	try:
-		# Execute JavaScript with proper error handling
+	# If element arguments were provided, resolve them via CDP and use callFunctionOn
+	if elements:
+		try:
+			# Resolve each bu ID to a CDP object reference
+			resolved_args = []
+			for param_name, bu_id in elements.items():
+				# Get the DOM node from the selector map
+				node = await browser_session.get_element_by_index(bu_id)
+				if node is None:
+					raise ValueError(f'Element bu={bu_id} (parameter "{param_name}") not found in current DOM state')
+
+				# Resolve the node to a CDP Remote Object using backend_node_id
+				if not node.backend_node_id:
+					raise ValueError(f'Element bu={bu_id} has no backend_node_id - cannot resolve')
+
+				# Use CDP to resolve the backend node ID to an object ID
+				resolve_result = await cdp_session.cdp_client.send.DOM.resolveNode(
+					params={'backendNodeId': node.backend_node_id}, session_id=cdp_session.session_id
+				)
+
+				if 'object' not in resolve_result or 'objectId' not in resolve_result['object']:
+					raise ValueError(f'Failed to resolve element bu={bu_id} to CDP object')
+
+				object_id = resolve_result['object']['objectId']
+				resolved_args.append({'objectId': object_id})
+
+			# Call the function with resolved element arguments using Runtime.callFunctionOn
+			# Extract function declaration from IIFE: (function(...){...})() -> function(...){...}
+			func_declaration = code
+			if code.strip().endswith('()'):
+				func_declaration = code.strip()[:-2]  # Remove trailing ()
+			if func_declaration.strip().startswith('(') and func_declaration.strip().endswith(')'):
+				func_declaration = func_declaration.strip()[1:-1]  # Remove wrapping parens
+
+			# Get the execution context ID from the CDP session
+			# We need to use Runtime.evaluate to get the execution context, then use callFunctionOn
+			# Actually, we should use the FIRST resolved object as the objectId for callFunctionOn
+			if not resolved_args:
+				raise ValueError('No element arguments were resolved')
+
+			result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': func_declaration,
+					'objectId': resolved_args[0]['objectId'],  # Use first object as context
+					'arguments': resolved_args,
+					'returnByValue': True,
+					'awaitPromise': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+
+		except Exception as e:
+			raise RuntimeError(f'Failed to resolve element arguments: {type(e).__name__}: {e}') from e
+	else:
+		# No element arguments - use standard Runtime.evaluate
 		result = await cdp_session.cdp_client.send.Runtime.evaluate(
 			params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
 			session_id=cdp_session.session_id,
 		)
 
-		# Check for JavaScript execution errors
-		if result.get('exceptionDetails'):
-			exception = result['exceptionDetails']
-			error_text = exception.get('text', 'Unknown error')
+	# Check for JavaScript execution errors (works for both paths)
+	if result.get('exceptionDetails'):
+		exception = result['exceptionDetails']
+		error_text = exception.get('text', 'Unknown error')
 
-			# Try to get more details from the exception
-			error_details = []
-			if 'exception' in exception:
-				exc_obj = exception['exception']
-				if 'description' in exc_obj:
-					error_details.append(exc_obj['description'])
-				elif 'value' in exc_obj:
-					error_details.append(str(exc_obj['value']))
+		# Try to get more details from the exception
+		error_details = []
+		if 'exception' in exception:
+			exc_obj = exception['exception']
+			if 'description' in exc_obj:
+				error_details.append(exc_obj['description'])
+			elif 'value' in exc_obj:
+				error_details.append(str(exc_obj['value']))
 
-			# Build comprehensive error message with full CDP context
-			error_msg = f'JavaScript execution error: {error_text}'
-			if error_details:
-				error_msg += f'\nDetails: {" | ".join(error_details)}'
+		# Build comprehensive error message with full CDP context
+		error_msg = f'JavaScript execution error: {error_text}'
+		if error_details:
+			error_msg += f'\nDetails: {" | ".join(error_details)}'
 
-			# Track if this is a cryptic error with no useful info
-			is_cryptic_error = False
-			line_num = exception.get('lineNumber')
-			col_num = exception.get('columnNumber')
 
-			# Check for cryptic "line 0 column 0" errors
-			if (line_num == 0 or line_num is None) and (col_num == 0 or col_num is None):
-				is_cryptic_error = True
+	# Get the result data
+	result_data = result.get('result', {})
 
-			# Add line number and context
-			if line_num is not None:
-				error_msg += f'\nat line {line_num}'
+	# Get the actual value
+	value = result_data.get('value')
 
-				# Try to extract the offending line and surrounding context
-				try:
-					lines = code.split('\n')
-					line_idx = line_num - 1
-					if 0 <= line_idx < len(lines):
-						# Show the offending line
-						offending_line = lines[line_idx].strip()
-						error_msg += f'\nOffending line: {offending_line}'
-
-						# Show 2 lines before and after for context
-						start_idx = max(0, line_idx - 2)
-						end_idx = min(len(lines), line_idx + 3)
-						context_lines = []
-						for i in range(start_idx, end_idx):
-							marker = '>>> ' if i == line_idx else '    '
-							context_lines.append(f'{marker}{i+1}: {lines[i].rstrip()}')
-						if context_lines:
-							error_msg += f'\n\nCode context:\n' + '\n'.join(context_lines)
-				except Exception:
-					pass
-
-			# Add column number if available
-			if col_num is not None:
-				error_msg += f' (column {col_num})'
-
-			# Add stack trace if available
-			if 'stackTrace' in exception and exception['stackTrace'].get('callFrames'):
-				frames = exception['stackTrace']['callFrames']
-				if frames:
-					error_msg += '\n\nStack trace:'
-					for frame in frames[:3]:  # Show first 3 frames
-						func_name = frame.get('functionName', '<anonymous>')
-						line = frame.get('lineNumber', '?')
-						col = frame.get('columnNumber', '?')
-						error_msg += f'\n  at {func_name} (line {line}, col {col})'
-
-			# Add guidance for cryptic CDP errors
-			if is_cryptic_error:
-				error_msg += '\n\n💡 This is a cryptic CDP error with no useful location info. This is a CDP environment limitation, not your fault.'
-				error_msg += '\n  • Simplify the JavaScript - break into smaller steps'
-				error_msg += '\n  • Use different selectors or DOM methods'
-				error_msg += '\n  • Try an alternative strategy to achieve the same goal'
-				# Show first 200 chars of the JS code
-				code_preview = code[:100].replace('\n', ' ')
-				if len(code) > 100:
-					code_preview += '... Truncated'
-				error_msg += f'\n\nYour JS code: {code_preview}'
-
-			raise RuntimeError(error_msg)
-
-		# Get the result data
-		result_data = result.get('result', {})
-
-		# Get the actual value
-		value = result_data.get('value')
-
-		# Return the value directly
-		if value is None:
-			return None if 'value' in result_data else 'undefined'
-		elif isinstance(value, (dict, list)):
-			# Complex objects - already deserialized by returnByValue
-			return value
-		else:
-			# Primitive values
-			return value
-
-	except Exception as e:
-		raise RuntimeError(f'Failed to execute JavaScript: {type(e).__name__}: {e}') from e
+	# Return the value directly
+	if value is None:
+		return None if 'value' in result_data else 'undefined'
+	elif isinstance(value, (dict, list)):
+		# Complex objects - already deserialized by returnByValue
+		return value
+	else:
+		# Primitive values
+		return value
 
 
 def create_namespace(
@@ -405,8 +391,12 @@ def create_namespace(
 			code = kwargs.get('code', kwargs.get('js_code', kwargs.get('expression', '')))
 		if not code:
 			raise ValueError('No JavaScript code provided to evaluate()')
-		# Ignore any extra arguments (like browser_session if passed)
-		return await evaluate(code, browser_session)
+
+		# Extract element arguments (any kwargs that are integers)
+		element_args = {k: v for k, v in kwargs.items() if isinstance(v, int) and k not in ('code', 'js_code', 'expression')}
+
+		# Pass element arguments to evaluate
+		return await evaluate(code, browser_session, **element_args)
 
 	namespace['evaluate'] = evaluate_wrapper
 
@@ -438,46 +428,27 @@ def create_namespace(
 		if node is None:
 			raise ValueError(f'Element index {index} not found in browser state')
 
-		# Build CSS selector from node attributes
-		selector_parts = []
+		# Use the robust CSS selector builder with fallback strategies
+		from browser_use.dom.selector_builder import build_robust_selector
 
-		# Try id first (most specific)
-		if node.attributes and 'id' in node.attributes and node.attributes['id']:
-			element_id = node.attributes['id']
-			# Check if id contains special characters that need escaping
-			if any(char in element_id for char in ['$', '.', ':', '[', ']', ' ']):
-				# Return a note that getElementById should be used instead
-				return f'[USE_GET_ELEMENT_BY_ID]{element_id}'
-			selector_parts.append(f'#{element_id}')
+		# Extract element attributes
+		element_id = node.attributes.get('id') if node.attributes else None
+		class_str = node.attributes.get('class') if node.attributes else None
+		classes = class_str.split() if class_str else None
 
-		# Add tag name
-		if node.tag_name:
-			tag_selector = node.tag_name.lower()
+		selector = build_robust_selector(
+			tag_name=node.tag_name,
+			element_id=element_id,
+			classes=classes,
+			attributes=node.attributes or {},
+			max_classes=3,
+		)
 
-			# Add class if available and not too generic
-			if node.attributes and 'class' in node.attributes and node.attributes['class']:
-				classes = node.attributes['class'].strip().split()
-				# Use first 2 classes for specificity
-				for cls in classes[:2]:
-					if cls and not any(char in cls for char in ['$', '.', ':', '[', ']', ' ']):
-						tag_selector += f'.{cls}'
+		if not selector:
+			# Fallback to tag name if all else fails
+			selector = node.tag_name.lower()
 
-			# Add name attribute if present
-			if node.attributes and 'name' in node.attributes and node.attributes['name']:
-				name = node.attributes['name']
-				if not any(char in name for char in ['"', "'", '[', ']']):
-					tag_selector += f'[name="{name}"]'
-
-			selector_parts.append(tag_selector)
-
-		# Join parts - use the most specific one available
-		if selector_parts and selector_parts[0].startswith('#'):
-			return selector_parts[0]  # ID is sufficient
-		elif selector_parts:
-			return selector_parts[-1]  # Use the tag+class+name selector
-		else:
-			# Fallback to xpath if no good selector
-			return f'[USE_XPATH]{node.xpath}'
+		return selector
 
 	namespace['get_selector_from_index'] = get_selector_from_index_wrapper
 

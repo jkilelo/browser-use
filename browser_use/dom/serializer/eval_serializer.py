@@ -11,30 +11,26 @@ from browser_use.dom.views import (
 # Critical attributes for query writing and form interaction
 EVAL_KEY_ATTRIBUTES = [
 	'id',
-	'class',
 	'name',
 	'type',
 	'placeholder',
 	'aria-label',
 	'role',
 	'value',
-	'href',
+	# 'href',
 	'data-testid',
-	'alt',  # for images
-	'title',  # useful for tooltips/link context
-	# State attributes (critical for form interaction)
+	'alt',
+	'title',
 	'checked',
 	'selected',
 	'disabled',
 	'required',
 	'readonly',
-	# ARIA states
 	'aria-expanded',
 	'aria-pressed',
 	'aria-checked',
 	'aria-selected',
 	'aria-invalid',
-	# Validation attributes (help agents avoid brute force)
 	'pattern',
 	'min',
 	'max',
@@ -44,6 +40,25 @@ EVAL_KEY_ATTRIBUTES = [
 	'aria-valuemin',
 	'aria-valuemax',
 	'aria-valuenow',
+]
+
+# Common data-* attributes (for e-commerce, tracking, components)
+EVAL_DATA_ATTRIBUTES = [
+	'data-asin',
+	'data-product-id',
+	'data-sku',
+	'data-item-id',
+	'data-component-type',
+	'data-component-id',
+	'data-cy',
+	'data-test',
+	'data-qa',
+	'data-automation',
+	'data-element-id',
+	'data-widget-id',
+	'data-module',
+	'data-tracking-id',
+	'data-analytics-id',
 ]
 
 # Semantic elements that should always be shown
@@ -97,7 +112,7 @@ class DOMEvalSerializer:
 		Strategy:
 		- Show ALL elements to preserve DOM structure
 		- Non-interactive elements show just tag name
-		- Interactive elements show full attributes + [index]
+		- Interactive elements show full attributes + bu_ID
 		- Self-closing tags only (no closing tags)
 		- Limit text to 25 chars inline
 		- Minimal shadow/iframe notation
@@ -133,23 +148,21 @@ class DOMEvalSerializer:
 			has_interactive_index = node.interactive_index is not None
 
 			# Build element representation
-			# Always show tag to preserve complete DOM structure
-			line = f'{depth_str}<{tag}'
+			# ALWAYS add bu_ID BEFORE the tag for ALL elements (interactive or not)
+			if has_interactive_index:
+				line = f'{depth_str}bu_{node.interactive_index} <{tag}'
+			else:
+				line = f'{depth_str}<{tag}'
 
-			# Add attributes only for interactive elements or elements with useful attributes
-			if attributes_str or has_interactive_index:
-				# Add interactive index notation [index] for elements with interactive_index
-				if has_interactive_index:
-					line += f' [{node.interactive_index}]'
-				if attributes_str:
-					line += f' {attributes_str}'
+			# Add other attributes if present
+			if attributes_str:
+				line += f' {attributes_str}'
 
-
-				# Add scroll info if element is scrollable
-				if node.original_node.should_show_scroll_info:
-					scroll_text = node.original_node.get_scroll_info_text()
-					if scroll_text:
-						line += f' scroll="{scroll_text}"'
+			# Add scroll info if element is scrollable
+			if node.original_node.should_show_scroll_info:
+				scroll_text = node.original_node.get_scroll_info_text()
+				if scroll_text:
+					line += f' scroll="{scroll_text}"'
 
 			# Add inline text if present (keep it on same line for compactness)
 			inline_text = DOMEvalSerializer._get_inline_text(node)
@@ -207,13 +220,7 @@ class DOMEvalSerializer:
 						continue
 
 					# Special handling for different attributes
-					if attr == 'class':
-						# For class, limit to first 2 classes to save space BUT keep them complete
-						# This prevents invalid CSS selectors like ".MuiGrid2-root.MuiGrid2-di..."
-						classes = value.split()[:2]
-						value = ' '.join(classes)
-						# Do NOT truncate class names - they must be complete for querySelector
-					elif attr == 'id':
+					if attr == 'id':
 						# Keep full id for querySelector compatibility
 						pass
 					elif attr == 'href':
@@ -227,6 +234,14 @@ class DOMEvalSerializer:
 						value = cap_text_length(value, 25)
 
 					attributes_to_include[attr] = value
+
+			# Collect common data-* attributes (e-commerce, tracking, component IDs)
+			for data_attr in EVAL_DATA_ATTRIBUTES:
+				if data_attr in node.attributes:
+					value = str(node.attributes[data_attr]).strip()
+					if value:
+						# Keep data attributes complete for selector stability
+						attributes_to_include[data_attr] = value
 
 		# Include AX properties (more reliable than HTML attributes)
 		if node.ax_node and node.ax_node.properties:
