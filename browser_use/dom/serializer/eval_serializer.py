@@ -92,7 +92,7 @@ class DOMEvalSerializer:
 
 	@staticmethod
 	def serialize_tree(
-		node: SimplifiedNode | None, include_attributes: list[str], depth: int = 0, use_indentation: bool = True
+		node: SimplifiedNode | None, include_attributes: list[str], depth: int = 0, use_indentation: bool = False
 	) -> str:
 		"""
 		Serialize DOM tree focusing on semantic/interactive elements.
@@ -197,7 +197,9 @@ class DOMEvalSerializer:
 		return '\n'.join(formatted_text)
 
 	@staticmethod
-	def _serialize_children(node: SimplifiedNode, include_attributes: list[str], depth: int, use_indentation: bool = True) -> str:
+	def _serialize_children(
+		node: SimplifiedNode, include_attributes: list[str], depth: int, use_indentation: bool = False
+	) -> str:
 		"""Helper to serialize all children of a node."""
 		children_output = []
 
@@ -372,7 +374,7 @@ class DOMEvalSerializer:
 		return cap_text_length(combined, 20)
 
 	@staticmethod
-	def _serialize_iframe(node: SimplifiedNode, include_attributes: list[str], depth: int, use_indentation: bool = True) -> str:
+	def _serialize_iframe(node: SimplifiedNode, include_attributes: list[str], depth: int, use_indentation: bool = False) -> str:
 		"""Handle iframe serialization with content document."""
 		formatted_text = []
 		depth_str = (depth * '\t') if use_indentation else ''
@@ -424,7 +426,7 @@ class DOMEvalSerializer:
 		output: list[str],
 		include_attributes: list[str],
 		depth: int,
-		use_indentation: bool = True,
+		use_indentation: bool = False,
 	) -> None:
 		"""Helper to serialize a document node without SimplifiedNode wrapper."""
 		depth_str = (depth * '\t') if use_indentation else ''
