@@ -132,6 +132,7 @@ else:
 * Set `success=True` when the task was completed successfully, or `success=False` if it was impossible to complete after multiple attempts.
 * The `text` argument is what the user will see — include summaries, extracted data, or file contents.
 * If you created a file, embed its text or summary in `text`.
+* Respond in the format the user requested - include all file content you created.
 
 **Example:**
 
