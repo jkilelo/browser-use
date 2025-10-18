@@ -212,7 +212,9 @@ class CodeUseAgent:
 				except Exception as llm_error:
 					# LLM call failed - count as consecutive error and retry
 					self._consecutive_errors += 1
-					logger.warning(f'LLM call failed (consecutive errors: {self._consecutive_errors}/{self._max_consecutive_errors}), retrying: {llm_error}')
+					logger.warning(
+						f'LLM call failed (consecutive errors: {self._consecutive_errors}/{self._max_consecutive_errors}), retrying: {llm_error}'
+					)
 
 					# Check if we've hit the consecutive error limit
 					if self._consecutive_errors >= self._max_consecutive_errors:
@@ -222,8 +224,16 @@ class CodeUseAgent:
 					await asyncio.sleep(1)  # Brief pause before retry
 					continue
 
-				if not code or code.strip() == '':
-					logger.warning('LLM returned empty code')
+				# Check if code is empty or comment-only (single line starting with #)
+				is_empty = not code or code.strip() == ''
+				is_comment_only = False
+				if code and code.strip().startswith('#'):
+					# Check if there's only one line or all lines are comments/empty
+					lines = [line.strip() for line in code.split('\n') if line.strip()]
+					is_comment_only = len(lines) == 1 or all(line.startswith('#') for line in lines)
+
+				if is_empty or is_comment_only:
+					logger.warning('LLM returned empty or comment-only code')
 					self._consecutive_errors += 1
 
 					# new state
@@ -236,22 +246,18 @@ class CodeUseAgent:
 							logger.warning(f'Failed to get new browser state: {e}')
 					continue
 
-				# Check if LLM output multiple code blocks (policy violation)
-				has_multiple_blocks = False
-				if '```python' in full_llm_response:
-					has_multiple_blocks = full_llm_response.count('```python') > 1
-				elif '```' in full_llm_response:
-					has_multiple_blocks = full_llm_response.count('```') > 2
+				# Check if LLM violated policy by using markdown fences
+				has_fences = '```' in full_llm_response
 
 				# Execute code
 				output, error, browser_state = await self._execute_code(code)
 
-				# If multiple blocks detected, add warning to the output
-				if has_multiple_blocks and not error:
+				# If fences detected, add warning to the output
+				if has_fences and not error:
 					warning_msg = (
-						'\n\n⚠️ WARNING: You output multiple code blocks. '
-						'Only the FIRST code block was executed. '
-						'Please output ONE code block per step.'
+						'\n\n⚠️ WARNING: You used markdown code fences (```). '
+						'Output pure Python code only - NO ``` fences. '
+						'See system prompt for correct format.'
 					)
 					output = (output + warning_msg) if output else warning_msg.strip()
 
@@ -414,11 +420,13 @@ class CodeUseAgent:
 		full_response = response.completion
 
 		# Extract code from response
-		code = response.completion
+		# Primary path: Treat entire response as Python code (new policy)
+		code = response.completion.strip()
 
-		# Try to extract code from markdown code blocks
-		# IMPORTANT: Only extract the FIRST code block to enforce single-step execution
+		# Fallback: If model mistakenly outputs markdown fences (policy violation), extract code
+		# This provides graceful degradation if model doesn't follow instructions
 		if '```python' in code:
+			logger.warning('⚠️ Model output markdown fences (policy violation). Extracting code as fallback.')
 			# Extract code between ```python and ```
 			parts = code.split('```python')
 			if len(parts) > 1:
@@ -432,6 +440,7 @@ class CodeUseAgent:
 						'The agent should output ONE code block per step.'
 					)
 		elif '```' in code:
+			logger.warning('⚠️ Model output markdown fences (policy violation). Extracting code as fallback.')
 			# Extract code between ``` and ```
 			parts = code.split('```')
 			if len(parts) > 1:
@@ -443,6 +452,12 @@ class CodeUseAgent:
 						'⚠️ LLM output contains multiple code blocks. Only executing the FIRST one. '
 						'The agent should output ONE code block per step.'
 					)
+
+		# Optional: Extract first comment line for logging (if present)
+		if code:
+			first_line = code.split('\n')[0] if '\n' in code else code
+			if first_line.strip().startswith('#'):
+				logger.info(f'Step intent: {first_line.strip()[1:].strip()}')
 
 		# Add to LLM messages
 		self._llm_messages.append(AssistantMessage(content=response.completion))
@@ -527,7 +542,7 @@ class CodeUseAgent:
 						# Filter to only existing namespace vars (like Jupyter does)
 						# Include both: assigned vars that exist + user's explicit globals
 						existing_vars = {name for name in (assigned_names | user_global_names) if name in self.namespace}
-					except:
+					except Exception as e:
 						existing_vars = set()
 
 					# Build global declaration if needed
@@ -609,11 +624,12 @@ __code_exec_coro__ = __code_exec__()
 
 				# Add guidance for common Python syntax errors
 				error += '\n\n Python syntax error detected. Common causes:'
-				error += '\n  • Using # comments in Python code (never use comments)'
+				error += '\n  • Multiple comments (only ONE short comment at top allowed, 1 line max)'
 				error += '\n  • Using JavaScript comments (// or /* */) in Python code'
+				error += '\n  • Using markdown fences (``` or ```python) - output pure Python only'
 				error += '\n  • Unterminated strings (quotes/triple-quotes not closed)'
 				error += '\n  • Wrong indentation or missing colons'
-				error += '\n\nWrite clean Python code without comments. Follow the system prompt examples.'
+				error += '\n\nWrite clean, well-formed Python code. Follow the system prompt format.'
 			else:
 				# For other errors, try to extract useful information
 				error_str = str(e)
@@ -623,6 +639,7 @@ __code_exec_coro__ = __code_exec__()
 				# to show which line in the user's code actually failed
 				if hasattr(e, '__traceback__'):
 					import traceback as tb_module
+
 					tb_lines = tb_module.format_exception(type(e), e, e.__traceback__)
 
 					# Look for the line in user's code (appears as '<code>')
@@ -631,6 +648,7 @@ __code_exec_coro__ = __code_exec__()
 							# Extract line number from traceback
 							try:
 								import re
+
 								match = re.search(r'line (\d+)', line)
 								if match:
 									lineno = int(match.group(1))
@@ -646,9 +664,9 @@ __code_exec_coro__ = __code_exec__()
 										context_lines = []
 										for idx in range(start_idx, end_idx):
 											marker = '>>> ' if idx == lineno - 1 else '    '
-											context_lines.append(f'{marker}{idx+1}: {code_lines[idx].rstrip()}')
+											context_lines.append(f'{marker}{idx + 1}: {code_lines[idx].rstrip()}')
 										if context_lines:
-											error += f'\n\nCode context:\n' + '\n'.join(context_lines)
+											error += '\n\nCode context:\n' + '\n'.join(context_lines)
 										break
 							except Exception:
 								pass
@@ -723,7 +741,6 @@ __code_exec_coro__ = __code_exec__()
 				lines.append(scroll_info)
 				lines.append('')
 
-
 			# Add DOM structure
 			lines.append('**DOM Structure:**')
 
@@ -747,7 +764,9 @@ __code_exec_coro__ = __code_exec__()
 			max_dom_length = 60000
 			if len(dom_html) > max_dom_length:
 				lines.append(dom_html[:max_dom_length])
-				lines.append(f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]')
+				lines.append(
+					f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]'
+				)
 			else:
 				lines.append(dom_html)
 
@@ -786,12 +805,41 @@ __code_exec_coro__ = __code_exec__()
 		user_defined_names = []
 		for name, value in self.namespace.items():
 			# Skip private variables, built-ins, and imported modules
-			if name.startswith('_') or name in ['browser', 'file_system', 'wait', 'json', 'pandas', 'bs4', 'pypdf', 'matplotlib', 'numpy', 'plt', 'done' , 'evaluate', 'navigate', 'asyncio', 'Path', 'csv', 're', 'datetime', 'np', 'pd', 'requests', 'BeautifulSoup', 'PdfReader', 'click', 'input_text', 'send_keys', 'upload_file', 'get_selector_from_index']:
+			if name.startswith('_') or name in [
+				'browser',
+				'file_system',
+				'wait',
+				'json',
+				'pandas',
+				'bs4',
+				'pypdf',
+				'matplotlib',
+				'numpy',
+				'plt',
+				'done',
+				'evaluate',
+				'navigate',
+				'asyncio',
+				'Path',
+				'csv',
+				're',
+				'datetime',
+				'np',
+				'pd',
+				'requests',
+				'BeautifulSoup',
+				'PdfReader',
+				'click',
+				'input_text',
+				'send_keys',
+				'upload_file',
+				'get_selector_from_index',
+			]:
 				continue
 			user_defined_names.append(name)
 
 		if user_defined_names:
-			text = f"Available variables: {', '.join(sorted(user_defined_names))}"
+			text = f'Available variables: {", ".join(sorted(user_defined_names))}'
 			if len(text) > 2:
 				result.append(text)
 

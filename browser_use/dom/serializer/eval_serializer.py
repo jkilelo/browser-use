@@ -11,7 +11,7 @@ from browser_use.dom.views import (
 # Critical attributes for query writing and form interaction
 EVAL_KEY_ATTRIBUTES = [
 	'id',
-	# 'class',
+	'class',
 	'name',
 	'type',
 	'placeholder',

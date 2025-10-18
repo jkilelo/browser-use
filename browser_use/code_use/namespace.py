@@ -164,9 +164,9 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 						context_lines = []
 						for i in range(start_idx, end_idx):
 							marker = '>>> ' if i == line_idx else '    '
-							context_lines.append(f'{marker}{i+1}: {lines[i].rstrip()}')
+							context_lines.append(f'{marker}{i + 1}: {lines[i].rstrip()}')
 						if context_lines:
-							error_msg += f'\n\nCode context:\n' + '\n'.join(context_lines)
+							error_msg += '\n\nCode context:\n' + '\n'.join(context_lines)
 				except Exception:
 					pass
 
