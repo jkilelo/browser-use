@@ -102,7 +102,7 @@ class Tools(Generic[Context]):
 	def __init__(
 		self,
 		exclude_actions: list[str] = [
-			'scroll',
+			# 'scroll',
 			'extract',
 			'find_text',
 			# 'select_dropdown',
