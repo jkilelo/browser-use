@@ -965,6 +965,16 @@ class DOMTreeSerializer:
 				del attributes_to_include[attr]
 
 		if attributes_to_include:
-			return ' '.join(f'{key}={cap_text_length(value, 30)}' for key, value in attributes_to_include.items())
+			# Selector-critical attributes that MUST NOT be truncated
+			selector_critical_attrs = {'id', 'class', 'name', 'data-testid', 'role', 'type', 'href'}
+			result_parts = []
+			for key, value in attributes_to_include.items():
+				if key in selector_critical_attrs:
+					# Keep complete for querySelector compatibility
+					result_parts.append(f'{key}={value}')
+				else:
+					# Truncate non-selector attributes
+					result_parts.append(f'{key}={cap_text_length(value, 30)}')
+			return ' '.join(result_parts)
 
 		return ''

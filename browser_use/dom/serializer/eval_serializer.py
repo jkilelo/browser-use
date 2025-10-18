@@ -208,15 +208,22 @@ class DOMEvalSerializer:
 
 					# Special handling for different attributes
 					if attr == 'class':
-						# For class, limit to first 2 classes to save space
+						# For class, limit to first 2 classes to save space BUT keep them complete
+						# This prevents invalid CSS selectors like ".MuiGrid2-root.MuiGrid2-di..."
 						classes = value.split()[:2]
 						value = ' '.join(classes)
-						value = cap_text_length(value, 25)
+						# Do NOT truncate class names - they must be complete for querySelector
+					elif attr == 'id':
+						# Keep full id for querySelector compatibility
+						pass
 					elif attr == 'href':
 						# Keep full href for navigation
 						pass
+					elif attr in ('data-testid', 'name', 'role', 'type'):
+						# Keep selector-critical attributes complete
+						pass
 					else:
-						# Cap at 25 chars for other attributes
+						# Cap at 25 chars for other attributes (text content, labels, etc.)
 						value = cap_text_length(value, 25)
 
 					attributes_to_include[attr] = value
