@@ -12,7 +12,7 @@ from browser_use.dom.views import (
 # NOTE: Removed 'id' and 'class' to force more robust structural selectors
 EVAL_KEY_ATTRIBUTES = [
 	'id',  # Removed - can have special chars, forces structural selectors
-	'class',  # Removed - can have special chars like +, forces structural selectors
+	# 'class',  # Removed - can have special chars like +, forces structural selectors
 	'name',
 	'type',
 	'placeholder',
@@ -91,7 +91,9 @@ class DOMEvalSerializer:
 	"""Ultra-concise DOM serializer for quick LLM query writing."""
 
 	@staticmethod
-	def serialize_tree(node: SimplifiedNode | None, include_attributes: list[str], depth: int = 0) -> str:
+	def serialize_tree(
+		node: SimplifiedNode | None, include_attributes: list[str], depth: int = 0, use_indentation: bool = True
+	) -> str:
 		"""
 		Serialize DOM tree focusing on semantic/interactive elements.
 
@@ -108,14 +110,14 @@ class DOMEvalSerializer:
 
 		# Skip excluded nodes but process children
 		if hasattr(node, 'excluded_by_parent') and node.excluded_by_parent:
-			return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
+			return DOMEvalSerializer._serialize_children(node, include_attributes, depth, use_indentation)
 
 		# Skip nodes marked as should_display=False
 		if not node.should_display:
-			return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
+			return DOMEvalSerializer._serialize_children(node, include_attributes, depth, use_indentation)
 
 		formatted_text = []
-		depth_str = depth * '\t'
+		depth_str = (depth * '\t') if use_indentation else ''
 
 		if node.original_node.node_type == NodeType.ELEMENT_NODE:
 			tag = node.original_node.tag_name.lower()
@@ -123,11 +125,11 @@ class DOMEvalSerializer:
 
 			# Skip invisible elements (except iframes which might have visible content)
 			if not is_visible and tag not in ['iframe', 'frame']:
-				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
+				return DOMEvalSerializer._serialize_children(node, include_attributes, depth, use_indentation)
 
 			# Special handling for iframes - show them with their content
 			if tag in ['iframe', 'frame']:
-				return DOMEvalSerializer._serialize_iframe(node, include_attributes, depth)
+				return DOMEvalSerializer._serialize_iframe(node, include_attributes, depth, use_indentation)
 
 			# Build compact attributes string
 			attributes_str = DOMEvalSerializer._build_compact_attributes(node.original_node)
@@ -140,17 +142,12 @@ class DOMEvalSerializer:
 
 			# Skip generic containers without useful attributes or semantic value
 			if not is_semantic and not has_useful_attrs and not has_text_content:
-				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
+				return DOMEvalSerializer._serialize_children(node, include_attributes, depth, use_indentation)
 
 			# Collapse single-child wrappers without useful attributes
-			if (
-				tag in COLLAPSIBLE_CONTAINERS
-				and not has_useful_attrs
-				and not has_text_content
-				and len(node.children) == 1
-			):
+			if tag in COLLAPSIBLE_CONTAINERS and not has_useful_attrs and not has_text_content and len(node.children) == 1:
 				# Skip this wrapper and just show the child
-				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
+				return DOMEvalSerializer._serialize_children(node, include_attributes, depth, use_indentation)
 
 			# Build compact element representation
 			line = f'{depth_str}'
@@ -163,7 +160,6 @@ class DOMEvalSerializer:
 
 			if attributes_str:
 				line += f' {attributes_str}'
-
 
 			# Add scroll info if element is scrollable
 			if node.original_node.should_show_scroll_info:
@@ -182,7 +178,7 @@ class DOMEvalSerializer:
 
 			# Process children with increased depth (but only if we have text-free children)
 			if has_children and not inline_text:
-				children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1)
+				children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1, use_indentation)
 				if children_text:
 					formatted_text.append(children_text)
 
@@ -194,22 +190,22 @@ class DOMEvalSerializer:
 			# Shadow DOM - just show children directly with minimal marker
 			if node.children:
 				formatted_text.append(f'{depth_str}#shadow')
-				children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1)
+				children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1, use_indentation)
 				if children_text:
 					formatted_text.append(children_text)
 
 		return '\n'.join(formatted_text)
 
 	@staticmethod
-	def _serialize_children(node: SimplifiedNode, include_attributes: list[str], depth: int) -> str:
+	def _serialize_children(node: SimplifiedNode, include_attributes: list[str], depth: int, use_indentation: bool = True) -> str:
 		"""Helper to serialize all children of a node."""
 		children_output = []
 
 		# Check if parent is a list container (ul, ol)
-		is_list_container = (
-			node.original_node.node_type == NodeType.ELEMENT_NODE
-			and node.original_node.tag_name.lower() in ['ul', 'ol']
-		)
+		is_list_container = node.original_node.node_type == NodeType.ELEMENT_NODE and node.original_node.tag_name.lower() in [
+			'ul',
+			'ol',
+		]
 
 		# Track list items and consecutive links
 		li_count = 0
@@ -239,23 +235,23 @@ class DOMEvalSerializer:
 					# Reset counter when we hit a non-link element
 					# But first add truncation message if we skipped links
 					if total_links_skipped > 0:
-						depth_str = depth * '\t'
+						depth_str = (depth * '\t') if use_indentation else ''
 						children_output.append(f'{depth_str}... +{total_links_skipped} more')
 						total_links_skipped = 0
 					consecutive_link_count = 0
 
-			child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
+			child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth, use_indentation)
 			if child_text:
 				children_output.append(child_text)
 
 		# Add truncation message if we skipped items at the end
 		if is_list_container and li_count > max_list_items:
-			depth_str = depth * '\t'
+			depth_str = (depth * '\t') if use_indentation else ''
 			children_output.append(f'{depth_str}... +{li_count - max_list_items} more')
 
 		# Add truncation message for links if we skipped any at the end
 		if total_links_skipped > 0:
-			depth_str = depth * '\t'
+			depth_str = (depth * '\t') if use_indentation else ''
 			children_output.append(f'{depth_str}... +{total_links_skipped} more')
 
 		return '\n'.join(children_output)
@@ -376,10 +372,10 @@ class DOMEvalSerializer:
 		return cap_text_length(combined, 20)
 
 	@staticmethod
-	def _serialize_iframe(node: SimplifiedNode, include_attributes: list[str], depth: int) -> str:
+	def _serialize_iframe(node: SimplifiedNode, include_attributes: list[str], depth: int, use_indentation: bool = True) -> str:
 		"""Handle iframe serialization with content document."""
 		formatted_text = []
-		depth_str = depth * '\t'
+		depth_str = (depth * '\t') if use_indentation else ''
 		tag = node.original_node.tag_name.lower()
 
 		# Build minimal iframe marker with key attributes
@@ -400,7 +396,8 @@ class DOMEvalSerializer:
 		# If iframe has content document, serialize its content
 		if node.original_node.content_document:
 			# Add marker for iframe content
-			formatted_text.append(f'{depth_str}\t#iframe-content')
+			iframe_content_indent = (depth_str + '\t') if use_indentation else ''
+			formatted_text.append(f'{iframe_content_indent}#iframe-content')
 
 			# Process content document children
 			for child_node in node.original_node.content_document.children_nodes or []:
@@ -414,17 +411,23 @@ class DOMEvalSerializer:
 							if html_child.tag_name.lower() == 'body':
 								for body_child in html_child.children:
 									# Recursively process body children
-									DOMEvalSerializer._serialize_document_node(body_child, formatted_text, include_attributes, depth + 2)
+									DOMEvalSerializer._serialize_document_node(
+										body_child, formatted_text, include_attributes, depth + 2, use_indentation
+									)
 							break
 
 		return '\n'.join(formatted_text)
 
 	@staticmethod
 	def _serialize_document_node(
-		dom_node: EnhancedDOMTreeNode, output: list[str], include_attributes: list[str], depth: int
+		dom_node: EnhancedDOMTreeNode,
+		output: list[str],
+		include_attributes: list[str],
+		depth: int,
+		use_indentation: bool = True,
 	) -> None:
 		"""Helper to serialize a document node without SimplifiedNode wrapper."""
-		depth_str = depth * '\t'
+		depth_str = (depth * '\t') if use_indentation else ''
 
 		if dom_node.node_type == NodeType.ELEMENT_NODE:
 			tag = dom_node.tag_name.lower()
@@ -441,7 +444,7 @@ class DOMEvalSerializer:
 			if not is_semantic and not attributes_str:
 				# Skip but process children
 				for child in dom_node.children:
-					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth)
+					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth, use_indentation)
 				return
 
 			# Build element line
@@ -468,4 +471,4 @@ class DOMEvalSerializer:
 			# Process non-text children
 			for child in dom_node.children:
 				if child.node_type != NodeType.TEXT_NODE:
-					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth + 1)
+					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth + 1, use_indentation)
