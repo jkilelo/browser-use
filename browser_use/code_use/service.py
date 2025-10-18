@@ -751,6 +751,18 @@ __code_exec_coro__ = __code_exec__()
 			else:
 				lines.append(dom_html)
 
+			# Add available variables section
+			user_defined_names = []
+			for name, value in self.namespace.items():
+				# Skip private variables, built-ins, and imported modules
+				if name.startswith('_') or name in ['browser', 'file_system', 'wait', 'json', 'pandas', 'bs4', 'pypdf', 'matplotlib', 'numpy', 'plt', 'done' , 'evaluate', 'navigate', 'asyncio', 'Path', 'csv', 're', 'datetime', 'np', 'pd', 'requests', 'BeautifulSoup', 'PdfReader', 'click', 'input_text', 'send_keys', 'upload_file', 'get_selector_from_index']:
+					continue
+				user_defined_names.append(name)
+
+			if user_defined_names:
+				lines.append('')
+				lines.append(f"**Available variables:** {', '.join(sorted(user_defined_names))}")
+
 			browser_state_text = '\n'.join(lines)
 			screenshot = state.screenshot if include_screenshot else None
 
@@ -781,19 +793,6 @@ __code_exec_coro__ = __code_exec__()
 			if len(output) > 10000:
 				output = output[:9950] + '\n[Truncated after 10000 characters]'
 			result.append(f'Output: {output}')
-
-		# Add available variables and functions from namespace
-		user_defined_names = []
-		for name, value in self.namespace.items():
-			# Skip private variables, built-ins, and imported modules
-			if name.startswith('_') or name in ['browser', 'file_system', 'wait', 'json', 'pandas', 'bs4', 'pypdf', 'matplotlib', 'numpy', 'plt', 'done' , 'evaluate', 'navigate', 'asyncio', 'Path', 'csv', 're', 'datetime', 'np', 'pd', 'requests', 'BeautifulSoup', 'PdfReader', 'click', 'input_text', 'send_keys', 'upload_file', 'get_selector_from_index']:
-				continue
-			user_defined_names.append(name)
-
-		if user_defined_names:
-			text = f"Available variables: {', '.join(sorted(user_defined_names))}"
-			if len(text) > 2:
-				result.append(text)
 
 		return '\n'.join(result)
 
