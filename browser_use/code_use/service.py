@@ -786,22 +786,24 @@ __code_exec_coro__ = __code_exec__()
 
 		# Add step progress header if step number provided
 		if current_step is not None:
-			progress_header = f'Step {current_step}/{self.max_steps}'
+			progress_header = f'Step {current_step}/{self.max_steps} executed'
 			# Add consecutive failure tracking if there are errors
 			if error and self._consecutive_errors > 0:
 				progress_header += f' | Consecutive failures: {self._consecutive_errors}/{self._max_consecutive_errors}'
 			result.append(progress_header)
 
-		result.append('Executed')
 		if error:
 			result.append(f'Error: {error}')
+
+		
 
 		if output:
 			# Truncate output if too long
 			if len(output) > 10000:
 				output = output[:9950] + '\n[Truncated after 10000 characters]'
 			result.append(f'Output: {output}')
-
+		if len(result) == 0:
+			result.append('Executed')
 		return '\n'.join(result)
 
 	def _is_task_done(self) -> bool:
