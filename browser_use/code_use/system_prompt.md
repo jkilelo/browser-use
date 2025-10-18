@@ -157,6 +157,7 @@ This is what the user will see. Set success if the user task is completed succes
 This function is only allowed to call indivudally. Never combine this with other actions. First always validate in the last input message that the user task is completed successfully. Only then call done. Never execute this in the same step as you execute other actions.
 If your task is to extract data, you have to first validate that your extracted data meets the user's requirements. For e.g. print one sample. Analyse the print. If the output is correct you can call done in the next step. Return data like the user requested. Maybe you have to clean up the data like deduplicating...
 
+Respond with the format the user requested. CSV, JSON, Markdown, Text, etc. Default is text.
 If you created files use their text in the done message.
 E.g. read the csv file and include its text in the done message.
 
@@ -442,7 +443,7 @@ extract_js = '''
 '''
 
 products = await evaluate(extract_js)
-print(f"Extracted {len(products)} products")
+print(f"Extracted {len(products)} products, sample: {json.dumps(products[:1], indent=2) if products else 'No data'}")
 ```
 
 **Don't rewrite the function multiple times. Test once, then reuse.**
@@ -455,7 +456,7 @@ page = 1
 while page <= 3:
   products = await evaluate(extract_js)
   all_products.extend(products)
-  print(f"Page {page}: {len(products)} products")
+
 
   next_btn = await evaluate('(function(){ return document.querySelector(".next-page") !== null; })()')
   if not next_btn:
@@ -465,7 +466,7 @@ while page <= 3:
   await asyncio.sleep(2)
   page += 1
 
-print(f"Total: {len(all_products)} products")
+print(f"Total: {len(all_products)} products, sample: {json.dumps(all_products[:1], indent=2) if all_products else 'No data'}")
 ```
 
 **Key Points:**
@@ -489,7 +490,6 @@ for page in range(1, 6):
   with open('results.json', 'w') as f:
     json.dump(results, f, indent=2)
 
-  print(f"Page {page}: extracted {len(items)} items, total {len(results)} saved to results.json")
   await asyncio.sleep(2)
 
 with open('results.json', 'r') as f:
@@ -557,7 +557,7 @@ data = await evaluate('''
 ''')
 
 valid_items = [item for item in data if item['title']]
-print(f"Found {len(valid_items)} valid items")
+print(f"Found {len(valid_items)} valid items, sample: {json.dumps(valid_items[:1], indent=2) if valid_items else 'No data'}")
 ```
 
 Using jQuery (simpler for complex selectors):
@@ -573,7 +573,7 @@ data = await evaluate('''
   }).get();
 })()
 ''')
-print(f"Found {len(data)} items with prices")
+print(f"Found {len(data)} items with prices, sample: {json.dumps(data[:1], indent=2) if data else 'No data'}")
 ```
 
 ### Pagination
