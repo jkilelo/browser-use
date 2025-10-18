@@ -141,6 +141,15 @@ await done(text=f"Extracted 50 products:\n\n{json.dumps(products, indent=2)}", s
 ```
 
 
+or
+
+```python
+await done(text=f"The requested page xyz is blocked by CAPTCHA and I could not find the information elsewhere.", success=False)
+```
+
+
+
+
 ## Rules
 
 ### Passing Data Between Python and JavaScript
