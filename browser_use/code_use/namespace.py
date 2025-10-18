@@ -120,7 +120,7 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 		jquery_exists = jquery_check.get('result', {}).get('value', False)
 
 		if not jquery_exists:
-			# Inject jQuery from CDN
+			# Inject jQuery from CDN with proper wait
 			jquery_injection = '''
 			(function() {
 				if (typeof jQuery === 'undefined') {
@@ -130,7 +130,18 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 					script.crossOrigin = 'anonymous';
 					document.head.appendChild(script);
 					return new Promise(resolve => {
-						script.onload = () => resolve(true);
+						script.onload = () => {
+							var checkReady = setInterval(() => {
+								if (typeof jQuery !== 'undefined' && typeof $ !== 'undefined') {
+									clearInterval(checkReady);
+									resolve(true);
+								}
+							}, 10);
+							setTimeout(() => {
+								clearInterval(checkReady);
+								resolve(false);
+							}, 5000);
+						};
 						script.onerror = () => resolve(false);
 					});
 				}
@@ -142,9 +153,14 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 				session_id=cdp_session.session_id,
 			)
 
-			# Wait a moment for jQuery to be available
+			# Verify jQuery is actually available
 			if inject_result.get('result', {}).get('value'):
-				await asyncio.sleep(0.1)  # Brief wait for jQuery to initialize
+				verify_check = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': 'typeof $ === "function"', 'returnByValue': True},
+					session_id=cdp_session.session_id,
+				)
+				if not verify_check.get('result', {}).get('value', False):
+					logger.warning('jQuery injection reported success but $ is not a function')
 	except Exception as jquery_error:
 		# jQuery injection failed, but continue anyway - user code might not need it
 		logger.debug(f'jQuery injection failed (non-critical): {jquery_error}')
@@ -158,7 +174,7 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 		lodash_exists = lodash_check.get('result', {}).get('value', False)
 
 		if not lodash_exists:
-			# Inject Lodash from CDN
+			# Inject Lodash from CDN with proper wait
 			lodash_injection = '''
 			(function() {
 				if (typeof _ === 'undefined') {
@@ -168,7 +184,18 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 					script.crossOrigin = 'anonymous';
 					document.head.appendChild(script);
 					return new Promise(resolve => {
-						script.onload = () => resolve(true);
+						script.onload = () => {
+							var checkReady = setInterval(() => {
+								if (typeof _ !== 'undefined' && typeof _.groupBy === 'function') {
+									clearInterval(checkReady);
+									resolve(true);
+								}
+							}, 10);
+							setTimeout(() => {
+								clearInterval(checkReady);
+								resolve(false);
+							}, 5000);
+						};
 						script.onerror = () => resolve(false);
 					});
 				}
@@ -181,7 +208,12 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 			)
 
 			if inject_result.get('result', {}).get('value'):
-				await asyncio.sleep(0.1)  # Brief wait for Lodash to initialize
+				verify_check = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={'expression': 'typeof _ === "function"', 'returnByValue': True},
+					session_id=cdp_session.session_id,
+				)
+				if not verify_check.get('result', {}).get('value', False):
+					logger.warning('Lodash injection reported success but _ is not a function')
 	except Exception as lodash_error:
 		logger.debug(f'Lodash injection failed (non-critical): {lodash_error}')
 

@@ -195,6 +195,9 @@ print(f"Result: {js_result}")
 - Do NOT use JavaScript comments (// or /* */) - they break execution
 
 **jQuery Examples (powerful selectors for web scraping):**
+
+**CRITICAL: jQuery selectors like `:contains()`, `:visible`, `:has()` ONLY work with `$()` - NOT with `document.querySelector()`!**
+
 ```js
 (function(){
   return $('h2:contains("Affected")').next('div').text();
