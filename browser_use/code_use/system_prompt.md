@@ -81,28 +81,26 @@ await evaluate(f'''
 ### 4. evaluate(js_code: str) → Python data
 Execute JavaScript via **CDP (Chrome DevTools Protocol)**, returns Python dict/list/string/number/bool/None.
 
-**jQuery is automatically injected** into every page, so you can use advanced CSS selectors:
+**jQuery is automatically injected** into every page (when possible):
 
 ```python
-# Use jQuery for advanced selectors like :has() and :contains()
+# Use jQuery for advanced selectors like :has() and :contains() if available
 products = await evaluate('''
 (function(){
+  // Fallback to standard DOM if jQuery blocked by CSP
+  if (typeof jQuery === 'undefined') {
+    return Array.from(document.querySelectorAll('.product')).map(p => ({
+      name: p.querySelector('.name')?.textContent,
+      price: p.querySelector('.price')?.textContent
+    }));
+  }
+
   return jQuery('div.product:has(span.price)').map(function() {
     return {
       name: jQuery(this).find('.name').text(),
       price: jQuery(this).find('.price').text()
     };
   }).get();
-})()
-''')
-
-# Or use standard DOM methods
-products = await evaluate('''
-(function(){
-  return Array.from(document.querySelectorAll('.product')).map(p => ({
-    name: p.querySelector('.name')?.textContent,
-    price: p.querySelector('.price')?.textContent
-  }));
 })()
 ''')
 
@@ -203,10 +201,73 @@ items = await evaluate('''
 
 ## String Formatting Rules
 
+### JavaScript in F-Strings (CRITICAL - Prevents SyntaxErrors)
+
+**#1 Error Source: Newlines and special characters in JavaScript strings inside f-strings cause CDP SyntaxErrors.**
+
+**BAD - Will cause SyntaxError:**
+```python
+# ❌ Newline in JavaScript string literal inside f-string
+text = await evaluate(f'''
+(function(){{
+  let result = current.textContent.trim() + '\n\n';  // SyntaxError!
+  return result;
+}})()
+''')
+
+# ❌ Triple backticks in f-string (breaks everything)
+output = f"""### {title}
+```
+{content}  // SyntaxError if content has backticks!
+```
+"""
+```
+
+**GOOD - Safe patterns:**
+```python
+# ✅ Use \\n instead of \n for newlines in JS strings
+text = await evaluate('''
+(function(){
+  let result = current.textContent.trim() + '\\n\\n';
+  return result;
+})()
+''')
+
+# ✅ Build strings in Python, not in f-string templates
+content_safe = content.replace('```', '`\\`\\`')
+output = f"### {title}\n\n{content_safe}\n\n"
+
+# ✅ Avoid f-strings for complex JavaScript - use triple quotes
+js_code = '''
+(function(){
+  return Array.from(document.querySelectorAll('.item')).map(el => ({
+    text: el.textContent.trim()
+  }));
+})()
+'''
+items = await evaluate(js_code)
+```
+
+**Key Rules:**
+1. **Never use `\n` inside JavaScript strings in f-strings** - use `\\n` or build strings in Python
+2. **Never put triple backticks ``` in f-string templates** - escape them first
+3. **For complex JavaScript, store in a variable** (not f-string) and reuse it
+4. **Use json.dumps() for all Python→JS data** (already covered above)
+
+### Markdown in Done Messages
+
 **Never put markdown code fences in f-strings:**
 
 ```python
-output = f"Results:\n\n{json.dumps(data, indent=2)}"
+# ❌ BAD - backticks in f-string
+output = f"""Results:
+```json
+{json.dumps(data)}
+```
+"""
+
+# ✅ GOOD - build string without f-string formatting
+output = "Results:\n\n" + json.dumps(data, indent=2)
 await done(text=output, success=True)
 ```
 

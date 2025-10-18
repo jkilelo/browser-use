@@ -89,31 +89,88 @@ async def _ensure_jquery_loaded(browser_session: BrowserSession) -> None:
 	"""
 	Ensure jQuery is loaded in the current page if not already present.
 	This enables advanced CSS selectors like :has() and :contains().
+	Waits for jQuery to be fully loaded before returning.
 	"""
 	cdp_session = await browser_session.get_or_create_cdp_session()
 
+	# First check if jQuery is already loaded
 	jquery_check = """
 	(function(){
-		if (typeof jQuery !== 'undefined') return 'already_loaded';
-		if (document.querySelector('script[src*="jquery"]')) return 'loading';
-
-		const script = document.createElement('script');
-		script.src = 'https://code.jquery.com/jquery-3.7.1.min.js';
-		script.integrity = 'sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=';
-		script.crossOrigin = 'anonymous';
-		document.head.appendChild(script);
-		return 'injected';
+		return typeof jQuery !== 'undefined' ? 'ready' : 'not_loaded';
 	})()
 	"""
 
 	try:
-		await cdp_session.cdp_client.send.Runtime.evaluate(
+		result = await cdp_session.cdp_client.send.Runtime.evaluate(
 			params={'expression': jquery_check, 'returnByValue': True},
 			session_id=cdp_session.session_id,
 		)
-	except Exception:
-		# If jQuery injection fails, continue anyway (page might have CSP restrictions)
-		pass
+		status = result.get('result', {}).get('value', '')
+		if status == 'ready':
+			return  # jQuery already loaded
+
+		# Inject jQuery and wait for it to load + verify it's available
+		jquery_inject = """
+		(function(){
+			return new Promise((resolve, reject) => {
+				if (typeof jQuery !== 'undefined') {
+					resolve('already_loaded');
+					return;
+				}
+
+				const script = document.createElement('script');
+				script.src = 'https://code.jquery.com/jquery-3.7.1.min.js';
+				script.integrity = 'sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=';
+				script.crossOrigin = 'anonymous';
+
+				script.onload = () => {
+					// Wait a bit and verify jQuery is actually available
+					const checkInterval = setInterval(() => {
+						if (typeof jQuery !== 'undefined') {
+							clearInterval(checkInterval);
+							resolve('loaded');
+						}
+					}, 50);
+
+					// Timeout after 3 seconds
+					setTimeout(() => {
+						clearInterval(checkInterval);
+						if (typeof jQuery !== 'undefined') {
+							resolve('loaded');
+						} else {
+							reject('jquery_not_available');
+						}
+					}, 3000);
+				};
+
+				script.onerror = () => reject('failed_to_load');
+
+				document.head.appendChild(script);
+
+				// Overall timeout after 5 seconds
+				setTimeout(() => reject('timeout'), 5000);
+			});
+		})()
+		"""
+
+		result = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': jquery_inject, 'returnByValue': True, 'awaitPromise': True},
+			session_id=cdp_session.session_id,
+		)
+
+		# Check if jQuery injection succeeded
+		final_check = await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': '(function(){ return typeof jQuery !== "undefined"; })()', 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+		jquery_available = final_check.get('result', {}).get('value', False)
+
+		if not jquery_available:
+			logger.warning('jQuery injection completed but jQuery is not available - may be CSP restrictions')
+
+	except Exception as e:
+		# If jQuery injection fails, log but continue (page might have CSP restrictions)
+		logger.warning(f'jQuery injection failed: {type(e).__name__}: {e}')
 
 
 async def evaluate(code: str, browser_session: BrowserSession) -> Any:
