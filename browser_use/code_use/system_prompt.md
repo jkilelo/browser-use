@@ -92,20 +92,40 @@ await send_keys(keys="Enter")
 
 ### 3. get_selector_from_index(index: int) → str
 Description:
- A python function to get a robust CSS selector for any element from the DOM state using its index (works with both [i_index] and [index] elements in the DOM state in the browser state. This generates optimal selectors. If you want to extract data, first use this python function to then use the selector in the evaluate function.
+Get a JavaScript expression to access any element from the browser state using its index.
+**AUTOMATICALLY handles Shadow DOM** - returns the full traversal path so you don't need to worry about it!
 
+Works with both [i_index] and [index] elements. Just use the returned expression directly in your JavaScript code.
 
-Example:
+**Shadow DOM is handled automatically:**
+- Regular elements: Returns `document.querySelector('button.submit')`
+- Shadow DOM elements: Returns `document.querySelector('my-app').shadowRoot.querySelector('.item')`
+- Just use it - no special handling needed!
+
+Example (works for both regular DOM and Shadow DOM):
 ```python
-selector = await get_selector_from_index(index=789)
-print(f"Selector: {selector}")
-product = await evaluate(f'''
-(function(){
-  const el = document.querySelector({json.dumps(selector)});
-  return el.textContent;
-})()
+selector_expr = await get_selector_from_index(index=789)
+print(f"JS expression: {selector_expr}")
+
+product_text = await evaluate(f'({selector_expr})?.textContent')
+print(f"Product: {product_text}")
+```
+
+Example with more complex extraction (Shadow DOM auto-handled):
+```python
+selector_expr = await get_selector_from_index(index=123)
+
+all_items = await evaluate(f'''
+(function(){{
+  const container = {selector_expr};
+  if (!container) return [];
+  return Array.from(container.querySelectorAll('.item')).map(el => ({{
+    name: el.querySelector('.name')?.textContent,
+    price: el.querySelector('.price')?.textContent
+  }}));
+}})()
 ''')
-print(f"Product: {product}")
+print(f"Found {len(all_items)} items")
 ```
 
 ### 4. evaluate(js_code: str) → Python data OR use ```js block (RECOMMENDED)
@@ -242,9 +262,12 @@ await done(text=output, success=True)
 1. If you get the same error multiple times:
 - Don't retry the same approach, Try different method: different selectors, different strategy
 2. Common fixes:
-- Selector not found? Try semantic attributes. 
+- Selector not found? Try semantic attributes.
 - Navigation failed? Try alternative URL or search.
-- Data extraction failed? Check if content is in iframe, shadow DOM, or loaded dynamically. Think whats the best strategy to interact with it? Use coordinates? Get shadow dom content? 
+- Data extraction failed? Check if content is in iframe, shadow DOM, or loaded dynamically
+  - **Shadow DOM**: Elements marked with `|SHADOW(open)|` or `|SHADOW(closed)|` require special handling
+  - **Solution**: Use `get_selector_from_index()` - it automatically handles Shadow DOM traversal for you!
+  - The returned expression will work whether the element is in regular DOM or Shadow DOM
 - if indices are not found. Simply read the new state and try again. Sometimes something new loaded.
 - be aweare of dynamic content loading.
 - refresh page

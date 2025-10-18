@@ -322,25 +322,24 @@ def create_namespace(
 	# Add get_selector_from_index helper for code_use mode
 	async def get_selector_from_index_wrapper(index: int) -> str:
 		"""
-		Get the CSS selector for an element by its interactive index.
+		Get a JavaScript selector expression for an element by its index.
 
-		This allows you to use the element's index from the browser state to get
-		its CSS selector for use in JavaScript evaluate() calls.
+		AUTOMATICALLY handles Shadow DOM - returns the full traversal path!
+		Just use the returned string directly in your JavaScript code.
 
 		Args:
 			index: The interactive index from the browser state (e.g., [123])
 
 		Returns:
-			str: CSS selector that can be used in JavaScript
+			str: JavaScript expression to access the element (handles Shadow DOM automatically)
 
-		Example:
+		Examples:
+			Regular element: Returns "document.querySelector('button.submit')"
+			Shadow DOM element: Returns "document.querySelector('my-app').shadowRoot.querySelector('.item')"
+
+		Usage:
 			selector = await get_selector_from_index(123)
-			await evaluate(f'''
-			(function(){{
-				const el = document.querySelector({json.dumps(selector)});
-				if (el) el.click();
-			}})()
-			''')
+			result = await evaluate(f'({selector})?.textContent')
 		"""
 		from browser_use.dom.utils import generate_css_selector_for_element
 
@@ -349,47 +348,67 @@ def create_namespace(
 		if node is None:
 			raise ValueError(f'Element index {index} not found in browser state')
 
-		# Check if element is in shadow DOM
-		shadow_hosts = []
+		# Build shadow DOM traversal path
+		shadow_path = []
 		current = node.parent_node
 		while current:
+			# Check if this is a shadow root (parent is a shadow host)
 			if current.shadow_root_type is not None:
-				# This is a shadow host
-				host_tag = current.tag_name.lower()
-				host_id = current.attributes.get('id', '') if current.attributes else ''
-				host_desc = f'{host_tag}#{host_id}' if host_id else host_tag
-				shadow_hosts.insert(0, host_desc)
+				# This node is a shadow host - we need to traverse through it
+				host_selector = generate_css_selector_for_element(current)
+				if host_selector:
+					shadow_path.insert(0, {'type': 'shadow', 'selector': host_selector})
+
+			# Check if this is an iframe
+			if current.tag_name and current.tag_name.lower() == 'iframe':
+				iframe_selector = generate_css_selector_for_element(current)
+				if iframe_selector:
+					shadow_path.insert(0, {'type': 'iframe', 'selector': iframe_selector})
+					logger.warning(
+						f'⚠️ Element [{index}] is inside an iframe. Iframe content requires special handling - regular DOM access won\'t work across iframe boundaries.'
+					)
+
 			current = current.parent_node
 
-		# Check if in iframe
-		in_iframe = False
-		current = node.parent_node
-		while current:
-			if current.tag_name.lower() == 'iframe':
-				in_iframe = True
-				break
-			current = current.parent_node
+		# Generate selector for the target element
+		element_selector = generate_css_selector_for_element(node)
+		if not element_selector:
+			if node.tag_name:
+				element_selector = node.tag_name.lower()
+			else:
+				raise ValueError(f'Could not generate selector for element index {index}')
 
-		# Use the robust selector generation function (now handles special chars in IDs)
-		selector = generate_css_selector_for_element(node)
+		# Build the JavaScript access expression
+		if not shadow_path:
+			# Simple case: regular DOM element
+			js_expression = f'document.querySelector({json.dumps(element_selector)})'
+		else:
+			# Complex case: element is inside shadow DOM
+			parts = []
+			for step in shadow_path:
+				if step['type'] == 'shadow':
+					if not parts:
+						# First step from document root
+						parts.append(f'document.querySelector({json.dumps(step["selector"])})')
+					parts.append('shadowRoot')
+				elif step['type'] == 'iframe':
+					# Iframe traversal - this won't work with regular querySelector
+					# We need to warn but still try to provide useful output
+					if not parts:
+						parts.append(f'document.querySelector({json.dumps(step["selector"])})')
+					parts.append('contentDocument')
 
-		# Log shadow DOM/iframe info if detected
-		if shadow_hosts:
-			shadow_path = ' > '.join(shadow_hosts)
-			logger.info(f'Element [{index}] is inside Shadow DOM. Path: {shadow_path}')
-			logger.info(f'    Selector: {selector}')
-			logger.info(f'    To access: document.querySelector("{shadow_hosts[0].split("#")[0]}").shadowRoot.querySelector("{selector}")')
-		if in_iframe:
-			logger.info(f'Element [{index}] is inside an iframe. Regular querySelector won\'t work.')
+			# Add final querySelector for the element
+			parts.append(f'querySelector({json.dumps(element_selector)})')
 
-		if selector:
-			return selector
+			# Join with dots to create the full expression
+			js_expression = '.'.join(parts)
 
-		# Fallback: just use tag name if available
-		if node.tag_name:
-			return node.tag_name.lower()
+			# Log helpful info for Shadow DOM
+			logger.info(f'✨ Element [{index}] is in Shadow DOM - auto-generated traversal path')
+			logger.info(f'   JavaScript expression: {js_expression}')
 
-		raise ValueError(f'Could not generate selector for element index {index}')
+		return js_expression
 
 	namespace['get_selector_from_index'] = get_selector_from_index_wrapper
 

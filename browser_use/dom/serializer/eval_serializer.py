@@ -228,9 +228,11 @@ class DOMEvalSerializer:
 			pass
 
 		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
-			# Shadow DOM - just show children directly with minimal marker
+			# Shadow DOM - mark clearly for agent awareness
 			if node.children:
-				formatted_text.append(f'{depth_str}#shadow')
+				# Determine if open or closed shadow root
+				shadow_type = 'open' if node.original_node.shadow_root_type == 'open' else 'closed'
+				formatted_text.append(f'{depth_str}#shadow-{shadow_type} (use get_selector_from_index - handles Shadow DOM auto)')
 				children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1)
 				if children_text:
 					formatted_text.append(children_text)

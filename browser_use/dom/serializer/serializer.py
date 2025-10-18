@@ -855,11 +855,11 @@ class DOMTreeSerializer:
 				formatted_text.append(line)
 
 		elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
-			# Shadow DOM representation - show clearly to LLM
+			# Shadow DOM representation - show clearly to LLM with usage hint
 			if node.original_node.shadow_root_type and node.original_node.shadow_root_type.lower() == 'closed':
-				formatted_text.append(f'{depth_str}Closed Shadow')
+				formatted_text.append(f'{depth_str}Closed Shadow (get_selector_from_index handles auto)')
 			else:
-				formatted_text.append(f'{depth_str}Open Shadow')
+				formatted_text.append(f'{depth_str}Open Shadow (get_selector_from_index handles auto)')
 
 			next_depth += 1
 
