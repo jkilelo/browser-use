@@ -240,7 +240,7 @@ class DOMEvalSerializer:
 					# But first add truncation message if we skipped links
 					if total_links_skipped > 0:
 						depth_str = depth * '\t'
-						children_output.append(f'{depth_str}... ({total_links_skipped} more links in this list)')
+						children_output.append(f'{depth_str}... +{total_links_skipped} more')
 						total_links_skipped = 0
 					consecutive_link_count = 0
 
@@ -251,12 +251,12 @@ class DOMEvalSerializer:
 		# Add truncation message if we skipped items at the end
 		if is_list_container and li_count > max_list_items:
 			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({li_count - max_list_items} more items in this list)')
+			children_output.append(f'{depth_str}... +{li_count - max_list_items} more')
 
 		# Add truncation message for links if we skipped any at the end
 		if total_links_skipped > 0:
 			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({total_links_skipped} more links in this list)')
+			children_output.append(f'{depth_str}... +{total_links_skipped} more')
 
 		return '\n'.join(children_output)
 
@@ -264,6 +264,12 @@ class DOMEvalSerializer:
 	def _build_compact_attributes(node: EnhancedDOMTreeNode) -> str:
 		"""Build ultra-compact attributes string with only key attributes."""
 		attrs = []
+
+		# Add accessible name FIRST (gold semantic identifier from AX tree)
+		if node.ax_node and node.ax_node.name:
+			name = node.ax_node.name.strip()
+			if name and len(name) > 2:
+				attrs.append(f'ax-name="{cap_text_length(name, 30)}"')
 
 		# Prioritize attributes that help with query writing
 		if node.attributes:
@@ -278,13 +284,13 @@ class DOMEvalSerializer:
 						# For class, limit to first 2 classes to save space
 						classes = value.split()[:2]
 						value = ' '.join(classes)
-						value = cap_text_length(value, 40)
+						value = cap_text_length(value, 30)
 					elif attr == 'href':
-						# For href, cap at 20 chars to save space
-						value = cap_text_length(value, 40)
+						# For href, cap at 30 chars to save space
+						value = cap_text_length(value, 30)
 					else:
-						# Cap at 25 chars for other attributes
-						value = cap_text_length(value, 40)
+						# Cap at 30 chars for other attributes
+						value = cap_text_length(value, 30)
 
 					attrs.append(f'{attr}="{value}"')
 
@@ -309,7 +315,7 @@ class DOMEvalSerializer:
 
 	@staticmethod
 	def _get_inline_text(node: SimplifiedNode) -> str:
-		"""Get text content to display inline (max 40 chars)."""
+		"""Get text content to display inline (max 20 chars)."""
 		text_parts = []
 		for child in node.children:
 			if child.original_node.node_type == NodeType.TEXT_NODE:
@@ -321,7 +327,7 @@ class DOMEvalSerializer:
 			return ''
 
 		combined = ' '.join(text_parts)
-		return cap_text_length(combined, 25)
+		return cap_text_length(combined, 20)
 
 	@staticmethod
 	def _serialize_iframe(node: SimplifiedNode, include_attributes: list[str], depth: int) -> str:
