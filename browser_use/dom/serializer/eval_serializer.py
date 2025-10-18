@@ -296,7 +296,7 @@ class DOMEvalSerializer:
 			return ''
 
 		combined = ' '.join(text_parts)
-		return cap_text_length(combined, 25)
+		return cap_text_length(combined, 75)
 
 	@staticmethod
 	def _serialize_iframe(node: SimplifiedNode, include_attributes: list[str], depth: int) -> str:
