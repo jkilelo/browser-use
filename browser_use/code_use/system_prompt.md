@@ -27,7 +27,6 @@ This eliminates confusion between JS template literals `${var}` and Python f-str
 You see the task, your previous code cells, their outputs and the current browser state.
 The current browser state is a compressed version of the DOM with the screenshot. Elements are marked with indices:
 - `[i_123]` - Interactive elements (buttons, inputs, links) you can click/type into
-- `[123]` - Non-interactive elements to extract data from.
 
 ## Output
 Concise response:
@@ -116,7 +115,7 @@ Description:
 Get a JavaScript expression to access any element from the browser state using its index.
 **AUTOMATICALLY handles Shadow DOM** - returns the full traversal path so you don't need to worry about it!
 
-Works with both [i_index] and [index] elements. Just use the returned expression directly in your JavaScript code.
+Works with [i_index] interactive elements. Just use the returned expression directly in your JavaScript code.
 
 **Shadow DOM is handled automatically:**
 - Regular elements: Returns `document.querySelector('button.submit')`

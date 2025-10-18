@@ -199,8 +199,6 @@ class DOMEvalSerializer:
 			# Add backend node ID notation - [interactive_X] for interactive, [X] for others
 			if node.interactive_index is not None:
 				line += f' [i_{node.original_node.backend_node_id}]'
-			else:
-				line += f' [{node.original_node.backend_node_id}]'
 			line += f'<{tag}'
 
 			if attributes_str:
