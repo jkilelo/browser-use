@@ -211,12 +211,45 @@ class DOMEvalSerializer:
 			and node.original_node.tag_name.lower() in ['ul', 'ol']
 		)
 
+		# Check if parent is a table container
+		is_table_container = (
+			node.original_node.node_type == NodeType.ELEMENT_NODE
+			and node.original_node.tag_name.lower() in ['table', 'tbody', 'thead']
+		)
+
+		# Detect repeated class patterns (likely product cards, search results, etc.)
+		repeated_class_pattern = None
+		if node.original_node.node_type == NodeType.ELEMENT_NODE:
+			class_counts = {}
+			for child in node.children:
+				if child.original_node.node_type == NodeType.ELEMENT_NODE:
+					attrs = child.original_node.attributes
+					if attrs and 'class' in attrs:
+						classes = str(attrs['class']).strip()
+						# Only track if has meaningful classes (not empty, not single char)
+						if classes and len(classes) > 3:
+							class_counts[classes] = class_counts.get(classes, 0) + 1
+
+			# If we have 8+ items with same class pattern, it's a repeated list
+			for class_name, count in class_counts.items():
+				if count >= 8:
+					repeated_class_pattern = class_name
+					break  # Use first pattern found
+
 		# Track list items and consecutive links
 		li_count = 0
 		max_list_items = 5
 		consecutive_link_count = 0
 		max_consecutive_links = 5
 		total_links_skipped = 0
+
+		# Track table rows
+		tr_count = 0
+		max_table_rows = 8
+
+		# Track repeated class pattern items
+		pattern_item_count = 0
+		max_pattern_items = 6
 
 		for child in node.children:
 			# If we're in a list container and this child is an li element
@@ -226,6 +259,29 @@ class DOMEvalSerializer:
 					# Skip li elements after the 5th one
 					if li_count > max_list_items:
 						continue
+
+			# If we're in a table container and this child is a tr element
+			if is_table_container and child.original_node.node_type == NodeType.ELEMENT_NODE:
+				if child.original_node.tag_name.lower() == 'tr':
+					tr_count += 1
+					# Skip table rows after the 8th one (show more rows than list items)
+					if tr_count > max_table_rows:
+						continue
+
+			# Check if this matches a repeated class pattern
+			skip_pattern_item = False
+			if repeated_class_pattern and child.original_node.node_type == NodeType.ELEMENT_NODE:
+				attrs = child.original_node.attributes
+				if attrs and 'class' in attrs:
+					child_classes = str(attrs['class']).strip()
+					if child_classes == repeated_class_pattern:
+						pattern_item_count += 1
+						# Skip items after the 6th one in repeated pattern
+						if pattern_item_count > max_pattern_items:
+							skip_pattern_item = True
+
+			if skip_pattern_item:
+				continue
 
 			# Track consecutive anchor tags (links)
 			if child.original_node.node_type == NodeType.ELEMENT_NODE:
@@ -252,6 +308,24 @@ class DOMEvalSerializer:
 		if is_list_container and li_count > max_list_items:
 			depth_str = depth * '\t'
 			children_output.append(f'{depth_str}... +{li_count - max_list_items} more')
+
+		# Add truncation message for table rows
+		if is_table_container and tr_count > max_table_rows:
+			depth_str = depth * '\t'
+			children_output.append(f'{depth_str}... +{tr_count - max_table_rows} rows')
+
+		# Add truncation message for repeated class patterns
+		if repeated_class_pattern:
+			pattern_total = sum(
+				1 for child in node.children
+				if child.original_node.node_type == NodeType.ELEMENT_NODE
+				and child.original_node.attributes
+				and 'class' in child.original_node.attributes
+				and str(child.original_node.attributes['class']).strip() == repeated_class_pattern
+			)
+			if pattern_total > max_pattern_items:
+				depth_str = depth * '\t'
+				children_output.append(f'{depth_str}... +{pattern_total - max_pattern_items} similar')
 
 		# Add truncation message for links if we skipped any at the end
 		if total_links_skipped > 0:
