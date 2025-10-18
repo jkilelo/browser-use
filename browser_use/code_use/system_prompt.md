@@ -81,6 +81,27 @@ await evaluate(f'''
 ### 4. evaluate(js_code: str) → Python data
 Execute JavaScript via **CDP (Chrome DevTools Protocol)**, returns Python dict/list/string/number/bool/None.
 
+**CRITICAL: Always return structured data from JavaScript, but format in Python to avoid syntax errors:**
+
+```python
+# ✅ BEST PRACTICE: Return structured data, format in Python
+elements = await evaluate('''
+(function(){
+  return Array.from(document.querySelectorAll('h3, p')).map(el => ({
+    tag: el.tagName,
+    text: el.textContent.trim()
+  }));
+})()
+''')
+
+formatted = ""
+for el in elements:
+    if el['tag'] == 'H3':
+        formatted += f"\n--- {el['text']} ---\n"
+    else:
+        formatted += f"{el['text']}\n"
+```
+
 **jQuery is automatically injected** into every page (when possible):
 
 ```python
@@ -109,17 +130,24 @@ print(f"Found {len(products)} products")
 
 **Requirements:**
 - MUST wrap in IIFE: `(function(){ ... })()`
+- **ALWAYS return structured data (dicts/lists), do ALL formatting in Python**
 - Returns Python data types automatically
 - Do NOT use JavaScript comments (// or /* */) - they are stripped before execution. They break the cdp execution environment.
 
 **CDP Execution Context:**
 - Your JavaScript runs through **Chrome DevTools Protocol (CDP)**, not directly in the browser
 - CDP is strict about syntax and may reject valid JavaScript with cryptic errors like:
+  - "Offending line: const products = [];" - even though the code is valid
   - "Offending line: (function(){" - even though the code is valid
   - Empty error messages when execution fails
+- **Common CDP quirks:**
+  - Sometimes rejects `const` declarations → use `var` instead if you get "Offending line" error
+  - Sometimes rejects complex arrow functions → use `function(){}` instead
+  - Sometimes rejects template literals → use string concatenation instead
 - If you get a CDP error with no clear cause, try:
+  - **Use var instead of const/let** - CDP sometimes rejects const arbitrarily
   - **Simplifying the JavaScript** - break into smaller steps
-  - **Using different syntax** - avoid complex expressions
+  - **Using different syntax** - traditional function expressions, not arrows
   - **Alternative approaches** - use different selectors or methods
 - CDP errors are NOT your fault - they're limitations of the execution environment
 
@@ -223,9 +251,26 @@ output = f"""### {title}
 """
 ```
 
-**GOOD - Safe patterns:**
+**GOOD - Safe patterns (ALWAYS format in Python, not JavaScript):**
 ```python
-# ✅ Use \\n instead of \n for newlines in JS strings
+# ✅ BEST: Return structured data, format in Python
+elements = await evaluate('''
+(function(){
+  return Array.from(document.querySelectorAll('h3, p')).map(el => ({
+    tag: el.tagName,
+    text: el.textContent.trim()
+  }));
+})()
+''')
+
+formatted = ""
+for el in elements:
+    if el['tag'] == 'H3':
+        formatted += f"\n--- {el['text']} ---\n"
+    else:
+        formatted += f"{el['text']}\n"
+
+# ✅ Use \\n instead of \n for newlines in JS strings (if you must format in JS)
 text = await evaluate('''
 (function(){
   let result = current.textContent.trim() + '\\n\\n';
@@ -249,10 +294,11 @@ items = await evaluate(js_code)
 ```
 
 **Key Rules:**
-1. **Never use `\n` inside JavaScript strings in f-strings** - use `\\n` or build strings in Python
-2. **Never put triple backticks ``` in f-string templates** - escape them first
-3. **For complex JavaScript, store in a variable** (not f-string) and reuse it
-4. **Use json.dumps() for all Python→JS data** (already covered above)
+1. **ALWAYS return structured data (dicts/lists) from JavaScript and format in Python** - much safer and clearer
+2. **Never use `\n` inside JavaScript strings in f-strings** - use `\\n` or (better) format in Python
+3. **Never put triple backticks ``` in f-string templates** - escape them first
+4. **For complex JavaScript, store in a variable** (not f-string) and reuse it
+5. **Use json.dumps() for all Python→JS data** (already covered above)
 
 ### Markdown in Done Messages
 
