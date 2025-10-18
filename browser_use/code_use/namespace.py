@@ -145,31 +145,6 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 			if (line_num == 0 or line_num is None) and (col_num == 0 or col_num is None):
 				is_cryptic_error = True
 
-			# Add line number and context
-			if line_num is not None:
-				error_msg += f'\nat line {line_num}'
-
-				# Try to extract the offending line and surrounding context
-				try:
-					lines = code.split('\n')
-					line_idx = line_num - 1
-					if 0 <= line_idx < len(lines):
-						# Show the offending line
-						offending_line = lines[line_idx].strip()
-						error_msg += f'\nOffending line: {offending_line}'
-
-						# Show 2 lines before and after for context
-						start_idx = max(0, line_idx - 2)
-						end_idx = min(len(lines), line_idx + 3)
-						context_lines = []
-						for i in range(start_idx, end_idx):
-							marker = '>>> ' if i == line_idx else '    '
-							context_lines.append(f'{marker}{i+1}: {lines[i].rstrip()}')
-						if context_lines:
-							error_msg += f'\n\nCode context:\n' + '\n'.join(context_lines)
-				except Exception:
-					pass
-
 			# Add column number if available
 			if col_num is not None:
 				error_msg += f' (column {col_num})'
