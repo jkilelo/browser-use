@@ -49,6 +49,8 @@ EVAL_KEY_ATTRIBUTES = [
 
 # Semantic elements that should always be shown
 SEMANTIC_ELEMENTS = {
+	'html',  # Always show document root
+	'body',  # Always show body
 	'h1',
 	'h2',
 	'h3',
@@ -158,8 +160,11 @@ class DOMEvalSerializer:
 			tag = node.original_node.tag_name.lower()
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 
-			# Skip invisible elements (except iframes which might have visible content)
-			if not is_visible and tag not in ['iframe', 'frame']:
+			# Container elements that should be shown even if invisible (might have visible children)
+			container_tags = {'html', 'body', 'div', 'main', 'section', 'article', 'aside', 'header', 'footer', 'nav'}
+
+			# Skip invisible elements UNLESS they're containers or iframes (which might have visible children)
+			if not is_visible and tag not in container_tags and tag not in ['iframe', 'frame']:
 				return DOMEvalSerializer._serialize_children(node, include_attributes, depth)
 
 			# Special handling for iframes - show them with their content
@@ -210,15 +215,20 @@ class DOMEvalSerializer:
 
 			# Add inline text if present (keep it on same line for compactness)
 			inline_text = DOMEvalSerializer._get_inline_text(node)
-			if inline_text:
+
+			# For containers (html, body, div, etc.), always show children even if there's inline text
+			# For other elements, inline text replaces children (more compact)
+			is_container = tag in container_tags
+
+			if inline_text and not is_container:
 				line += f'>{inline_text}'
 			else:
 				line += ' />'
 
 			formatted_text.append(line)
 
-			# Process children with increased depth (but only if we have text-free children)
-			if has_children and not inline_text:
+			# Process children (always for containers, only if no inline_text for others)
+			if has_children and (is_container or not inline_text):
 				children_text = DOMEvalSerializer._serialize_children(node, include_attributes, depth + 1)
 				if children_text:
 					formatted_text.append(children_text)
