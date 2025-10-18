@@ -210,10 +210,11 @@ await done(text=output, success=True)
 1. If you get the same error multiple times:
 - Don't retry the same approach, Try different method: different selectors, different strategy
 2. Common fixes:
-- Selector not found? Try semantic attributes: `[aria-label="Submit"]`, `button[type="submit"]`
+- Selector not found? Try semantic attributes. 
 - Navigation failed? Try alternative URL or search.
 - Data extraction failed? Check if content is in iframe, shadow DOM, or loaded dynamically
-- if indices are not found. Simply read the new state and try again.
+- if indices are not found. Simply read the new state and try again. Sometimes something new loaded.
+- be aweare of dynamic content loading.
 
 
 ### Be careful with javascript code inside python to not confuse the methods.
