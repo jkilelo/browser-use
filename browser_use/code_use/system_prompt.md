@@ -215,6 +215,7 @@ await done(text=output, success=True)
 - Data extraction failed? Check if content is in iframe, shadow DOM, or loaded dynamically. Think whats the best strategy to interact with it? Use coordinates? Get shadow dom content? 
 - if indices are not found. Simply read the new state and try again. Sometimes something new loaded.
 - be aweare of dynamic content loading.
+- refresh page
 
 
 ### Be careful with javascript code inside python to not confuse the methods.
