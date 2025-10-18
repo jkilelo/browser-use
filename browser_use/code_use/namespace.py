@@ -164,13 +164,32 @@ async def _ensure_jquery_loaded(browser_session: BrowserSession) -> None:
 		logger.warning(f'jQuery injection failed: {type(e).__name__}: {e}')
 
 
+def _parse_bu_identifiers(js_code: str) -> list[int]:
+	"""
+	Parse bu_ identifiers from IIFE invocation like: (function(...){ ... })(bu_123, bu_456)
+
+	Returns:
+		List of bu IDs in order (e.g., [123, 456])
+	"""
+	# Match the invocation at the end: )(bu_123, bu_456)
+	# Pattern: )(bu_\d+(?:\s*,\s*bu_\d+)*)
+	match = re.search(r'\)\s*\(\s*(bu_\d+(?:\s*,\s*bu_\d+)*)\s*\)\s*$', js_code.strip())
+	if not match:
+		return []
+
+	# Extract all bu_ identifiers from the invocation
+	invocation_args = match.group(1)
+	bu_ids = re.findall(r'bu_(\d+)', invocation_args)
+	return [int(bu_id) for bu_id in bu_ids]
+
+
 async def evaluate(code: str, browser_session: BrowserSession, **elements: int) -> Any:
 	"""
 	Execute JavaScript code in the browser and return the result.
 
 	Args:
 		code: JavaScript code to execute (must be wrapped in IIFE)
-		**elements: Optional element arguments - pass bu IDs that will be resolved to element references
+		**elements: DEPRECATED - use bu_ identifiers in IIFE invocation instead
 
 	Returns:
 		The result of the JavaScript execution
@@ -188,8 +207,8 @@ async def evaluate(code: str, browser_session: BrowserSession, **elements: int) 
 			input.value = "test";
 			button.click();
 			return true;
-		})()
-		''', button=123, input=456)
+		})(bu_123, bu_456)
+		''')
 	"""
 	# Ensure jQuery is loaded for advanced selectors
 	await _ensure_jquery_loaded(browser_session)
@@ -199,20 +218,41 @@ async def evaluate(code: str, browser_session: BrowserSession, **elements: int) 
 
 	cdp_session = await browser_session.get_or_create_cdp_session()
 
+	# Parse bu_ identifiers from IIFE invocation (new method)
+	bu_ids = _parse_bu_identifiers(code)
+
+	# Support legacy kwargs method as fallback
+	if not bu_ids and elements:
+		bu_ids = list(elements.values())
+
 	# If element arguments were provided, resolve them via CDP and use callFunctionOn
-	if elements:
+	if bu_ids:
 		try:
 			# Resolve each bu ID to a CDP object reference
 			resolved_args = []
-			for param_name, bu_id in elements.items():
+			for bu_id in bu_ids:
 				# Get the DOM node from the selector map
 				node = await browser_session.get_element_by_index(bu_id)
 				if node is None:
-					raise ValueError(f'Element bu={bu_id} (parameter "{param_name}") not found in current DOM state')
+					raise ValueError(f'Element bu_{bu_id} not found in current DOM state')
+
+				# Build CSS selector for logging
+				from browser_use.dom.selector_builder import build_robust_selector
+				element_id = node.attributes.get('id') if node.attributes else None
+				class_str = node.attributes.get('class') if node.attributes else None
+				classes = class_str.split() if class_str else None
+				selector = build_robust_selector(
+					tag_name=node.tag_name,
+					element_id=element_id,
+					classes=classes,
+					attributes=node.attributes or {},
+					max_classes=3,
+				)
+				logger.info(f'Resolving bu_{bu_id}: <{node.tag_name}> selector="{selector}"')
 
 				# Resolve the node to a CDP Remote Object using backend_node_id
 				if not node.backend_node_id:
-					raise ValueError(f'Element bu={bu_id} has no backend_node_id - cannot resolve')
+					raise ValueError(f'Element bu_{bu_id} has no backend_node_id - cannot resolve')
 
 				# Use CDP to resolve the backend node ID to an object ID
 				resolve_result = await cdp_session.cdp_client.send.DOM.resolveNode(
@@ -220,18 +260,25 @@ async def evaluate(code: str, browser_session: BrowserSession, **elements: int) 
 				)
 
 				if 'object' not in resolve_result or 'objectId' not in resolve_result['object']:
-					raise ValueError(f'Failed to resolve element bu={bu_id} to CDP object')
+					raise ValueError(f'Failed to resolve element bu_{bu_id} to CDP object')
 
 				object_id = resolve_result['object']['objectId']
 				resolved_args.append({'objectId': object_id})
 
 			# Call the function with resolved element arguments using Runtime.callFunctionOn
-			# Extract function declaration from IIFE: (function(...){...})() -> function(...){...}
-			func_declaration = code
-			if code.strip().endswith('()'):
-				func_declaration = code.strip()[:-2]  # Remove trailing ()
-			if func_declaration.strip().startswith('(') and func_declaration.strip().endswith(')'):
-				func_declaration = func_declaration.strip()[1:-1]  # Remove wrapping parens
+			# Extract function declaration from IIFE: (function(...){...})(bu_1, bu_2) -> function(...){...}
+			func_declaration = code.strip()
+
+			# Remove the invocation: )(bu_123, bu_456) at the end
+			if bu_ids:
+				# Pattern: )(bu_\d+(?:\s*,\s*bu_\d+)*)\s*$ at the very end
+				func_declaration = re.sub(r'\)\s*\(\s*bu_\d+(?:\s*,\s*bu_\d+)*\s*\)\s*$', ')()', func_declaration)
+
+			# Now extract: (function(...){...})() -> function(...){...}
+			if func_declaration.endswith('()'):
+				func_declaration = func_declaration[:-2]  # Remove trailing ()
+			if func_declaration.startswith('(') and func_declaration.endswith(')'):
+				func_declaration = func_declaration[1:-1]  # Remove wrapping parens
 
 			# Get the execution context ID from the CDP session
 			# We need to use Runtime.evaluate to get the execution context, then use callFunctionOn

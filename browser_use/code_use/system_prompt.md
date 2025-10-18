@@ -82,7 +82,7 @@ await evaluate(f'''
 
 **Note:** If the element has special characters in its ID (like `$`, `.`, `:`), the function returns `[USE_GET_ELEMENT_BY_ID]element_id`, meaning you should use `getElementById()` in JavaScript instead.
 
-### 4. evaluate(js_code: str, **element_name=element_id) → Python data
+### 4. evaluate(js_code: str) → Python data
 Execute JavaScript via **CDP (Chrome DevTools Protocol)**, returns Python dict/list/string/number/bool/None.
 
 **CRITICAL: ALWAYS USE `bu_ID` IDENTIFIERS WHEN AVAILABLE** - The browser state shows elements with `bu_ID` labels (e.g., `bu_123 <div>`).
@@ -91,16 +91,11 @@ Execute JavaScript via **CDP (Chrome DevTools Protocol)**, returns Python dict/l
 
 **ALWAYS follow this pattern:**
 1. **Look at the browser state** - Find elements with `bu_ID` labels
-2. **Pass them as kwargs** - Use the format `bu_123=123` (copy the identifier, extract the number)
-3. **Use them in JavaScript** - They become function parameters automatically
+2. **Write IIFE with parameters** - Use semantic names: `(function(productCard, price){ ... })(bu_123, bu_456)`
+3. **Pass bu_ identifiers in invocation** - At the end: `(bu_123, bu_456)` where 123, 456 are from browser state
+4. **CDP automatically resolves them** - They become actual DOM element references
 
 **`bu_ID` is NOT an HTML attribute** - It's a label shown in the browser state for your convenience. You CANNOT use it in CSS selectors like `document.querySelector('div[bu_168]')` or `document.querySelector('[bu_168]')`. These will ALWAYS fail.
-
-**To use `bu_ID` elements in JavaScript:**
-1. **Find the element in the browser state**: Look for `bu_123 <div>` or `bu_456 <a>`
-2. **Pass it as a function parameter via Python**: `await evaluate(js_code, bu_123=123, bu_456=456)`
-3. **Use it in your JavaScript function**: `(function(bu_123, bu_456){ ... })()`
-4. **CDP will automatically resolve the numbers to actual DOM element references**
 
 **Why use `bu_ID` instead of CSS classes?**
 - CSS classes like `._1AtVbE`, `._30jeq3` are obfuscated and change frequently
@@ -112,8 +107,8 @@ Execute JavaScript via **CDP (Chrome DevTools Protocol)**, returns Python dict/l
 # ❌ WRONG: Using obfuscated CSS classes that change frequently
 result = await evaluate('''
 (function(){
-  var products = document.querySelectorAll('._1AtVbE');  // Fragile! Will break!
-  var price = document.querySelector('._30jeq3');  // Obfuscated class!
+  var products = document.querySelectorAll('._1AtVbE');
+  var price = document.querySelector('._30jeq3');
   return Array.from(products).map(p => p.textContent);
 })()
 ''')
@@ -121,46 +116,46 @@ result = await evaluate('''
 # ❌ WRONG: Trying to use bu_ as CSS selector
 result = await evaluate('''
 (function(){
-  var el = document.querySelector('[bu_168]');  // FAILS! bu_ is not an attribute!
-  var el2 = document.querySelector('div[bu_168]');  // FAILS! bu_ is not an attribute!
+  var el = document.querySelector('[bu_168]');
+  var el2 = document.querySelector('div[bu_168]');
   return el;
 })()
 ''')
 ```
 
-**✅ RIGHT - Pass bu_ elements as function parameters:**
+**✅ RIGHT - Pass bu_ identifiers in IIFE invocation:**
 ```python
 # ✅ BEST: Use bu_ identifiers from DOM (works across shadow DOM!)
 # If you see: bu_123 <button id="submit" /> and bu_456 <input type="email" />
 result = await evaluate('''
-(function(bu_123, bu_456){
-  bu_456.value = "test@example.com";
-  bu_123.click();
+(function(button, input){
+  input.value = "test@example.com";
+  button.click();
   return true;
-})()
-''', bu_123=123, bu_456=456)
+})(bu_123, bu_456)
+''')
 
 # ✅ BEST: Extract products using bu_ identifiers
 # If you see: bu_100 <div class="product-card" /> containing products
 products = await evaluate('''
-(function(bu_100){
-  return Array.from(bu_100.querySelectorAll('a')).map(link => ({
+(function(container){
+  return Array.from(container.querySelectorAll('a')).map(link => ({
     name: link.textContent.trim(),
     url: link.href
   }));
-})()
-''', bu_100=100)
+})(bu_100)
+''')
 
 # ✅ BEST: Get data from multiple specific elements using their bu_ IDs
 # If you see: bu_20 <a title="Product Name" /> and bu_25 <div>$99.99
 data = await evaluate('''
-(function(bu_20, bu_25){
+(function(titleLink, priceDiv){
   return {
-    name: bu_20.title || bu_20.textContent.trim(),
-    price: bu_25.textContent.trim()
+    name: titleLink.title || titleLink.textContent.trim(),
+    price: priceDiv.textContent.trim()
   };
-})()
-''', bu_20=20, bu_25=25)
+})(bu_20, bu_25)
+''')
 ```
 
 **For working with parent/sibling elements:**
@@ -169,31 +164,31 @@ data = await evaluate('''
 # Get parent container and all product cards inside
 # If you see: bu_100 <div id="product-list" />
 products = await evaluate('''
-(function(bu_100){
-  return Array.from(bu_100.querySelectorAll('.product-card')).map(card => ({
+(function(productList){
+  return Array.from(productList.querySelectorAll('.product-card')).map(card => ({
     name: card.querySelector('.name')?.textContent?.trim(),
     price: card.querySelector('.price')?.textContent?.trim()
   }));
-})()
-''', bu_100=100)
+})(bu_100)
+''')
 
 # Get siblings of an element
 # If you see: bu_200 <div id="current-item" />
 siblings = await evaluate('''
-(function(bu_200){
-  var parent = bu_200.parentElement;
-  return Array.from(parent.children).filter(el => el !== bu_200).map(el => ({
+(function(currentItem){
+  var parent = currentItem.parentElement;
+  return Array.from(parent.children).filter(el => el !== currentItem).map(el => ({
     tag: el.tagName,
     text: el.textContent?.trim()
   }));
-})()
-''', bu_200=200)
+})(bu_200)
+''')
 ```
 
-**Alternative: Standard evaluation (no element args):**
+**Alternative: Standard evaluation (no bu_ elements - use only when no bu_ IDs are visible):**
 
 ```python
-# ✅ GOOD: Return structured data, format in Python
+# ✅ When no bu_ IDs available: Return structured data, format in Python
 elements = await evaluate('''
 (function(){
   return Array.from(document.querySelectorAll('h3, p')).map(el => ({
@@ -466,25 +461,23 @@ Take it one step at a time. Simple code that works > complex code that validates
 When you see `bu_68 <div>`, `bu_70 <a>`, `bu_123 <span>` in the browser state:
 - ❌ **DON'T**: `document.querySelectorAll('a[title]')` - generic, fragile
 - ❌ **DON'T**: `document.querySelectorAll('._1AtVbE')` - obfuscated classes break
-- ✅ **DO**: `await evaluate(js, bu_68=68, bu_70=70, bu_123=123)` - direct references
+- ✅ **DO**: `(function(el1, el2, el3){ ... })(bu_68, bu_70, bu_123)` - direct references
 
-**ALWAYS USE `bu_ID` IDENTIFIERS**: The browser state shows elements with `bu_ID` labels. ALWAYS use these instead of CSS selectors. Pass `bu_` identifiers as function parameters to get direct, stable element references.
+**ALWAYS USE `bu_ID` IDENTIFIERS**: The browser state shows elements with `bu_ID` labels. ALWAYS use these by passing them in the IIFE invocation: `(function(productCard){ ... })(bu_123)` to get direct, stable element references.
 
 ### Step 1: Test Selectors on ONE Element First
 Before writing extraction loops, validate your approach on a single element using `bu_` identifiers:
 
 ```python
-# Look at browser state and find a product element, e.g., bu_100 <div class="product-card" />
-# Test extraction using that specific element
 test_item = await evaluate('''
-(function(bu_100){
-  if (!bu_100) return null;
+(function(productCard){
+  if (!productCard) return null;
   return {
-    name: bu_100.querySelector('a')?.textContent?.trim(),
-    price: bu_100.querySelector('[class*="price"]')?.textContent?.trim(),
+    name: productCard.querySelector('a')?.textContent?.trim(),
+    price: productCard.querySelector('[class*="price"]')?.textContent?.trim(),
   };
-})()
-''', bu_100=100)
+})(bu_100)
+''')
 print(f"Test extraction: {json.dumps(test_item, indent=2)}")
 ```
 
@@ -521,37 +514,29 @@ prices = await evaluate('''
 After validating one element works, find the PARENT container and extract from all children:
 
 ```python
-# Look at browser state and find the parent container, e.g., bu_50 <div id="product-list" />
-# Then find product children, e.g., bu_68 <div>, bu_95 <div>, bu_120 <div>
-
-# ❌ WRONG: Don't use querySelector - fragile and breaks!
-# products = await evaluate("(function(){ return Array.from(document.querySelectorAll('.product-card')).map(...); })()")
-
-# ✅ RIGHT: Use the parent container bu_ID and query its children
 products = await evaluate('''
-(function(bu_50){
-  return Array.from(bu_50.children).map(card => ({
+(function(productList){
+  return Array.from(productList.children).map(card => ({
     name: card.querySelector('a')?.textContent?.trim(),
     price: card.querySelector('[class*="price"]')?.textContent?.trim(),
     link: card.querySelector('a')?.href
   }));
-})()
-''', bu_50=50)
+})(bu_50)
+''')
 print(f"Extracted {len(products)} products, sample: {json.dumps(products[:1], indent=2) if products else 'No data'}")
 ```
 
 **Or extract specific products by passing multiple `bu_` IDs:**
 ```python
-# If you see: bu_68 <div>, bu_95 <div>, bu_120 <div> (product cards)
 products = await evaluate('''
-(function(bu_68, bu_95, bu_120){
-  return [bu_68, bu_95, bu_120].map(card => ({
+(function(card1, card2, card3){
+  return [card1, card2, card3].map(card => ({
     name: card.querySelector('a')?.textContent?.trim(),
     price: card.querySelector('[class*="price"]')?.textContent?.trim(),
     link: card.querySelector('a')?.href
   }));
-})()
-''', bu_68=68, bu_95=95, bu_120=120)
+})(bu_68, bu_95, bu_120)
+''')
 print(f"Extracted {len(products)} products, sample: {json.dumps(products[:1], indent=2) if products else 'No data'}")
 ```
 
@@ -631,22 +616,17 @@ await click(index=999)
 await asyncio.sleep(2)
 ```
 
-### Mixing JavaScript and Interactive Functions
+### Mixing bu_ Elements with Interactive Functions
 
 ```python
-# Get selector from index and use in JavaScript for advanced manipulation
-selector = await get_selector_from_index(123)
-print(f"Selector: {selector}")
-await evaluate(f'''
-(function(){{
-  const el = document.querySelector({json.dumps(selector)});
-  el.scrollIntoView({{behavior: 'smooth'}});
-  el.style.border = '2px solid red';
-}})()
+await evaluate('''
+(function(element){
+  element.scrollIntoView({behavior: 'smooth'});
+  element.style.border = '2px solid red';
+})(bu_123)
 ''')
 await asyncio.sleep(1)
 
-# Then click it with the reliable interactive function
 await click(index=123)
 ```
 
@@ -734,7 +714,7 @@ except (KeyError, AttributeError, ValueError):
 
 ## Key Principles
 
-1. **ALWAYS use `bu_ID` identifiers** - The browser state shows `bu_123 <tag>` labels. ALWAYS use these by passing them as function parameters (`await evaluate(js, bu_123=123)`) instead of CSS class selectors like `._1AtVbE` which are obfuscated and break frequently.
+1. **ALWAYS use `bu_ID` identifiers** - The browser state shows `bu_123 <tag>` labels. ALWAYS use these by passing them in the IIFE invocation: `(function(element){ ... })(bu_123)` instead of CSS class selectors like `._1AtVbE` which are obfuscated and break frequently.
 2. **One step, one action** - don't try to do everything at once
 3. **Fast iteration** - simple code, check result, adjust next step
 4. **Error = change strategy** - if same error 2-3x, try different approach
