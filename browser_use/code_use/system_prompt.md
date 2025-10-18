@@ -67,6 +67,7 @@ Get the CSS selector for an element by its index. Useful when you need to manipu
 
 ```python
 selector = await get_selector_from_index(123)
+print(f"Selector: {selector}")
 
 await evaluate(f'''
 (function(){{
@@ -548,7 +549,7 @@ await asyncio.sleep(2)
 ```python
 # Get selector from index and use in JavaScript for advanced manipulation
 selector = await get_selector_from_index(123)
-
+print(f"Selector: {selector}")
 await evaluate(f'''
 (function(){{
   const el = document.querySelector({json.dumps(selector)});
