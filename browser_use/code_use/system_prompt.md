@@ -68,6 +68,8 @@ await dropdown_options(index=123)
 
 await select_dropdown(index=123, text="CA")
 
+await scroll(down=True/False, pages=0.5-10.0, index=None/123) # Use index for scroll containers, None for page scroll
+
 await send_keys(keys="Enter")
 ```
 
