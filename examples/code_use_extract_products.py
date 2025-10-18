@@ -46,10 +46,7 @@ async def main():
 Read webpage https://www.flipkart.com and follow the prompt: Continue collecting products from Flipkart in the following categories. I need approximately 40 products from:\n\n1. Books & Media (books, stationery) - 15 products\n2. Sports & Fitness (equipment, clothing, accessories) - 15 products  \n3. Beauty & Personal Care (cosmetics, skincare, grooming) - 10 products\n\nNavigate to these categories and collect products with:\n- Product URL (working link)\n- Product name/description\n- Actual price (MRP)\n- Deal price (current selling price)  \n- Discount percentage\n\nFocus on products with good discounts and clear pricing. Target around 40 products total from these three categories.
 		""",
 		llm=llm,
-		browser_profile=BrowserProfile(
-			headless=False,  # Show browser to see what's happening
-		),
-		max_steps=30,
+		max_steps=3,
 	)
 
 	try:
