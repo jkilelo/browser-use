@@ -138,12 +138,12 @@ class DOMEvalSerializer:
 
 			# Add attributes only for interactive elements or elements with useful attributes
 			if attributes_str or has_interactive_index:
-				if attributes_str:
-					line += f' {attributes_str}'
-
 				# Add interactive index notation [index] for elements with interactive_index
 				if has_interactive_index:
 					line += f' [{node.interactive_index}]'
+				if attributes_str:
+					line += f' {attributes_str}'
+
 
 				# Add scroll info if element is scrollable
 				if node.original_node.should_show_scroll_info:
