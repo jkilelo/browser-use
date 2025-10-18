@@ -85,6 +85,37 @@ def _strip_js_comments(js_code: str) -> str:
 	return js_code
 
 
+async def _ensure_jquery_loaded(browser_session: BrowserSession) -> None:
+	"""
+	Ensure jQuery is loaded in the current page if not already present.
+	This enables advanced CSS selectors like :has() and :contains().
+	"""
+	cdp_session = await browser_session.get_or_create_cdp_session()
+
+	jquery_check = """
+	(function(){
+		if (typeof jQuery !== 'undefined') return 'already_loaded';
+		if (document.querySelector('script[src*="jquery"]')) return 'loading';
+
+		const script = document.createElement('script');
+		script.src = 'https://code.jquery.com/jquery-3.7.1.min.js';
+		script.integrity = 'sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=';
+		script.crossOrigin = 'anonymous';
+		document.head.appendChild(script);
+		return 'injected';
+	})()
+	"""
+
+	try:
+		await cdp_session.cdp_client.send.Runtime.evaluate(
+			params={'expression': jquery_check, 'returnByValue': True},
+			session_id=cdp_session.session_id,
+		)
+	except Exception:
+		# If jQuery injection fails, continue anyway (page might have CSP restrictions)
+		pass
+
+
 async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 	"""
 	Execute JavaScript code in the browser and return the result.
@@ -105,6 +136,9 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 		})()
 		''')
 	"""
+	# Ensure jQuery is loaded for advanced selectors
+	await _ensure_jquery_loaded(browser_session)
+
 	# Strip JavaScript comments before CDP evaluation (CDP doesn't support them in all contexts)
 	code = _strip_js_comments(code)
 

@@ -81,7 +81,22 @@ await evaluate(f'''
 ### 4. evaluate(js_code: str) → Python data
 Execute JavaScript via **CDP (Chrome DevTools Protocol)**, returns Python dict/list/string/number/bool/None.
 
+**jQuery is automatically injected** into every page, so you can use advanced CSS selectors:
+
 ```python
+# Use jQuery for advanced selectors like :has() and :contains()
+products = await evaluate('''
+(function(){
+  return jQuery('div.product:has(span.price)').map(function() {
+    return {
+      name: jQuery(this).find('.name').text(),
+      price: jQuery(this).find('.price').text()
+    };
+  }).get();
+})()
+''')
+
+# Or use standard DOM methods
 products = await evaluate('''
 (function(){
   return Array.from(document.querySelectorAll('.product')).map(p => ({
@@ -205,8 +220,9 @@ await done(text=output, success=True)
 3. **Simplify**: Maybe you're overcomplicating it
 
 **Common fixes:**
-- **Selector not found?** Try semantic attributes: `[aria-label="Submit"]`, `button[type="submit"]`
-- **Invalid selector?** Check for empty IDs (`#`), `:contains()`, or missing quotes in attribute values
+- **Selector not found?** Try semantic attributes: `[aria-label="Submit"]`, `button[type="submit"]`, or use jQuery: `jQuery('button:contains("Submit")')`
+- **Invalid selector?** Use jQuery for complex selectors: `jQuery('div:has(span.price)')` instead of standard CSS
+- **Tailwind classes with `[` or `:`?** Escape them: `.space-y-\\[8px\\]` or use jQuery: `jQuery('[class*="space-y"]')`
 - **CDP error with valid code?** Simplify JavaScript, break into smaller steps, or try different approach
 - **Navigation failed?** Try alternative URL or search via DuckDuckGo
 - **Data extraction failed?** Check if content is in iframe, shadow DOM, or loaded dynamically
@@ -420,6 +436,8 @@ await click(index=123)
 ```
 
 ### Extract and process data
+
+Using standard DOM:
 ```python
 data = await evaluate('''
 (function(){
@@ -432,6 +450,22 @@ data = await evaluate('''
 
 valid_items = [item for item in data if item['title']]
 print(f"Found {len(valid_items)} valid items")
+```
+
+Using jQuery (simpler for complex selectors):
+```python
+# Find elements containing specific text
+data = await evaluate('''
+(function(){
+  return jQuery('.item:has(.price)').map(function() {
+    return {
+      title: jQuery(this).find('.title').text().trim(),
+      price: jQuery(this).find('.price').text().trim()
+    };
+  }).get();
+})()
+''')
+print(f"Found {len(data)} items with prices")
 ```
 
 ### Pagination
