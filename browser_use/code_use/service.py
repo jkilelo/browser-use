@@ -734,12 +734,12 @@ __code_exec_coro__ = __code_exec__()
 				pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
 
 				if pages_above > 0:
-					dom_html = f'... {pages_above:.1f} pages above (use evaluate to scroll or extract)\n{dom_html}'
+					dom_html = f'{pages_above:.1f} pages above the viewport\n{dom_html}'
 				else:
 					dom_html = '[Start of page]\n' + dom_html
 
 				if pages_below > 0:
-					dom_html += f'\n... {pages_below:.1f} pages below (use evaluate to scroll or extract)'
+					dom_html += f'\n{pages_below:.1f} pages below the viewport'
 				else:
 					dom_html += '\n[End of page]'
 
