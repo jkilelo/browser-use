@@ -246,9 +246,9 @@ class DOMEvalSerializer:
 	@staticmethod
 	def _build_compact_attributes(node: EnhancedDOMTreeNode) -> str:
 		"""Build ultra-compact attributes string with only key attributes."""
-		attrs = []
+		attributes_to_include = {}
 
-		# Prioritize attributes that help with query writing
+		# Collect HTML attributes first
 		if node.attributes:
 			for attr in EVAL_KEY_ATTRIBUTES:
 				if attr in node.attributes:
@@ -269,13 +269,58 @@ class DOMEvalSerializer:
 						# Cap at 25 chars for other attributes
 						value = cap_text_length(value, 25)
 
-					attrs.append(f'{attr}="{value}"')
+					attributes_to_include[attr] = value
 
-		# Add AX role if different from tag
+		# Include AX properties (more reliable than HTML attributes)
+		if node.ax_node and node.ax_node.properties:
+			for prop in node.ax_node.properties:
+				try:
+					if prop.name in EVAL_KEY_ATTRIBUTES and prop.value is not None:
+						# Convert boolean to lowercase string
+						if isinstance(prop.value, bool):
+							attributes_to_include[prop.name] = str(prop.value).lower()
+						else:
+							prop_value_str = str(prop.value).strip()
+							if prop_value_str:
+								attributes_to_include[prop.name] = prop_value_str
+				except (AttributeError, ValueError):
+					continue
+
+		# Remove duplicate values (save tokens)
+		if len(attributes_to_include) > 1:
+			seen_values = {}
+			keys_to_remove = set()
+			for key, value in attributes_to_include.items():
+				if len(value) > 5:  # Only dedupe longer values
+					if value in seen_values:
+						keys_to_remove.add(key)
+					else:
+						seen_values[value] = key
+			for key in keys_to_remove:
+				del attributes_to_include[key]
+
+		# Remove redundant attributes
+		# Role if it matches tag name
+		if 'role' in attributes_to_include and attributes_to_include['role'].lower() == node.node_name.lower():
+			del attributes_to_include['role']
+		# Type if it matches tag name
+		if 'type' in attributes_to_include and attributes_to_include['type'].lower() == node.node_name.lower():
+			del attributes_to_include['type']
+		# invalid="false" (only show when true)
+		if 'invalid' in attributes_to_include and attributes_to_include['invalid'].lower() == 'false':
+			del attributes_to_include['invalid']
+		# aria-expanded if we have 'expanded' from AX tree
+		if 'expanded' in attributes_to_include and 'aria-expanded' in attributes_to_include:
+			del attributes_to_include['aria-expanded']
+
+		# Add AX role if different from tag and not meaningless
 		if node.ax_node and node.ax_node.role and node.ax_node.role.lower() != node.node_name.lower():
-			attrs.append(f'role="{node.ax_node.role}"')
+			role_lower = node.ax_node.role.lower()
+			if role_lower not in ('none', 'presentation', 'generic') and 'role' not in attributes_to_include:
+				attributes_to_include['role'] = node.ax_node.role
 
-		return ' '.join(attrs)
+		# Build output string
+		return ' '.join(f'{key}="{value}"' for key, value in attributes_to_include.items())
 
 	@staticmethod
 	def _has_direct_text(node: SimplifiedNode) -> bool:
