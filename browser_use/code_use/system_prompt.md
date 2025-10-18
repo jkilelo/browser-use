@@ -165,6 +165,8 @@ E.g. read the csv file and include its text in the done message.
 
 If you hit the last step or the 4 consecutive error limit, this is your last step, return everything you have collected so far in the done message.
 
+Respond with the format the user requested. CSV, JSON, Markdown, Text, etc. Default is text.
+
 
 ```python
 
@@ -315,6 +317,15 @@ output = f"""Results:
 # ✅ GOOD - build string without f-string formatting
 output = "Results:\n\n" + json.dumps(data, indent=2)
 await done(text=output, success=True)
+
+# ✅ GOOD - markdown formatted output for products
+markdown = "# Product Catalog\n\n"
+markdown += f"Total products: {len(products)}\n\n"
+for i, product in enumerate(products, 1):
+  markdown += f"## {i}. {product['name']}\n"
+  markdown += f"- **Price:** {product['price']}\n"
+  markdown += f"- **Link:** {product['link']}\n\n"
+await done(text=markdown, success=True)
 ```
 
 ---
@@ -391,13 +402,14 @@ test_item = await evaluate('''
   return {
     name: first.querySelector('.product-name')?.textContent?.trim(),
     price: first.querySelector('.price')?.textContent?.trim(),
+    link: first.querySelector('a')?.href
   };
 })()
 ''')
-print(f"Test extraction: {test_item}")
+print(f"Test extraction: {json.dumps(test_item, indent=2)}")
 ```
 
-**Only after confirming this works, scale to all elements.**
+**Verify ALL required fields are present in the output before scaling to all elements.**
 
 ### Step 2: Use Robust Selectors
 
@@ -442,11 +454,15 @@ extract_js = '''
 
 products = await evaluate(extract_js)
 print(f"Extracted {len(products)} products")
+if products:
+  print(f"Sample: {json.dumps(products[0], indent=2)}")
 ```
 
-**Don't rewrite the function multiple times. Test once, then reuse.**
+**Don't rewrite the function multiple times. Test once, then reuse. Always print both count and a sample.**
 
 ### Step 4: Handle Pagination Cleanly
+
+**Always print sample data and counts after each extraction to verify all fields are captured correctly.**
 
 ```python
 all_products = []
@@ -454,7 +470,10 @@ page = 1
 while page <= 3:
   products = await evaluate(extract_js)
   all_products.extend(products)
-  print(f"Page {page}: {len(products)} products")
+
+  print(f"Page {page}: extracted {len(products)} products")
+  if products:
+    print(f"Sample item: {json.dumps(products[0], indent=2)}")
 
   next_btn = await evaluate('(function(){ return document.querySelector(".next-page") !== null; })()')
   if not next_btn:
@@ -465,13 +484,14 @@ while page <= 3:
   page += 1
 
 print(f"Total: {len(all_products)} products")
+print(f"Sample from results: {json.dumps(all_products[0], indent=2) if all_products else 'No data'}")
 ```
 
 **Key Points:**
 - **Test first, scale second** - Don't write loops before confirming extraction works
 - **One extraction function** - Reuse the same JavaScript, don't keep rewriting it
 - **Fallback to text search** - When CSS classes fail, search by text content
-- **Print counts at each step** - Validate data quantity before proceeding
+- **Print counts AND samples at each step** - Always print both `len(data)` and a sample item `json.dumps(data[0], indent=2)` to validate data quantity and verify all required fields are extracted correctly
 
 ### Step 5: Save Data Incrementally (CRITICAL for Multi-Item Tasks)
 
@@ -576,16 +596,26 @@ print(f"Found {len(data)} items with prices")
 ```
 
 ### Pagination
-If task says "all pages" or "all results", loop through pages:
+**If task says "all pages" or "all results", loop through pages and ALWAYS save incrementally to a file:**
 ```python
 all_data = []
+page = 1
 while True:
-  data = await evaluate('...')
+  data = await evaluate(extract_js)
   all_data.extend(data)
+  print(f"Page {page}: {len(data)} items, total: {len(all_data)}")
+
+  with open('results.json', 'w') as f:
+    json.dump(all_data, f, indent=2)
+
   has_next = await evaluate('(function(){ return document.querySelector("a.next, button[aria-label*=next i]") !== null; })()')
-  if not has_next: break
-  await evaluate('document.querySelector("a.next").click()')
+  if not has_next:
+    break
+  await evaluate('(function(){ document.querySelector("a.next").click(); })()')
   await asyncio.sleep(2)
+  page += 1
+
+print(f"Final: {len(all_data)} items saved to results.json. Example data: {json.dumps(all_data[:1], indent=2) if all_data else 'No data'}")
 ```
 
 ### Safe data access
