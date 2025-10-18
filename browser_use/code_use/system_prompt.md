@@ -102,30 +102,19 @@ for el in elements:
         formatted += f"{el['text']}\n"
 ```
 
-**jQuery is automatically injected** into every page (when possible):
+**Use structural selectors (child combinator `>`) to navigate the DOM:**
 
 ```python
-# Use jQuery for advanced selectors like :has() and :contains() if available
 products = await evaluate('''
 (function(){
-  // Fallback to standard DOM if jQuery blocked by CSP
-  if (typeof jQuery === 'undefined') {
-    return Array.from(document.querySelectorAll('.product')).map(p => ({
-      name: p.querySelector('.name')?.textContent,
-      price: p.querySelector('.price')?.textContent
-    }));
-  }
-
-  return jQuery('div.product:has(span.price)').map(function() {
-    return {
-      name: jQuery(this).find('.name').text(),
-      price: jQuery(this).find('.price').text()
-    };
-  }).get();
+  return Array.from(document.querySelectorAll('div > div > div')).map(container => ({
+    text: container.textContent.trim(),
+    html: container.innerHTML.substring(0, 500)
+  }));
 })()
 ''')
 
-print(f"Found {len(products)} products")
+print(f"Found {len(products)} containers")
 ```
 
 **Requirements:**
@@ -327,9 +316,9 @@ await done(text=output, success=True)
 3. **Simplify**: Maybe you're overcomplicating it
 
 **Common fixes:**
-- **Selector not found?** Try semantic attributes: `[aria-label="Submit"]`, `button[type="submit"]`, or use jQuery: `jQuery('button:contains("Submit")')`
-- **Invalid selector?** Use jQuery for complex selectors: `jQuery('div:has(span.price)')` instead of standard CSS
-- **Tailwind classes with `[` or `:`?** Escape them: `.space-y-\\[8px\\]` or use jQuery: `jQuery('[class*="space-y"]')`
+- **Selector not found?** Try semantic attributes: `[aria-label="Submit"]`, `button[type="submit"]`, or structural selectors: `div > button`
+- **Invalid selector?** Use structural navigation: `div > div > span` to traverse the hierarchy
+- **Dynamic classes?** Use attribute wildcard matching: `[id*="product"]` or extract full text and parse in Python
 - **CDP error with valid code?** Simplify JavaScript, break into smaller steps, or try different approach
 - **Navigation failed?** Try alternative URL or search via DuckDuckGo
 - **Data extraction failed?** Check if content is in iframe, shadow DOM, or loaded dynamically
@@ -405,25 +394,53 @@ print(f"Test extraction: {test_item}")
 
 Bad (obfuscated classes that change):
 ```python
-await evaluate("(function(){ return document.querySelector('._30jeq3'); })()")
+await evaluate("(function(){ return document.querySelector('.product-card'); })()")
 ```
 
-Good (semantic attributes and structure):
+Good (structural selectors and semantic attributes):
 ```python
 await evaluate("(function(){ return document.querySelector('[data-price]'); })()")
-await evaluate("(function(){ return document.querySelector('div[role=\"listitem\"] span'); })()")
+await evaluate("(function(){ return document.querySelector('div[role=\"listitem\"] > div > span'); })()")
+await evaluate("(function(){ return document.querySelectorAll('main > div > div > div'); })()")
 ```
 
-**Use text-based fallbacks when classes fail:**
+**Use structural navigation when semantic attributes are unavailable:**
 ```python
-prices = await evaluate('''
+containers = await evaluate('''
 (function(){
-  return Array.from(document.querySelectorAll('span, div')).filter(el =>
-    el.textContent.includes('$') || el.textContent.includes('₹')
-  ).map(el => el.textContent.trim());
+  return Array.from(document.querySelectorAll('body > div > div > div')).map(el => ({
+    text: el.textContent.trim(),
+    links: Array.from(el.querySelectorAll('a')).map(a => a.href)
+  }));
 })()
 ''')
 ```
+
+**When classes and IDs are unreliable:**
+
+Modern websites use obfuscated classes that change frequently. Extract raw content and parse in Python:
+
+1. **Use structural selectors to find containers, extract text, parse in Python:**
+```python
+products = await evaluate('''
+(function(){
+  return Array.from(document.querySelectorAll('main > div > div > div')).map(container => ({
+    text: container.textContent.trim(),
+    link: container.querySelector('a')?.href
+  }));
+})()
+''')
+
+import re
+for p in products:
+    match = re.search(r'(₹[\d,]+)\s*(₹[\d,]+)?\s*(\d+%\s*off)?', p['text'])
+    if match:
+        p['deal_price'] = match.group(1)
+        p['mrp'] = match.group(2) if match.group(2) else 'N/A'
+        p['discount'] = match.group(3) if match.group(3) else 'N/A'
+```
+
+**The pattern:** Use `div > div > div` structural navigation to find containers → Extract raw text → Parse with regex in Python.
 
 ### Step 3: Build Extraction Function Once
 
@@ -559,17 +576,14 @@ valid_items = [item for item in data if item['title']]
 print(f"Found {len(valid_items)} valid items")
 ```
 
-Using jQuery (simpler for complex selectors):
+Using structural navigation:
 ```python
-# Find elements containing specific text
 data = await evaluate('''
 (function(){
-  return jQuery('.item:has(.price)').map(function() {
-    return {
-      title: jQuery(this).find('.title').text().trim(),
-      price: jQuery(this).find('.price').text().trim()
-    };
-  }).get();
+  return Array.from(document.querySelectorAll('main > div > article')).map(item => ({
+    title: item.querySelector('h2, h3')?.textContent?.trim(),
+    price: item.querySelector('[data-price], span')?.textContent?.trim()
+  }));
 })()
 ''')
 print(f"Found {len(data)} items with prices")
