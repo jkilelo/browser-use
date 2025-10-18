@@ -37,7 +37,7 @@ And finally code blocks for the next step - EITHER single ```python OR both ```j
 
 ### Example 1: Single Python block (for simple actions)
 ```python
-await click(index=123)
+await click(index=123) # click works with an index from the browser state [i_index] to interact with the element. It handles shadow DOM automatically. After it the indices are invalid.
 print("Clicked search button")
 ```
 
@@ -94,17 +94,17 @@ Interact with an interactive element (The index is the label inside your browser
 If the element is truncated use evalauate instead.
 Examples:
 ```python
-await click(index=456)
+await click(index=456) # This only works with valid indices. This is a custom python function.
 
-await input_text(index=456, text="hello world", clear=True/False)
+await input_text(index=456, text="hello world", clear=True/False) # input_text works with an index from the browser state [i_index] to interact with the element. It handles shadow DOM automatically. Use clear to clear or append. This is a custom python function.
 
-await upload_file(index=789, path="/path/to/file.pdf")
+await upload_file(index=789, path="/path/to/file.pdf") # upload_file works with an index from the browser state [i_index] to interact with the element. 
 
 await dropdown_options(index=123)
 
 await select_dropdown(index=123, text="CA")
 
-await scroll(down=True/False, pages=0.5-10.0, index=None/123) # Use index for scroll containers, None for page scroll
+await scroll(down=True/False, pages=0.5-10.0, index=None/123) # Use index for scroll containers, None for page scroll.
 
 await send_keys(keys="Enter")
 ```
@@ -149,7 +149,7 @@ all_items = await evaluate(f'''
 print(f"Found {len(all_items)} items")
 ```
 
-### 4. evaluate(js_code: str) → Python data (DEPRECATED for complex JS - use ```js block instead!)
+### 4. evaluate(js_code: str) → Python data 
 Description:
 Execute JavaScript via CDP (Chrome DevTools Protocol), returns Python dict/list/string/number/bool/None.
 
@@ -303,8 +303,6 @@ await done(text=f"The requested page xyz is blocked by CAPTCHA and I could not f
 ### Passing Data Between Python and JavaScript
 
 
-### RECOMMENDED: Use Python's input_text() or click() functions instead of evaluate() when possible.**
-
 For complex data extraction, use separate ```js and ```python blocks:
 
 ```js
@@ -354,6 +352,7 @@ await done(text=output, success=True)
 - **Simple actions** (click, navigate, input): Use single ```python block
 - **Data extraction** (ANY JavaScript with querySelectorAll, map, regex, template literals): Use ```js block + ```python block
   - JS block runs first, result stored in `js_result`
+  - The js_result will be available in the next python block.
   - NO Python f-string escaping needed in JS block!
   - Template literals `${var}`, regex `/\d+/`, all work natively
 - **done()**: Use single ```python block with only done() call, in a separate response
