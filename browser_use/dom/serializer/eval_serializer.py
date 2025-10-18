@@ -325,7 +325,7 @@ class DOMEvalSerializer:
 			)
 			if pattern_total > max_pattern_items:
 				depth_str = depth * '\t'
-				children_output.append(f'{depth_str}... +{pattern_total - max_pattern_items} similar')
+				children_output.append(f'{depth_str}... +{pattern_total - max_pattern_items} similar (use evaluate() if you need more)')
 
 		# Add truncation message for links if we skipped any at the end
 		if total_links_skipped > 0:
