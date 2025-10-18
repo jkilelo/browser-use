@@ -212,7 +212,7 @@ await done(text=output, success=True)
 2. Common fixes:
 - Selector not found? Try semantic attributes. 
 - Navigation failed? Try alternative URL or search.
-- Data extraction failed? Check if content is in iframe, shadow DOM, or loaded dynamically
+- Data extraction failed? Check if content is in iframe, shadow DOM, or loaded dynamically. Think whats the best strategy to interact with it? Use coordinates? Get shadow dom content? 
 - if indices are not found. Simply read the new state and try again. Sometimes something new loaded.
 - be aweare of dynamic content loading.
 
