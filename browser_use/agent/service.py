@@ -1026,34 +1026,31 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 
 	# region - URL replacement
 	def _replace_urls_in_text(self, text: str) -> tuple[str, dict[str, str]]:
-		"""Replace URLs in a text string"""
+		"""Replace URLs in a text string (both absolute and relative URLs)"""
+		import hashlib
 
 		replaced_urls: dict[str, str] = {}
 
-		def replace_url(match: re.Match) -> str:
-			"""Url can only have 1 query and 1 fragment"""
-			import hashlib
-
-			original_url = match.group(0)
-
+		def shorten_url(url: str) -> str:
+			"""Shorten a single URL by truncating query/fragment if too long"""
 			# Find where the query/fragment starts
-			query_start = original_url.find('?')
-			fragment_start = original_url.find('#')
+			query_start = url.find('?')
+			fragment_start = url.find('#')
 
 			# Find the earliest position of query or fragment
-			after_path_start = len(original_url)  # Default: no query/fragment
+			after_path_start = len(url)  # Default: no query/fragment
 			if query_start != -1:
 				after_path_start = min(after_path_start, query_start)
 			if fragment_start != -1:
 				after_path_start = min(after_path_start, fragment_start)
 
 			# Split URL into base (up to path) and after_path (query + fragment)
-			base_url = original_url[:after_path_start]
-			after_path = original_url[after_path_start:]
+			base_url = url[:after_path_start]
+			after_path = url[after_path_start:]
 
 			# If after_path is within the limit, don't shorten
 			if len(after_path) <= self._url_shortening_limit:
-				return original_url
+				return url
 
 			# If after_path is too long, truncate and add hash
 			if after_path:
@@ -1064,13 +1061,34 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 				# Create shortened URL
 				shortened = f'{base_url}{truncated_after_path}...{short_hash}'
 				# Only use shortened URL if it's actually shorter than the original
-				if len(shortened) < len(original_url):
-					replaced_urls[shortened] = original_url
+				if len(shortened) < len(url):
+					replaced_urls[shortened] = url
 					return shortened
 
-			return original_url
+			return url
 
-		return URL_PATTERN.sub(replace_url, text), replaced_urls
+		# First, handle absolute URLs with URL_PATTERN
+		def replace_absolute_url(match: re.Match) -> str:
+			return shorten_url(match.group(0))
+
+		text = URL_PATTERN.sub(replace_absolute_url, text)
+
+		# Then, handle relative URLs in href/src attributes (paths starting with /)
+		# Match: href="/path?query" or src="/path#fragment"
+		relative_url_pattern = re.compile(r'((?:href|src)=")(/?[^"]*[?#][^"]+)(")')
+
+		def replace_relative_url(match: re.Match) -> str:
+			prefix = match.group(1)  # href=" or src="
+			url = match.group(2)  # the actual URL
+			suffix = match.group(3)  # closing "
+
+			# Only shorten if it has query params or fragment
+			shortened = shorten_url(url)
+			return f'{prefix}{shortened}{suffix}'
+
+		text = relative_url_pattern.sub(replace_relative_url, text)
+
+		return text, replaced_urls
 
 	def _process_messsages_and_replace_long_urls_shorter_ones(self, input_messages: list[BaseMessage]) -> dict[str, str]:
 		"""Replace long URLs with shorter ones
