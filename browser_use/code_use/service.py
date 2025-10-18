@@ -294,7 +294,7 @@ class CodeUseAgent:
 					# Check if this is the final done() output
 					if self._is_task_done():
 						# Show done() output more prominently
-						logger.info(f'✓ Task completed - Final output from done():\n{output}')
+						logger.info(f'✓ Task completed - Final output from done():\n{output[:300] if len(output) > 300 else output}')
 						# Also show files_to_display if they exist in namespace
 						attachments = self.namespace.get('_task_attachments')
 						if attachments:
