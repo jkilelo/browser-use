@@ -86,12 +86,9 @@ Example:
 ```python
 selector = await get_selector_from_index(index=456)
 print(f"Selector: {selector}")
-product = await evaluate('''
-(function(){
-  const el = document.querySelector({sel});
-  return el.textContent;
-})()
-'''.format(sel=json.dumps(selector)))
+
+js_code = '(function(){ const el = document.querySelector(' + json.dumps(selector) + '); return el.textContent; })()'
+product = await evaluate(js_code)
 print(f"Product: {product}")
 ```
 
@@ -189,48 +186,30 @@ await done(text=f"Extracted 50 products:\n\n{json.dumps(products, indent=2)}", s
 
 ### Passing Data Between Python and JavaScript
 
-**Use `.format()` for cleaner code:**
-When passing Python variables to JavaScript in `evaluate()`, use `.format()` instead of f-strings to avoid escaping curly braces:
+**ALWAYS use string concatenation with the + operator:**
+When passing Python variables into JavaScript, build the JS code string using `+`:
 
 ```python
 import json
 
-search_term = 'user input with "quotes"'
-result = await evaluate('''
-(function(){
-  const term = {term};
-  document.querySelector('input').value = term;
-  return true;
-})()
-'''.format(term=json.dumps(search_term)))
-```
-
-Get a list of siblings:
-```python
 selector = await get_selector_from_index(index=123)
-items = await evaluate('''
-(function(){
-  const el = document.querySelector({sel});
-  if (!el || !el.parentElement) return [];
-  return Array.from(el.parentElement.children).filter(d =>
-    d.textContent.includes('search text')
-  ).map(d => d.textContent);
-})()
-'''.format(sel=json.dumps(selector)))
+print(f"Selector: {selector}")
+js_code = '(function(){ const el = document.querySelector(' + json.dumps(selector) + '); '
+js_code += 'if (!el) return null; '
+js_code += 'return { text: el.textContent, href: el.href }; })()'
+
+result = await evaluate(js_code)
 ```
 
-**Alternative: Use f-strings with double curly braces (more error-prone):**
+For simple cases:
 ```python
-result = await evaluate(f'''
-(function(){{
-  const term = {json.dumps(search_term)};
-  return term;
-}})()
-''')
+search_term = 'user input'
+js_code = '(function(){ const term = ' + json.dumps(search_term) + '; '
+js_code += 'document.querySelector("input").value = term; return true; })()'
+result = await evaluate(js_code)
 ```
-Note: Every `{` and `}` in JavaScript code must be doubled as `{{` and `}}` in f-strings, which is easy to forget.
 
-### String Formatting Rules
+**NEVER use f-strings or .format()** - JavaScript curly braces `{` `}` conflict with Python string formatting.
 
 
 
@@ -257,14 +236,11 @@ Define Python functions that wrap JavaScript evaluation logic, then call them wi
 
 ```python
 async def extract_products(selector):
-    return await evaluate('''
-    (function(){
-      return Array.from(document.querySelectorAll({sel})).map(el => ({
-        name: el.querySelector('.name')?.textContent?.trim(),
-        price: el.querySelector('.price')?.textContent?.trim()
-      }));
-    })()
-    '''.format(sel=json.dumps(selector)))
+    js_code = '(function(){ return Array.from(document.querySelectorAll(' + json.dumps(selector) + ')).map(el => ({ '
+    js_code += 'name: el.querySelector(".name")?.textContent?.trim(), '
+    js_code += 'price: el.querySelector(".price")?.textContent?.trim() '
+    js_code += '})); })()'
+    return await evaluate(js_code)
 
 page1_data = await extract_products('.product-list .item')
 example = page1_data[0] if len(page1_data) > 0 else None
