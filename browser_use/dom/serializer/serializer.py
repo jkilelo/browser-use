@@ -530,19 +530,19 @@ class DOMTreeSerializer:
 		return None
 
 	def _collect_interactive_elements(self, node: SimplifiedNode, elements: list[SimplifiedNode]) -> None:
-		"""Recursively collect interactive elements that are also visible."""
+		"""Recursively collect all interactive elements (scroll-to-view on interaction)."""
 		is_interactive = self._is_interactive_cached(node.original_node)
-		is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 
-		# Only collect elements that are both interactive AND visible
-		if is_interactive and is_visible:
+		# Collect all interactive elements regardless of viewport visibility
+		# Actions will scroll elements into view as needed
+		if is_interactive:
 			elements.append(node)
 
 		for child in node.children:
 			self._collect_interactive_elements(child, elements)
 
 	def _assign_interactive_indices_and_mark_new_nodes(self, node: SimplifiedNode | None) -> None:
-		"""Assign interactive indices to clickable elements that are also visible."""
+		"""Assign interactive indices to all clickable elements (scroll-to-view on click)."""
 		if not node:
 			return
 
@@ -553,9 +553,10 @@ class DOMTreeSerializer:
 			# Add ALL visible elements to selector map (keyed by backend_node_id)
 			self._selector_map[node.original_node.backend_node_id] = node.original_node
 
-			# Assign interactive index only to interactive elements
+			# Assign interactive index to ALL interactive elements (visible or not)
+			# Since click actions scroll elements into view, we should expose all interactive elements
 			is_interactive_assign = self._is_interactive_cached(node.original_node)
-			if is_interactive_assign and is_visible:
+			if is_interactive_assign:
 				node.interactive_index = self._interactive_counter
 				node.original_node.element_index = self._interactive_counter
 				self._interactive_counter += 1
@@ -838,11 +839,10 @@ class DOMTreeSerializer:
 				if attributes_html_str:
 					line += f' {attributes_html_str}'
 
-				# Add backend node ID notation - [interactive_X] for interactive, [X] for others
+				# Add backend node ID notation - [i_X] for interactive elements only
 				if node.interactive_index is not None:
-					line += f' [interactive_{node.original_node.backend_node_id}]'
-				else:
-					line += f' [{node.original_node.backend_node_id}]'
+					line += f' [i_{node.original_node.backend_node_id}]'
+				# Non-interactive elements don't get an index notation
 
 				line += ' />'
 
