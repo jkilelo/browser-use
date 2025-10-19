@@ -108,7 +108,7 @@ products = await evaluate('''
 })()
 ''')
 if len(products) > 0:
-  first_product = products[0] 
+  first_product = products[0]
   print(f"Found {len(products)} products. First product: {first_product}")
 else:
   print("No products found")
@@ -118,6 +118,44 @@ else:
 - Returns Python data types automatically
 - Recommended to wrap in IIFE: `(function(){ ... })()`
 - Do NOT use JavaScript comments (// or /* */) - they are stripped before execution. They break the cdp execution environment.
+
+**CRITICAL - Avoid Syntax Errors:**
+- Only extract raw data in JavaScript - return simple dicts/lists/strings
+- Do ALL formatting, regex, string manipulation, newlines in Python AFTER extraction
+- JavaScript string formatting causes syntax errors - keep JS minimal and data-focused
+
+**Example - CORRECT:**
+```python
+elements = await evaluate('''
+(function(){
+  return Array.from(document.querySelectorAll('h3, p')).map(el => ({
+    tag: el.tagName,
+    text: el.textContent.trim()
+  }));
+})()
+''')
+
+formatted = ""
+for el in elements:
+    if el['tag'] == 'H3':
+        formatted += f"\n--- {el['text']} ---\n"
+    else:
+        formatted += f"{el['text']}\n"
+print(formatted)
+```
+
+**Example - WRONG (causes syntax errors):**
+```python
+result = await evaluate('''
+(function(){
+  let output = "";
+  document.querySelectorAll('h3, p').forEach(el => {
+    output += el.tagName === 'H3' ? `\n--- ${el.textContent} ---\n` : `${el.textContent}\n`;
+  });
+  return output;
+})()
+''')
+```
 
 ### 5. `done(text: str, success: bool = True)`
 
