@@ -197,19 +197,19 @@ def create_namespace(
 		# but exclude the more complex ones that aren't needed
 		tools = Tools(
 			exclude_actions=[
-				'scroll',
+				# 'scroll',
 				'extract',
 				'find_text',
-				'select_dropdown',
-				'dropdown_options',
+				# 'select_dropdown',
+				# 'dropdown_options',
 				'screenshot',
 				'search',
 				# 'click',  # Keep for code-use
 				# 'input',  # Keep for code-use
-				'switch',
+				# 'switch',  # Keep for code-use - allows switching tabs
 				# 'send_keys',  # Keep for code-use
-				'close',
-				'go_back',
+				# 'close',  # Keep for code-use - allows closing tabs
+				# 'go_back',  # Keep for code-use - allows navigating back
 				# 'upload_file',  # Keep for code-use
 			]
 		)
