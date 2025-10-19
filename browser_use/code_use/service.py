@@ -764,7 +764,7 @@ __code_exec_coro__ = __code_exec__()
 					dom_html += '\n[End of page]'
 
 			# Truncate DOM if too long and notify LLM
-			max_dom_length = 40000
+			max_dom_length = 60000
 			if len(dom_html) > max_dom_length:
 				lines.append(dom_html[:max_dom_length])
 				lines.append(f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]')
