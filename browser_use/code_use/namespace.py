@@ -314,6 +314,12 @@ def create_namespace(
 			code = kwargs.get('code', kwargs.get('js_code', kwargs.get('expression', '')))
 		if not code:
 			raise ValueError('No JavaScript code provided to evaluate()')
+
+		# Auto-wrap in IIFE if not already wrapped
+		stripped = code.strip()
+		if not (stripped.startswith('(function()') or stripped.startswith('(async function()')):
+			code = f'(function(){{{code}}})()'
+
 		# Ignore any extra arguments (like browser_session if passed)
 		return await evaluate(code, browser_session)
 
