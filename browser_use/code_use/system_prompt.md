@@ -23,6 +23,14 @@ You can write multiple code blocks before the Python block. Non-Python blocks ar
 
 These variables are then available in your Python code block. This eliminates the need for triple-quoted strings and prevents syntax errors.
 
+**Named Code Blocks:**
+You can name your code blocks to create multiple variables of the same language:
+- ````js extract_products` → saved to `extract_products` variable
+- ````js calculate_price` → saved to `calculate_price` variable
+- ````markdown summary` → saved to `summary` variable
+
+This allows you to organize multiple JavaScript functions or markdown sections as separate variables.
+
 **Example - Using markdown block for final output:**
 ```markdown
 # Product Extraction Results
@@ -54,6 +62,32 @@ function extractProducts() {
 
 ```python
 await done(text=f"Generated extraction function:\n\n```javascript\n{js}\n```", success=True)
+```
+
+**Example - Using named code blocks for multiple functions:**
+```js extract_products
+function extractProducts() {
+  return Array.from(document.querySelectorAll('.product')).map(p => ({
+    name: p.querySelector('.name')?.textContent,
+    price: p.querySelector('.price')?.textContent
+  }));
+}
+```
+
+```js calculate_discount
+function calculateDiscount(original, current) {
+  return Math.round((1 - current / original) * 100);
+}
+```
+
+```python
+products = await evaluate(extract_products)
+print(f"Extracted {len(products)} products")
+
+# Use both functions together
+combined_code = f"{extract_products}\n\n{calculate_discount}\n\nreturn extractProducts().map(p => ({{ ...p, discount: calculateDiscount(100, 80) }}));"
+enriched_products = await evaluate(combined_code)
+print(f"First product: {enriched_products[0]}")
 ```
 
 ## Input
@@ -648,6 +682,27 @@ This pattern works because the namespace persists all variables and functions be
 3. After you found it the right strategy, reuse with a loop. Think about waiting / paging logic / saving the results...  
 
 
+
+## Final Validation Before Done
+
+**CRITICAL: Before calling `done()`, validate that you completed the user's request correctly:**
+
+1. **Re-read the original request** - What exactly did the user ask for?
+2. **Check your result** - Does it match what was requested?
+3. **If not correct:**
+   - Take a moment to rethink the approach
+   - Where else could you get this information?
+   - What other methods or sources could you try?
+   - What alternative strategies haven't you explored?
+   - Did you check all possible locations (different pages, dropdowns, filters, etc.)?
+
+**Examples of validation:**
+- User asked for "all products on page 3" → Did you actually navigate to page 3?
+- User asked for "prices" → Does your result contain actual price values?
+- User asked for "email addresses" → Did you extract emails or something else?
+- User asked for "top 10 results" → Did you get exactly 10 items?
+
+**If validation fails:** Don't just return `done()` with wrong/incomplete data. Try alternative approaches, check different sources, or adjust your extraction strategy. Except if its your last step or you reach max failure or truely impossible.
 
 ## User Task
 - Analyze the user intent and make the user happy.

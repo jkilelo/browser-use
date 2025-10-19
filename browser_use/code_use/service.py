@@ -473,10 +473,15 @@ class CodeUseAgent:
 		code_blocks = self._extract_code_blocks(response.completion)
 
 		# Inject non-python blocks into namespace as variables
+		# Track which variables are code blocks for browser state display
+		if '_code_block_vars' not in self.namespace:
+			self.namespace['_code_block_vars'] = set()
+
 		for block_type, block_content in code_blocks.items():
 			if block_type != 'python':
-				# Store js, bash, markdown blocks as variables in namespace
+				# Store js, bash, markdown blocks (and named variants) as variables in namespace
 				self.namespace[block_type] = block_content
+				self.namespace['_code_block_vars'].add(block_type)
 				logger.debug(f'Injected {block_type} block into namespace ({len(block_content)} chars)')
 
 		# Get Python code (or fallback to raw completion)
@@ -491,37 +496,56 @@ class CodeUseAgent:
 	def _extract_code_blocks(self, text: str) -> dict[str, str]:
 		"""Extract all code blocks from markdown response.
 
-		Supports: ```python, ```js, ```javascript, ```bash, ```markdown, ```md
-		Returns dict mapping block_type -> combined_content
+		Supports:
+		- ```python, ```js, ```javascript, ```bash, ```markdown, ```md
+		- Named blocks: ```js variable_name → saved as 'variable_name' in namespace
+
+		Returns dict mapping block_name -> content
 		"""
 		import re
 
-		# Pattern to match code blocks with language identifier
-		pattern = r'```(\w+)\n(.*?)```'
+		# Pattern to match code blocks with language identifier and optional variable name
+		# Matches: ```lang\n or ```lang varname\n
+		pattern = r'```(\w+)(?:\s+(\w+))?\n(.*?)```'
 		matches = re.findall(pattern, text, re.DOTALL)
 
 		blocks: dict[str, str] = {}
 
-		for lang, content in matches:
+		for lang, var_name, content in matches:
 			lang = lang.lower()
 
 			# Normalize language names
 			if lang in ('javascript', 'js'):
-				lang = 'js'
+				lang_normalized = 'js'
 			elif lang in ('markdown', 'md'):
-				lang = 'markdown'
+				lang_normalized = 'markdown'
 			elif lang in ('sh', 'shell'):
-				lang = 'bash'
+				lang_normalized = 'bash'
+			elif lang == 'python':
+				lang_normalized = 'python'
+			else:
+				# Unknown language, skip
+				continue
 
 			# Only process supported types
-			if lang in ('python', 'js', 'bash', 'markdown'):
+			if lang_normalized in ('python', 'js', 'bash', 'markdown'):
 				content = content.strip()
 				if content:
-					# Combine multiple blocks of same type
-					if lang in blocks:
-						blocks[lang] += '\n\n' + content
+					# Determine the key to use
+					if var_name:
+						# Named block - use the variable name
+						block_key = var_name
 					else:
-						blocks[lang] = content
+						# Unnamed block - use the language type
+						block_key = lang_normalized
+
+					# For unnamed blocks of same type, combine them
+					# For named blocks, each gets its own entry
+					if block_key in blocks and not var_name:
+						# Only combine unnamed blocks of same language
+						blocks[block_key] += '\n\n' + content
+					else:
+						blocks[block_key] = content
 
 		# Fallback: if no python block but there's generic ``` block, treat as python
 		if 'python' not in blocks:
@@ -869,10 +893,11 @@ __code_exec_coro__ = __code_exec__()
 			# Highlight code block variables separately from regular variables
 			code_block_vars = []
 			regular_vars = []
+			tracked_code_blocks = self.namespace.get('_code_block_vars', set())
 			for name in self.namespace.keys():
 				# Skip private vars and system objects/actions
 				if not name.startswith('_') and name not in skip_vars:
-					if name in ('js', 'bash', 'markdown'):
+					if name in tracked_code_blocks:
 						code_block_vars.append(name)
 					else:
 						regular_vars.append(name)
