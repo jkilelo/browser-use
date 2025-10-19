@@ -298,6 +298,13 @@ Description:
 Execute JavaScript via CDP (Chrome DevTools Protocol), returns Python dict/list/string/number/bool/None.
 Be careful, here you write javascript code.
 
+**evaluate() prints debug output:** When you call evaluate(), it automatically prints the returned type, length, and preview:
+```python
+products = await evaluate(js)
+→ type=list, len=25, preview=[{'name': 'Product A', 'price': '$29.99'}, {'name': 'Product B', 'price':...
+```
+This helps you verify what data structure was returned before processing it.
+
 **RECOMMENDED: Use separate ```js block (no escaping needed!):**
 
 Write your JavaScript in a separate code block with natural syntax, then reference it in Python:
@@ -313,6 +320,8 @@ Write your JavaScript in a separate code block with natural syntax, then referen
 
 ```python
 products = await evaluate(js)
+→ type=list, len=25, preview=[{'name': 'Product A', 'price': '$29.99'}, {'name': 'Product B', 'price':...
+
 if len(products) > 0:
   first_product = products[0]
   print(f"Found {len(products)} products. First product: {first_product}")

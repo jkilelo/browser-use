@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -723,6 +724,19 @@ __code_exec_coro__ = __code_exec__()
 			if isinstance(e, SyntaxError):
 				error_msg = e.msg if e.msg else str(e)
 				error = f'{type(e).__name__}: {error_msg}'
+
+				# Detect common f-string issues with JSON/JavaScript code
+				if 'unterminated' in error_msg.lower() and 'string' in error_msg.lower() and code:
+					# Check if code contains f-strings with potential JSON/JS content
+					has_fstring = bool(re.search(r'\bf["\']', code))
+					has_json_pattern = bool(re.search(r'json\.dumps|"[^"]*\{[^"]*\}[^"]*"|\'[^\']*\{[^\']*\}[^\']*\'', code))
+					has_js_pattern = bool(re.search(r'evaluate\(|await evaluate', code))
+
+					if has_fstring and (has_json_pattern or has_js_pattern):
+						error += (
+							'\n\n💡 TIP: Detected f-string with JSON/JavaScript code containing {}.\n'
+							'   Use separate ```js or ```markdown blocks instead of f-strings to avoid escaping issues:\n'
+						)
 
 				# Detect and provide helpful hints for common string literal errors
 				if 'unterminated' in error_msg.lower() and 'string' in error_msg.lower():

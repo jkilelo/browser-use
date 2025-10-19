@@ -139,7 +139,6 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 
 
 
-		
 			raise RuntimeError(error_msg)
 
 		# Get the result data
@@ -249,6 +248,10 @@ def create_namespace(
 		namespace['PdfReader'] = PdfReader
 		namespace['pypdf'] = PdfReader
 
+	# Track failed evaluate() calls to detect repeated failed approaches
+	if '_evaluate_failures' not in namespace:
+		namespace['_evaluate_failures'] = []
+
 	# Add custom evaluate function that returns values directly
 	async def evaluate_wrapper(
 		code: str | None = None,
@@ -311,8 +314,25 @@ def create_namespace(
 			if not is_wrapped:
 				code = f'(function(){{{code}}})()'
 
-		# Ignore any extra arguments (like browser_session if passed)
-		return await evaluate(code, browser_session)
+		# Execute and track failures
+		try:
+			result = await evaluate(code, browser_session)
+
+			# Print result structure for debugging
+			if isinstance(result, (list, dict)):
+				result_preview = str(result)[:100]
+				print(f"→ type={type(result).__name__}, len={len(result)}, preview={result_preview}...")
+			else:
+				print(f"→ type={type(result).__name__}, value={repr(result)[:50]}")
+
+			return result
+		except Exception as e:
+			# Track errors for pattern detection
+			namespace['_evaluate_failures'].append({
+				'error': str(e),
+				'type': 'exception'
+			})
+			raise
 
 	namespace['evaluate'] = evaluate_wrapper
 
