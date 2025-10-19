@@ -468,39 +468,71 @@ class CodeUseAgent:
 		# Store the full response
 		full_response = response.completion
 
-		# Extract code from response
-		code = response.completion
+		# Extract code blocks from response
+		# Support multiple code block types: python, js, bash, markdown
+		code_blocks = self._extract_code_blocks(response.completion)
 
-		# Try to extract code from markdown code blocks
-		# If multiple blocks exist, combine them all
-		if '```python' in code:
-			# Extract all code between ```python and ``` markers
-			parts = code.split('```python')
-			code_blocks = []
-			for i in range(1, len(parts)):
-				code_part = parts[i].split('```')[0]
-				if code_part.strip():
-					code_blocks.append(code_part.strip())
+		# Inject non-python blocks into namespace as variables
+		for block_type, block_content in code_blocks.items():
+			if block_type != 'python':
+				# Store js, bash, markdown blocks as variables in namespace
+				self.namespace[block_type] = block_content
+				logger.debug(f'Injected {block_type} block into namespace ({len(block_content)} chars)')
 
-			if code_blocks:
-				code = '\n\n'.join(code_blocks)
-		elif '```' in code:
-			# Extract all code between ``` and ``` markers
-			parts = code.split('```')
-			code_blocks = []
-			# Every odd index (1, 3, 5...) is inside a code block
-			for i in range(1, len(parts), 2):
-				if parts[i].strip():
-					code_blocks.append(parts[i].strip())
-
-			if code_blocks:
-				code = '\n\n'.join(code_blocks)
+		# Get Python code (or fallback to raw completion)
+		code = code_blocks.get('python', response.completion)
 
 		# Add to LLM messages (truncate for history to save context)
 		truncated_completion = _truncate_message_content(response.completion)
 		self._llm_messages.append(AssistantMessage(content=truncated_completion))
 
 		return code, full_response
+
+	def _extract_code_blocks(self, text: str) -> dict[str, str]:
+		"""Extract all code blocks from markdown response.
+
+		Supports: ```python, ```js, ```javascript, ```bash, ```markdown, ```md
+		Returns dict mapping block_type -> combined_content
+		"""
+		import re
+
+		# Pattern to match code blocks with language identifier
+		pattern = r'```(\w+)\n(.*?)```'
+		matches = re.findall(pattern, text, re.DOTALL)
+
+		blocks: dict[str, str] = {}
+
+		for lang, content in matches:
+			lang = lang.lower()
+
+			# Normalize language names
+			if lang in ('javascript', 'js'):
+				lang = 'js'
+			elif lang in ('markdown', 'md'):
+				lang = 'markdown'
+			elif lang in ('sh', 'shell'):
+				lang = 'bash'
+
+			# Only process supported types
+			if lang in ('python', 'js', 'bash', 'markdown'):
+				content = content.strip()
+				if content:
+					# Combine multiple blocks of same type
+					if lang in blocks:
+						blocks[lang] += '\n\n' + content
+					else:
+						blocks[lang] = content
+
+		# Fallback: if no python block but there's generic ``` block, treat as python
+		if 'python' not in blocks:
+			generic_pattern = r'```\n(.*?)```'
+			generic_matches = re.findall(generic_pattern, text, re.DOTALL)
+			if generic_matches:
+				combined = '\n\n'.join(m.strip() for m in generic_matches if m.strip())
+				if combined:
+					blocks['python'] = combined
+
+		return blocks
 
 	async def _execute_code(self, code: str) -> tuple[str | None, str | None, str | None]:
 		"""
@@ -661,8 +693,48 @@ __code_exec_coro__ = __code_exec__()
 			# For syntax errors and common parsing errors, show just the error message
 			# without the full traceback to keep output clean
 			if isinstance(e, SyntaxError):
-				error = f'{type(e).__name__}: {e.msg}'
-				
+				error_msg = e.msg if e.msg else str(e)
+				error = f'{type(e).__name__}: {error_msg}'
+
+				# Detect and provide helpful hints for common string literal errors
+				if 'unterminated' in error_msg.lower() and 'string' in error_msg.lower():
+					# Detect what type of string literal is unterminated
+					is_triple = 'triple-quoted' in error_msg.lower()
+					msg_lower = error_msg.lower()
+
+					# Detect prefix type from error message
+					if 'f-string' in msg_lower and 'raw' in msg_lower:
+						prefix = 'rf or fr'
+						desc = 'raw f-string'
+					elif 'f-string' in msg_lower:
+						prefix = 'f'
+						desc = 'f-string'
+					elif 'raw' in msg_lower and 'bytes' in msg_lower:
+						prefix = 'rb or br'
+						desc = 'raw bytes'
+					elif 'raw' in msg_lower:
+						prefix = 'r'
+						desc = 'raw string'
+					elif 'bytes' in msg_lower:
+						prefix = 'b'
+						desc = 'bytes'
+					else:
+						prefix = ''
+						desc = 'string'
+
+					# Build hint based on triple-quoted vs single/double quoted
+					if is_triple:
+						if prefix:
+							hint = f"Hint: Unterminated {prefix}'''...''' or {prefix}\"\"\"...\"\" ({desc}). Check for missing closing quotes or unescaped quotes inside."
+						else:
+							hint = "Hint: Unterminated '''...''' or \"\"\"...\"\" detected. Check for missing closing quotes or unescaped quotes inside."
+					else:
+						if prefix:
+							hint = f"Hint: Unterminated {prefix}'...' or {prefix}\"...\" ({desc}). Check for missing closing quote or unescaped quotes inside."
+						else:
+							hint = "Hint: Unterminated '...' or \"...\" detected. Check for missing closing quote or unescaped quotes inside the string."
+					error += f'\n{hint}'
+
 				# Show the problematic line from the code
 				if e.text:
 					error += f'\n{e.text}'
@@ -672,7 +744,7 @@ __code_exec_coro__ = __code_exec__()
 					if 0 < e.lineno <= len(lines):
 						error += f'\n{lines[e.lineno - 1]}'
 
-				
+
 			else:
 				# For other errors, try to extract useful information
 				error_str = str(e)
@@ -794,20 +866,32 @@ __code_exec_coro__ = __code_exec__()
 				'np', 'pd', 'plt', 'numpy', 'pandas', 'matplotlib', 'requests', 'BeautifulSoup', 'bs4', 'pypdf', 'PdfReader',  'wait'
 			}
 
-			available_vars = []
+			# Highlight code block variables separately from regular variables
+			code_block_vars = []
+			regular_vars = []
 			for name in self.namespace.keys():
 				# Skip private vars and system objects/actions
 				if not name.startswith('_') and name not in skip_vars:
-					available_vars.append(name)
+					if name in ('js', 'bash', 'markdown'):
+						code_block_vars.append(name)
+					else:
+						regular_vars.append(name)
 
 			# Sort for consistent display
-			available_vars_sorted = sorted(available_vars)
+			available_vars_sorted = sorted(regular_vars)
+			code_block_vars_sorted = sorted(code_block_vars)
+
 			# Add jQuery availability info alongside variables
 			jquery_status = '✓' if has_jquery else '✗'
+
+			# Build available line with code blocks and variables
+			parts = [f"jQuery {jquery_status}"]
+			if code_block_vars_sorted:
+				parts.append(f"**Code blocks:** {', '.join(code_block_vars_sorted)}")
 			if available_vars_sorted:
-				lines.append(f"**Available:** jQuery {jquery_status} | **Variables:** {', '.join(available_vars_sorted)}")
-			else:
-				lines.append(f"**Available:** jQuery {jquery_status}")
+				parts.append(f"**Variables:** {', '.join(available_vars_sorted)}")
+
+			lines.append(f"**Available:** {' | '.join(parts)}")
 			lines.append('')
 
 			# Add DOM structure
