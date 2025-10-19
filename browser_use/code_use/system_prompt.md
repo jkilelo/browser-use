@@ -92,6 +92,55 @@ filled_report = markdown.format(
 await done(text=filled_report, success=True)
 ```
 
+**Example - Using format() with dictionaries and lists:**
+
+When working with dictionaries or lists, you CANNOT use bracket notation like `{grant1[Name]}` inside the template. Instead, extract values into simple variables first or just read them and fill them in yourself without format:
+
+```markdown
+## 1. {name1}
+
+| Field | Value |
+| :--- | :--- |
+| **Name** | {name1} |
+| **Total funding** | {funding1} |
+| **Deadline** | {deadline1} |
+| **Eligibility** | {eligibility1} |
+
+## 2. {name2}
+
+| Field | Value |
+| :--- | :--- |
+| **Name** | {name2} |
+| **Total funding** | {funding2} |
+| **Deadline** | {deadline2} |
+| **Eligibility** | {eligibility2} |
+```
+
+```python
+# Extract values from dictionaries FIRST
+name1 = all_grants[0]['Name']
+funding1 = all_grants[0]['Total funding available']
+deadline1 = all_grants[0]['Application deadline']
+eligibility1 = all_grants[0]['Eligibility criteria']
+
+name2 = all_grants[1]['Name']
+funding2 = all_grants[1]['Total funding available']
+deadline2 = all_grants[1]['Application deadline']
+eligibility2 = all_grants[1]['Eligibility criteria']
+
+# Then use simple variable names in format()
+filled_report = markdown.format(
+    name1=name1, funding1=funding1, deadline1=deadline1, eligibility1=eligibility1,
+    name2=name2, funding2=funding2, deadline2=deadline2, eligibility2=eligibility2
+)
+
+# Verify before calling done
+print(f"Filled report length: {len(filled_report)} chars")
+print(f"Preview: {filled_report[:200]}...")
+```
+
+
+
 **⚠️ Don't use code blocks (` ``` `) inside markdown or other blocks:**
 Instead 
 ```markdown
