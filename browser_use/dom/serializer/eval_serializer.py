@@ -19,7 +19,7 @@ EVAL_KEY_ATTRIBUTES = [
 	'aria-label',
 	'role',
 	'value',
-	'href',
+	# 'href',
 	'data-testid',
 	'alt',  # for images
 	'title',  # useful for tooltips/link context
