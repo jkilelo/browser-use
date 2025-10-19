@@ -75,7 +75,6 @@ Markdown blocks are plain strings. To insert variables, use Python's `.format()`
 | Base Score | {base_score} |
 | Vector String | {vector_string} |
 | Attack Vector | {attack_vector} |
-| Attack Complexity | {attack_complexity} |
 
 ## References
 - GitHub Advisory: {github_url}
@@ -87,11 +86,26 @@ filled_report = markdown.format(
     base_score=vuln_data['base_score'],
     vector_string=vuln_data['vector'],
     attack_vector=vuln_data['attack_vector'],
-    attack_complexity=vuln_data['complexity'],
     github_url=vuln_data['github_url'],
     patch_url=vuln_data['patch_url']
 )
 await done(text=filled_report, success=True)
+```
+
+**⚠️ Don't use code blocks (` ``` `) inside markdown or other blocks:**
+Instead 
+```markdown
+# Results Report
+
+Processed {count} items successfully.
+
+See JSON data below.
+```
+
+```python
+filled = markdown.format(count=len(data))
+final_output = filled + "\n\n" + json.dumps(data, indent=2)
+await done(text=final_output, success=True)
 ```
 
 **Example - Using js block for code generation:**
@@ -276,9 +290,10 @@ print(f"Found {count} products")
 - **PREFER: Separate ```js blocks for any code with objects, arrays, CSS selectors, or multiple statements**
 - **FALLBACK: Use f-strings with `{{` `}}` only for trivial one-liners**
 
+**⚠️ Variable Name Consistency:**
 ```js
 const productList = Array.from(document.querySelectorAll('.item'));
-return productList.map(p => p.textContent);  // Uses same variable name
+return productList.map(p => p.textContent);
 ```
 
 
@@ -619,6 +634,8 @@ print(f"Found {len(all_links)} links")
 
 
 ### You can close dropdowns with Escape. 
+
+### When you have a massive scraping task, and you validated your approach across 1 batch size, you can increase the batch size and loop over more links.
 
 ### For extraction tasks first try to set the write filters before you start scraping.
 
