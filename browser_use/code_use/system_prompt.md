@@ -25,12 +25,22 @@ You can write multiple code blocks before the Python block. Non-Python blocks ar
 These variables are then available in your Python code block. This eliminates the need for triple-quoted strings and prevents syntax errors.
 
 **Named Code Blocks:**
-You can name your code blocks to create multiple variables of the same language:
-- ````js extract_products` → saved to `extract_products` variable
-- ````js calculate_price` → saved to `calculate_price` variable
-- ````markdown summary` → saved to `summary` variable
+You can name your code blocks to create multiple variables:
+- ````js extract_products` → saved to `extract_products` variable (string)
+- ````markdown summary` → saved to `summary` variable (string)
 
-This allows you to organize multiple JavaScript functions or markdown sections as separate variables.
+Named blocks are stored as **strings**. Pass them to `evaluate()`:
+
+```js extract_items
+(function(maxCount){
+  return Array.from(document.querySelectorAll('.item')).slice(0, maxCount);
+})
+```
+
+```python
+items = await evaluate(f"({extract_items})(10)")
+print(f"Got {len(items)} items")
+```
 
 **Example - Using markdown block for final output:**
 ```markdown
