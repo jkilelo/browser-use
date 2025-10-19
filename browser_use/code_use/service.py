@@ -493,6 +493,7 @@ class CodeUseAgent:
 				# Store js, bash, markdown blocks (and named variants) as variables in namespace
 				self.namespace[block_type] = block_content
 				self.namespace['_code_block_vars'].add(block_type)
+				print(f'→ Code block variable: {block_type} (str, {len(block_content)} chars)')
 				logger.debug(f'Injected {block_type} block into namespace ({len(block_content)} chars)')
 
 		# Get Python code (or fallback to raw completion)
@@ -503,6 +504,28 @@ class CodeUseAgent:
 		self._llm_messages.append(AssistantMessage(content=truncated_completion))
 
 		return code, full_response
+
+	def _print_variable_info(self, var_name: str, value: any) -> None:
+		"""Print compact info about a variable assignment."""
+		# Skip built-in modules and known imports
+		skip_names = {'json', 'asyncio', 'csv', 're', 'datetime', 'Path', 'pd', 'np', 'plt', 'requests', 'BeautifulSoup', 'PdfReader', 'browser', 'file_system'}
+		if var_name in skip_names:
+			return
+
+		# Skip code block variables (already printed)
+		if '_code_block_vars' in self.namespace and var_name in self.namespace.get('_code_block_vars', set()):
+			return
+
+		# Print compact variable info
+		if isinstance(value, (list, dict)):
+			preview = str(value)[:100]
+			print(f'→ Variable: {var_name} ({type(value).__name__}, len={len(value)}, preview={preview}...)')
+		elif isinstance(value, str) and len(value) > 50:
+			print(f'→ Variable: {var_name} (str, {len(value)} chars, preview={value[:50]}...)')
+		elif callable(value):
+			print(f'→ Variable: {var_name} (function)')
+		else:
+			print(f'→ Variable: {var_name} ({type(value).__name__}, value={repr(value)[:50]})')
 
 	def _extract_code_blocks(self, text: str) -> dict[str, str]:
 		"""Extract all code blocks from markdown response.
@@ -692,6 +715,8 @@ __code_exec_coro__ = __code_exec__()
 							for key, value in result_locals.items():
 								if not key.startswith('_'):
 									self.namespace[key] = value
+									# Print variable info for user visibility
+									self._print_variable_info(key, value)
 
 						# Clean up temporary variables
 						self.namespace.pop('__code_exec_coro__', None)
@@ -699,8 +724,19 @@ __code_exec_coro__ = __code_exec__()
 				else:
 					# No await - execute directly at module level for natural variable scoping
 					# This means x = x + 10 will work without needing 'global x'
+
+					# Track variables before execution
+					vars_before = set(self.namespace.keys())
+
 					compiled_code = compile(code, '<code>', 'exec')
 					exec(compiled_code, self.namespace, self.namespace)
+
+					# Print info for newly created/modified variables
+					vars_after = set(self.namespace.keys())
+					new_vars = vars_after - vars_before
+					for key in new_vars:
+						if not key.startswith('_'):
+							self._print_variable_info(key, self.namespace[key])
 
 				# Get output
 				output_value = sys.stdout.getvalue()
@@ -941,10 +977,10 @@ __code_exec_coro__ = __code_exec__()
 			code_block_vars_sorted = sorted(code_block_vars)
 
 			# Add jQuery availability info alongside variables
-			jquery_status = 'Yes' if has_jquery else 'No'
+
 
 			# Build available line with code blocks and variables
-			parts = [f'jQuery {jquery_status}']
+			parts = []
 			if code_block_vars_sorted:
 				parts.append(f'**Code block variables:** {", ".join(code_block_vars_sorted)}')
 			if available_vars_sorted:
