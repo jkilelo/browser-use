@@ -602,8 +602,7 @@ __code_exec_coro__ = __code_exec__()
 			# without the full traceback to keep output clean
 			if isinstance(e, SyntaxError):
 				error = f'{type(e).__name__}: {e.msg}'
-				if e.lineno:
-					error += f' at line {e.lineno}'
+				
 				# Show the problematic line from the code
 				if e.text:
 					error += f'\n{e.text}'
@@ -636,34 +635,7 @@ __code_exec_coro__ = __code_exec__()
 							break
 						tb = tb.tb_next
 
-					# If we found a line number, map it back to original code
-					if user_code_lineno is not None:
-						try:
-							code_lines = code.split('\n')
-
-							# When code is wrapped in async function, we need to account for:
-							# 1. The "async def __code_exec__():" line
-							# 2. Any global declarations
-							# 3. The indentation shift
-							# The wrapped code looks like:
-							#   Line 1: async def __code_exec__():
-							#   Line 2+: [optional global declaration]
-							#   Line X+: [user's first line of code, indented]
-
-							# To map back: subtract the wrapper overhead lines
-							# Check namespace for whether we added a global declaration during wrapping
-							has_global_decl = self.namespace.get('_has_global_decl', False)
-							overhead_lines = 2 if has_global_decl else 1  # 1 for async def, +1 if global present
-
-							# Map traceback line to original code line
-							original_lineno = user_code_lineno - overhead_lines
-
-							# Validate the line number is in range
-							if 0 < original_lineno <= len(code_lines):
-								offending_line = code_lines[original_lineno - 1]
-								error += f'\nat line {original_lineno}: {offending_line.strip()}'
-						except Exception:
-							pass
+			
 
 			cell.status = ExecutionStatus.ERROR
 			cell.error = error

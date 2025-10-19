@@ -975,8 +975,6 @@ class Tools(Generic[Context]):
 				if result.get('exceptionDetails'):
 					exception = result['exceptionDetails']
 					error_msg = f'JavaScript execution error: {exception.get("text", "Unknown error")}'
-					if 'lineNumber' in exception:
-						error_msg += f' at line {exception["lineNumber"]}'
 
 					# Enhanced error message with debugging info
 					enhanced_msg = f"""JavaScript Execution Failed:
