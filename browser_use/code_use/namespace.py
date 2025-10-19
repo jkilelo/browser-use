@@ -348,7 +348,9 @@ def create_namespace(
 		# Get element by index from browser session
 		node = await browser_session.get_element_by_index(index)
 		if node is None:
-			raise ValueError(f'Element index {index} not found in browser state')
+			msg = f'Element index {index} not available - page may have changed. Try refreshing browser state.'
+			logger.warning(f'⚠️ {msg}')
+			raise RuntimeError(msg)
 
 		# Check if element is in shadow DOM
 		shadow_hosts = []

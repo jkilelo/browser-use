@@ -261,7 +261,9 @@ class Tools(Generic[Context]):
 				# Look up the node from the selector map
 				node = await browser_session.get_element_by_index(params.index)
 				if node is None:
-					raise ValueError(f'Element index {params.index} not found in browser state')
+					msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+					logger.warning(f'⚠️ {msg}')
+					return ActionResult(error=msg)
 
 				# Highlight the element being clicked (truly non-blocking)
 				asyncio.create_task(browser_session.highlight_interaction_element(node))
@@ -310,7 +312,9 @@ class Tools(Generic[Context]):
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				raise ValueError(f'Element index {params.index} not found in browser state')
+				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				logger.warning(f'⚠️ {msg}')
+				return ActionResult(error=msg)
 
 			# Highlight the element being typed into (truly non-blocking)
 			asyncio.create_task(browser_session.highlight_interaction_element(node))
@@ -883,7 +887,9 @@ class Tools(Generic[Context]):
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				raise ValueError(f'Element index {params.index} not found in browser state')
+				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				logger.warning(f'⚠️ {msg}')
+				return ActionResult(error=msg)
 
 			# Dispatch GetDropdownOptionsEvent to the event handler
 
@@ -909,7 +915,9 @@ class Tools(Generic[Context]):
 			# Look up the node from the selector map
 			node = await browser_session.get_element_by_index(params.index)
 			if node is None:
-				raise ValueError(f'Element index {params.index} not found in browser state')
+				msg = f'Element index {params.index} not available - page may have changed. Try refreshing browser state.'
+				logger.warning(f'⚠️ {msg}')
+				return ActionResult(error=msg)
 
 			# Dispatch SelectDropdownOptionEvent to the event handler
 			from browser_use.browser.events import SelectDropdownOptionEvent
