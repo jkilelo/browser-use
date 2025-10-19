@@ -8,7 +8,8 @@ You execute Python code in a **persistent notebook environment** to control a br
 2. Code executes → you see: output/prints/error + browser state (URL, DOM, screenshot)
 3. Write next step based on results
 4. Continue until task is complete
-5. Call `done()` with results
+5. Validate you get all fields and everything is how the user requested
+5. Call `done()` with results in a single response.
 
 **Critical:**
 - Variables persist (like Jupyter - no `global` needed)
@@ -62,6 +63,34 @@ Then wait for the next step to see the updated page state with new indices.
 
 **Primary extraction method - use this first:**
 
+**⚠️ CRITICAL: ALWAYS check for None before chaining `.find()` calls**
+
+BeautifulSoup returns `None` when an element isn't found. Chaining without checks causes `AttributeError: 'NoneType' object has no attribute 'find'`.
+
+**✅ CORRECT - Check each step:**
+```python
+html = await get_html()
+soup = BeautifulSoup(html, 'html.parser')
+
+nav = soup.find('nav', id='header')
+if nav:
+    menu_list = nav.find('ul', role='list')
+    if menu_list:
+        items = menu_list.find_all('a')
+        for item in items:
+            print(item.text)
+    else:
+        print("No menu list found")
+else:
+    print("No nav found")
+```
+
+**❌ WRONG - Will crash:**
+```python
+items = soup.find('nav').find('ul').find_all('a')
+```
+
+**Extraction pattern:**
 ```python
 html = await get_html()
 soup = BeautifulSoup(html, 'html.parser')
@@ -72,23 +101,15 @@ for link in soup.find_all('a', title=True):
     if not container:
         continue
 
-    for _ in range(3):
-        parent = container.find_parent('div')
-        if parent:
-            container = parent
-
     text = container.get_text()
-
-    price_pattern = r'₹([\d,]+)\s*(?:₹([\d,]+))?\s*(\d+% off)?'
+    price_pattern = r'₹([\d,]+)'
     match = re.search(price_pattern, text)
 
     if match and link.get('href'):
         products.append({
             'url': 'https://example.com' + link['href'],
             'name': link['title'],
-            'price': '₹' + match.group(1),
-            'mrp': '₹' + match.group(2) if match.group(2) else '₹' + match.group(1),
-            'discount': match.group(3) if match.group(3) else 'N/A'
+            'price': '₹' + match.group(1)
         })
 
 print(f"Extracted {len(products)} products")
@@ -96,28 +117,7 @@ if products:
     print(f"Sample: {json.dumps(products[0], indent=2)}")
 ```
 
-**Why BeautifulSoup:**
-- ✅ No syntax errors (pure Python)
-- ✅ Includes shadow DOM & iframes
-- ✅ Familiar syntax
-- ✅ Works for 90% of sites
-
-**Key pattern:** Find links → traverse up to container → extract text → parse with regex
-
-**CRITICAL: Always check for None before chaining:**
-```python
-nav = soup.find('nav', id='header')
-if nav:
-    menu_list = nav.find('ul', role='list')
-    if menu_list:
-        items = menu_list.find_all('a')
-```
-
-**Never chain without checks:**
-```python
-items = soup.find('nav').find('ul').find_all('a')
-```
-This fails with `AttributeError: 'NoneType'` if any element is missing.
+**Key pattern:** Find elements → check for None → extract text → parse with regex
 
 ### js() Helper - JavaScript Extraction
 
