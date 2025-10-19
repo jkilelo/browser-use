@@ -664,17 +664,6 @@ __code_exec_coro__ = __code_exec__()
 							if 0 < original_lineno <= len(code_lines):
 								offending_line = code_lines[original_lineno - 1]
 								error += f'\nat line {original_lineno}: {offending_line.strip()}'
-
-								# Show context (2 lines before and after)
-								start_idx = max(0, original_lineno - 3)
-								end_idx = min(len(code_lines), original_lineno + 2)
-								context_lines = []
-								for idx in range(start_idx, end_idx):
-									actual_line_num = idx + 1
-									marker = '>>> ' if actual_line_num == original_lineno else '    '
-									context_lines.append(f'{marker}{actual_line_num}: {code_lines[idx].rstrip()}')
-								if context_lines:
-									error += f'\n\nCode context:\n' + '\n'.join(context_lines)
 						except Exception:
 							pass
 

@@ -156,17 +156,7 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 					if 0 <= line_idx < len(lines):
 						# Show the offending line
 						offending_line = lines[line_idx].strip()
-						error_msg += f'\nOffending line: {offending_line}'
-
-						# Show 2 lines before and after for context
-						start_idx = max(0, line_idx - 2)
-						end_idx = min(len(lines), line_idx + 3)
-						context_lines = []
-						for i in range(start_idx, end_idx):
-							marker = '>>> ' if i == line_idx else '    '
-							context_lines.append(f'{marker}{i+1}: {lines[i].rstrip()}')
-						if context_lines:
-							error_msg += f'\n\nCode context:\n' + '\n'.join(context_lines)
+						error_msg += f': {offending_line}'
 				except Exception:
 					pass
 
