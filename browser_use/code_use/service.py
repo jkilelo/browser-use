@@ -399,17 +399,29 @@ class CodeUseAgent:
 		code = response.completion
 
 		# Try to extract code from markdown code blocks
+		# If multiple blocks exist, combine them all
 		if '```python' in code:
-			# Extract code between ```python and ```
+			# Extract all code between ```python and ``` markers
 			parts = code.split('```python')
-			if len(parts) > 1:
-				code_part = parts[1].split('```')[0]
-				code = code_part.strip()
+			code_blocks = []
+			for i in range(1, len(parts)):
+				code_part = parts[i].split('```')[0]
+				if code_part.strip():
+					code_blocks.append(code_part.strip())
+
+			if code_blocks:
+				code = '\n\n'.join(code_blocks)
 		elif '```' in code:
-			# Extract code between ``` and ```
+			# Extract all code between ``` and ``` markers
 			parts = code.split('```')
-			if len(parts) > 1:
-				code = parts[1].strip()
+			code_blocks = []
+			# Every odd index (1, 3, 5...) is inside a code block
+			for i in range(1, len(parts), 2):
+				if parts[i].strip():
+					code_blocks.append(parts[i].strip())
+
+			if code_blocks:
+				code = '\n\n'.join(code_blocks)
 
 		# Add to LLM messages
 		self._llm_messages.append(AssistantMessage(content=response.completion))
