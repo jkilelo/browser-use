@@ -438,6 +438,8 @@ def create_namespace(
 									break
 							
 							has_if_above = False
+							hase_else_above = False
+							hase_elif_above = False
 							if done_line_index > 0:
 								line_above = code_lines[done_line_index - 1]
 								has_if_above = line_above.strip().startswith('if ') and line_above.strip().endswith(':')
