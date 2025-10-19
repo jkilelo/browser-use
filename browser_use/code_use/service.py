@@ -213,6 +213,30 @@ class CodeUseAgent:
 			# Start timing this step
 			self._step_start_time = datetime.now().timestamp()
 
+			# Check if we're approaching the step limit or error limit and inject warning
+			steps_remaining = self.max_steps - step - 1
+			errors_remaining = self._max_consecutive_errors - self._consecutive_errors
+
+			should_warn = (
+				steps_remaining <= 1  # Last step or next to last
+				or errors_remaining <= 1  # One more error will terminate
+				or (steps_remaining <= 2 and self._consecutive_errors >= 2)  # Close to both limits
+			)
+
+			if should_warn:
+				warning_message = (
+					f"\n\n⚠️ CRITICAL WARNING: You are approaching execution limits!\n"
+					f"- Steps remaining: {steps_remaining + 1}\n"
+					f"- Consecutive errors: {self._consecutive_errors}/{self._max_consecutive_errors}\n\n"
+					f"YOU MUST call done() in your NEXT response, even if the task is incomplete:\n"
+					f"- Set success=False if you couldn't complete the task\n"
+					f"- Return EVERYTHING you found so far (partial data is better than nothing)\n"
+					f"- Include any variables you've stored (products, all_data, etc.)\n"
+					f"- Explain what worked and what didn't\n\n"
+					f"Without done(), the user will receive NOTHING."
+				)
+				self._llm_messages.append(UserMessage(content=warning_message))
+
 			try:
 				# Get code from LLM (this also adds to self._llm_messages)
 				try:
