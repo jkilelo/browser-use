@@ -882,12 +882,12 @@ __code_exec_coro__ = __code_exec__()
 			code_block_vars_sorted = sorted(code_block_vars)
 
 			# Add jQuery availability info alongside variables
-			jquery_status = '✓' if has_jquery else '✗'
+			jquery_status = 'Yes' if has_jquery else 'No'
 
 			# Build available line with code blocks and variables
 			parts = [f"jQuery {jquery_status}"]
 			if code_block_vars_sorted:
-				parts.append(f"**Code blocks:** {', '.join(code_block_vars_sorted)}")
+				parts.append(f"**Code block variables:** {', '.join(code_block_vars_sorted)}")
 			if available_vars_sorted:
 				parts.append(f"**Variables:** {', '.join(available_vars_sorted)}")
 

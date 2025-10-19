@@ -39,7 +39,7 @@ Successfully extracted 25 products from the website.
 ```
 
 ```python
-await done(text=markdown, success=True)
+await done(text=markdown + "\n\n" + json.dumps(products), success=True)
 ```
 
 **Example - Using js block for code generation:**
