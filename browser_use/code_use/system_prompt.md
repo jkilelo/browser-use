@@ -636,8 +636,7 @@ When approaching the maximum steps or after multiple consecutive errors, **YOU M
 await done(
     text=f"Task incomplete due to errors, but here's what I found:\n\n" +
          f"Successfully extracted {len(products)} products from {pages_visited} pages.\n\n" +
-         f"Data collected:\n{json.dumps(products, indent=2)}\n\n" +
-         f"Issue encountered: Pagination detection failed after page {pages_visited}.",
+         f"Data collected:\n{json.dumps(products, indent=2)}",
     success=False
 )
 ```
@@ -785,7 +784,7 @@ Try in the first steps to be very general and explorative and try out multiple s
 ### Pagination Strategy
 
 When collecting data across multiple pages:
-
+- maybe you can use directly the url or maybe you need to scroll first.
 1. **Extract total count first** to know when to stop:
    ```js
    (function(){
