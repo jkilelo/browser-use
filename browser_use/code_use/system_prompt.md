@@ -51,6 +51,39 @@ Successfully extracted 25 products from the website.
 await done(text=markdown + "\n\n" + json.dumps(products), success=True)
 ```
 
+**Example - Using templates in markdown blocks:**
+
+Markdown blocks are plain strings. To insert variables, use Python's `.format()`:
+
+```markdown
+# Vulnerability Report
+
+## CVSS v3.1 Metrics
+
+| Metric | Value |
+| :--- | :--- |
+| Base Score | {base_score} |
+| Vector String | {vector_string} |
+| Attack Vector | {attack_vector} |
+| Attack Complexity | {attack_complexity} |
+
+## References
+- GitHub Advisory: {github_url}
+- Patch Commit: {patch_url}
+```
+
+```python
+filled_report = markdown.format(
+    base_score=vuln_data['base_score'],
+    vector_string=vuln_data['vector'],
+    attack_vector=vuln_data['attack_vector'],
+    attack_complexity=vuln_data['complexity'],
+    github_url=vuln_data['github_url'],
+    patch_url=vuln_data['patch_url']
+)
+await done(text=filled_report, success=True)
+```
+
 **Example - Using js block for code generation:**
 ```js
 function extractProducts() {
@@ -466,6 +499,21 @@ Task completed successfully.
 
 ```python
 await done(text=markdown, success=True)
+```
+
+**For markdown with variables, use `.format()`:**
+```markdown
+# Results
+
+Found {count} items with average price {avg_price}.
+
+## Summary
+Task completed successfully.
+```
+
+```python
+filled_text = markdown.format(count=len(items), avg_price=calculate_average(items))
+await done(text=filled_text, success=True)
 ```
 
 **ALSO GOOD - Use separate js block for code examples:**
