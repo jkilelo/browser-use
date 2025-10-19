@@ -303,8 +303,8 @@ class CodeUseAgent:
 						logger.info(f'Code output:\n{output}')
 				if browser_state:
 					# Cap browser state logging to 1000 chars
-					if len(browser_state) > 1000:
-						logger.info(f'Browser state:\n{browser_state[:1000]}...\n[Truncated, full state sent to LLM]')
+					if len(browser_state) > 2000:
+						logger.info(f'Browser state:\n{browser_state[:2000]}...\n[Truncated, full state sent to LLM {len(browser_state)} chars]')
 					else:
 						logger.info(f'Browser state:\n{browser_state}')
 
@@ -532,9 +532,11 @@ class CodeUseAgent:
 
 					# Build global declaration if needed
 					global_decl = ''
+					has_global_decl = False
 					if existing_vars:
 						vars_str = ', '.join(sorted(existing_vars))
 						global_decl = f'    global {vars_str}\n'
+						has_global_decl = True
 
 					indented_code = '\n'.join('    ' + line if line.strip() else line for line in code.split('\n'))
 					wrapped_code = f"""async def __code_exec__():
@@ -544,6 +546,9 @@ class CodeUseAgent:
 
 __code_exec_coro__ = __code_exec__()
 """
+					# Store whether we added a global declaration (needed for error line mapping)
+					self.namespace['_has_global_decl'] = has_global_decl
+
 					# Compile and execute wrapper at module level
 					compiled_code = compile(wrapped_code, '<code>', 'exec')
 					exec(compiled_code, self.namespace, self.namespace)
@@ -620,36 +625,58 @@ __code_exec_coro__ = __code_exec__()
 				# to show which line in the user's code actually failed
 				if hasattr(e, '__traceback__'):
 					import traceback as tb_module
-					tb_lines = tb_module.format_exception(type(e), e, e.__traceback__)
 
-					# Look for the line in user's code (appears as '<code>')
-					for i, line in enumerate(tb_lines):
-						if '<code>' in line and 'line' in line:
-							# Extract line number from traceback
-							try:
-								import re
-								match = re.search(r'line (\d+)', line)
-								if match:
-									lineno = int(match.group(1))
-									# Get the actual line from user's code
-									code_lines = code.split('\n')
-									if 0 < lineno <= len(code_lines):
-										offending_line = code_lines[lineno - 1]
-										error += f'\nat line {lineno}: {offending_line.strip()}'
+					# Walk the traceback to find the frame with '<code>' filename
+					tb = e.__traceback__
+					user_code_lineno = None
+					while tb is not None:
+						frame = tb.tb_frame
+						if frame.f_code.co_filename == '<code>':
+							# Found the frame executing user code
+							# Get the line number from the traceback
+							user_code_lineno = tb.tb_lineno
+							break
+						tb = tb.tb_next
 
-										# Show context (2 lines before and after)
-										start_idx = max(0, lineno - 3)
-										end_idx = min(len(code_lines), lineno + 2)
-										context_lines = []
-										for idx in range(start_idx, end_idx):
-											actual_line_num = idx + 1
-											marker = '>>> ' if actual_line_num == lineno else '    '
-											context_lines.append(f'{marker}{actual_line_num}: {code_lines[idx].rstrip()}')
-										if context_lines:
-											error += f'\n\nCode context:\n' + '\n'.join(context_lines)
-										break
-							except Exception:
-								pass
+					# If we found a line number, map it back to original code
+					if user_code_lineno is not None:
+						try:
+							code_lines = code.split('\n')
+
+							# When code is wrapped in async function, we need to account for:
+							# 1. The "async def __code_exec__():" line
+							# 2. Any global declarations
+							# 3. The indentation shift
+							# The wrapped code looks like:
+							#   Line 1: async def __code_exec__():
+							#   Line 2+: [optional global declaration]
+							#   Line X+: [user's first line of code, indented]
+
+							# To map back: subtract the wrapper overhead lines
+							# Check namespace for whether we added a global declaration during wrapping
+							has_global_decl = self.namespace.get('_has_global_decl', False)
+							overhead_lines = 2 if has_global_decl else 1  # 1 for async def, +1 if global present
+
+							# Map traceback line to original code line
+							original_lineno = user_code_lineno - overhead_lines
+
+							# Validate the line number is in range
+							if 0 < original_lineno <= len(code_lines):
+								offending_line = code_lines[original_lineno - 1]
+								error += f'\nat line {original_lineno}: {offending_line.strip()}'
+
+								# Show context (2 lines before and after)
+								start_idx = max(0, original_lineno - 3)
+								end_idx = min(len(code_lines), original_lineno + 2)
+								context_lines = []
+								for idx in range(start_idx, end_idx):
+									actual_line_num = idx + 1
+									marker = '>>> ' if actual_line_num == original_lineno else '    '
+									context_lines.append(f'{marker}{actual_line_num}: {code_lines[idx].rstrip()}')
+								if context_lines:
+									error += f'\n\nCode context:\n' + '\n'.join(context_lines)
+						except Exception:
+							pass
 
 			cell.status = ExecutionStatus.ERROR
 			cell.error = error
