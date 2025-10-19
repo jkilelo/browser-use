@@ -88,11 +88,8 @@ SEMANTIC_ELEMENTS = {
 # Container elements that can be collapsed if they only wrap one child
 COLLAPSIBLE_CONTAINERS = {'div', 'span', 'section', 'article'}
 
-# SVG elements that should be collapsed (shown once with count)
-SVG_ELEMENTS = {'svg', 'path', 'rect', 'g', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'use', 'defs', 'clipPath', 'mask', 'pattern', 'image'}
-
-# Generic repetitive elements to collapse when they appear consecutively
-COLLAPSIBLE_REPETITIVE = {'path', 'rect', 'li', 'option', 'g', 'circle', 'use'}
+# SVG child elements to skip (decorative only, no interaction value)
+SVG_ELEMENTS = {'path', 'rect', 'g', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'use', 'defs', 'clipPath', 'mask', 'pattern', 'image', 'text', 'tspan'}
 
 
 class DOMEvalSerializer:
@@ -137,6 +134,25 @@ class DOMEvalSerializer:
 			# Special handling for iframes - show them with their content
 			if tag in ['iframe', 'frame']:
 				return DOMEvalSerializer._serialize_iframe(node, include_attributes, depth)
+
+			# Skip SVG elements entirely - they're just decorative graphics with no interaction value
+			# Show the <svg> tag itself to indicate graphics, but don't recurse into children
+			if tag == 'svg':
+				line = f'{depth_str}'
+				if node.interactive_index is not None:
+					line += f' [i_{node.original_node.backend_node_id}]'
+				else:
+					line += f' [{node.original_node.backend_node_id}]'
+				line += '<svg'
+				attributes_str = DOMEvalSerializer._build_compact_attributes(node.original_node)
+				if attributes_str:
+					line += f' {attributes_str}'
+				line += ' /> <!-- SVG content collapsed -->'
+				return line
+
+			# Skip SVG child elements entirely (path, rect, g, circle, etc.)
+			if tag in SVG_ELEMENTS:
+				return ''
 
 			# Build compact attributes string
 			attributes_str = DOMEvalSerializer._build_compact_attributes(node.original_node)
@@ -219,27 +235,11 @@ class DOMEvalSerializer:
 		max_consecutive_links = 5
 		total_links_skipped = 0
 
-		# Track consecutive repetitive elements for generic collapsing
-		last_tag = None
-		consecutive_count = 0
-		consecutive_buffer = []
-		max_consecutive = 3  # Show max 3 of same element type before collapsing
-
 		for child in node.children:
 			# Get tag name for this child
 			current_tag = None
 			if child.original_node.node_type == NodeType.ELEMENT_NODE:
 				current_tag = child.original_node.tag_name.lower()
-
-			# Check if this is a collapsible repetitive element
-			is_collapsible = current_tag in COLLAPSIBLE_REPETITIVE if current_tag else False
-
-			# If we're tracking consecutive elements and hit a different type
-			if last_tag and last_tag != current_tag and consecutive_count > max_consecutive:
-				depth_str = depth * '\t'
-				children_output.append(f'{depth_str}... ({consecutive_count - max_consecutive} more <{last_tag}> elements)')
-				consecutive_buffer = []
-				consecutive_count = 0
 
 			# If we're in a list container and this child is an li element
 			if is_list_container and current_tag == 'li':
@@ -264,38 +264,9 @@ class DOMEvalSerializer:
 					total_links_skipped = 0
 				consecutive_link_count = 0
 
-			# Handle consecutive collapsible elements
-			if is_collapsible and current_tag == last_tag:
-				consecutive_count += 1
-				if consecutive_count <= max_consecutive:
-					child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
-					if child_text:
-						consecutive_buffer.append(child_text)
-						children_output.append(child_text)
-				# Skip showing elements beyond max_consecutive, we'll add summary at the end
-			else:
-				# Different element type or not collapsible
-				# Flush any pending collapse message
-				if last_tag and consecutive_count > max_consecutive:
-					depth_str = depth * '\t'
-					children_output.append(f'{depth_str}... ({consecutive_count - max_consecutive} more <{last_tag}> elements)')
-
-				# Reset tracking
-				consecutive_count = 1 if is_collapsible else 0
-				consecutive_buffer = []
-				last_tag = current_tag if is_collapsible else None
-
-				# Serialize this child normally
-				child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
-				if child_text:
-					if is_collapsible:
-						consecutive_buffer.append(child_text)
-					children_output.append(child_text)
-
-		# Flush any remaining collapsed elements at the end
-		if last_tag and consecutive_count > max_consecutive:
-			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({consecutive_count - max_consecutive} more <{last_tag}> elements)')
+			child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
+			if child_text:
+				children_output.append(child_text)
 
 		# Add truncation message if we skipped items at the end
 		if is_list_container and li_count > max_list_items:
