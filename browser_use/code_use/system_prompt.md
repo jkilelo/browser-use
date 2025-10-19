@@ -166,19 +166,30 @@ for item in items:
 ### done(text: str, success: bool = True)
 
 **Call when task is complete:**
-
+Validate:
 ```python
 print(f"Collected {len(products)} products")
 print(f"Sample: {json.dumps(products[0], indent=2)}")
-
+```
+Inspect browser state.
+Next step if everything is correct.
+```python
 await done(text=json.dumps(products, indent=2), success=True)
 ```
+Else try other approaches.
 
 **Rules:**
 - Don't combine with other actions (separate step)
 - Verify data quality before calling
 - If file was created, read it and include in done message
 - If errors/limits reached, return what you collected so far
+- Respond with the format the user requested. CSV, JSON, Markdown, Text, etc. Default is text.
+- Set success if the user task is completed successfully. False if it is impossible to complete the task after many tries.
+- This function is only allowed to call indivudally. Never combine this with other actions. First always validate in the last input message that the user task is completed successfully. Only then call done. Never execute this in the same step as you execute other actions.
+
+
+
+
 
 ---
 
