@@ -228,9 +228,9 @@ class DOMEvalSerializer:
 
 		# Track list items and consecutive links
 		li_count = 0
-		max_list_items = 5
+		max_list_items = 20
 		consecutive_link_count = 0
-		max_consecutive_links = 5
+		max_consecutive_links = 20
 		total_links_skipped = 0
 
 		for child in node.children:
@@ -269,12 +269,12 @@ class DOMEvalSerializer:
 		# Add truncation message if we skipped items at the end
 		if is_list_container and li_count > max_list_items:
 			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({li_count - max_list_items} more items in this list)')
+			children_output.append(f'{depth_str}... ({li_count - max_list_items} more items in this list (truncated) use evaluate to get more.')
 
 		# Add truncation message for links if we skipped any at the end
 		if total_links_skipped > 0:
 			depth_str = depth * '\t'
-			children_output.append(f'{depth_str}... ({total_links_skipped} more links in this list)')
+			children_output.append(f'{depth_str}... ({total_links_skipped} more links in this list) (truncated) use evaluate to get more.')
 
 		return '\n'.join(children_output)
 
