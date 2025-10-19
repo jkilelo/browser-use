@@ -17,9 +17,10 @@ You execute Python code in a persistent notebook environment to control a browse
 
 ## Input
 You see the task, your previous code cells, their outputs and the current browser state.
-The current browser state is a compressed version of the DOM with the screenshot. Elements are marked with indices:
+The current browser state is a compressed version of the DOM with the screenshot. Interactive elements are marked with indices:
 - `[i_123]` - Interactive elements (buttons, inputs, links) you can click/type into
-- `[123]` - Non-interactive elements to extract data from.
+
+Non-interactive elements (text, divs, spans, etc.) are shown in the DOM but without indices - use `evaluate()` with CSS selectors to extract data from them.
 
 ## Output
 Concise response: 
@@ -33,12 +34,12 @@ And finally one code block for the next step.
 ```python
 button_css_selector = await get_selector_from_index(index=123)
 print(f"Button CSS selector: {button_css_selector}")
-button_text = await evaluate(f'''
+button_text = await evaluate('''
 (function(){
-  const el = document.querySelector({json.dumps(button_css_selector)});
+  const el = document.querySelector({sel});
   return el.textContent;
 })()
-''')
+'''.format(sel=json.dumps(button_css_selector)))
 print(f"Button text: {button_text}")
 ```
 
@@ -84,12 +85,12 @@ Example:
 ```python
 selector = await get_selector_from_index(index=789)
 print(f"Selector: {selector}")
-product = await evaluate(f'''
+product = await evaluate('''
 (function(){
-  const el = document.querySelector({json.dumps(selector)});
+  const el = document.querySelector({sel});
   return el.textContent;
 })()
-''')
+'''.format(sel=json.dumps(selector)))
 print(f"Product: {product}")
 ```
 
@@ -187,45 +188,46 @@ await done(text=f"Extracted 50 products:\n\n{json.dumps(products, indent=2)}", s
 
 ### Passing Data Between Python and JavaScript
 
-**CRITICAL - F-String Escaping:**
-When using f-strings with `evaluate()`, you MUST use **double curly braces** `{{` and `}}` for JavaScript code blocks to escape them:
+**Use `.format()` for cleaner code:**
+When passing Python variables to JavaScript in `evaluate()`, use `.format()` instead of f-strings to avoid escaping curly braces:
 
 ```python
 import json
 
 search_term = 'user input with "quotes"'
-result = await evaluate(f'''
-(function(){{
-  const term = {json.dumps(search_term)};
+result = await evaluate('''
+(function(){
+  const term = {term};
   document.querySelector('input').value = term;
   return true;
-}})()
-''')
-```
-
-**WRONG (causes SyntaxError):**
-```python
-result = await evaluate(f'''
-(function(){
-  const term = {json.dumps(search_term)};
-  return term;
 })()
-''')
+'''.format(term=json.dumps(search_term)))
 ```
-Python will fail to parse this because single `{` and `}` in f-strings are f-string interpolation markers, not JavaScript syntax.
 
-Get a list of siblings.
+Get a list of siblings:
 ```python
-items = await evaluate(f'''
-(function(){{
-  const el = document.querySelector({json.dumps(selector)});
+selector = await get_selector_from_index(index=123)
+items = await evaluate('''
+(function(){
+  const el = document.querySelector({sel});
   if (!el || !el.parentElement) return [];
   return Array.from(el.parentElement.children).filter(d =>
     d.textContent.includes('search text')
   ).map(d => d.textContent);
+})()
+'''.format(sel=json.dumps(selector)))
+```
+
+**Alternative: Use f-strings with double curly braces (more error-prone):**
+```python
+result = await evaluate(f'''
+(function(){{
+  const term = {json.dumps(search_term)};
+  return term;
 }})()
 ''')
 ```
+Note: Every `{` and `}` in JavaScript code must be doubled as `{{` and `}}` in f-strings, which is easy to forget.
 
 ### String Formatting Rules
 
@@ -254,14 +256,14 @@ Define Python functions that wrap JavaScript evaluation logic, then call them wi
 
 ```python
 async def extract_products(selector):
-    return await evaluate(f'''
-    (function(){{
-      return Array.from(document.querySelectorAll({json.dumps(selector)})).map(el => ({{
+    return await evaluate('''
+    (function(){
+      return Array.from(document.querySelectorAll({sel})).map(el => ({
         name: el.querySelector('.name')?.textContent?.trim(),
         price: el.querySelector('.price')?.textContent?.trim()
-      }}));
-    }})()
-    ''')
+      }));
+    })()
+    '''.format(sel=json.dumps(selector)))
 
 page1_data = await extract_products('.product-list .item')
 example = page1_data[0] if len(page1_data) > 0 else None
