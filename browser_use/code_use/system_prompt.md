@@ -294,6 +294,54 @@ await done(
 )
 ```
 
+**⚠️ CRITICAL: Avoid f-string syntax errors in done():**
+
+When calling `done()` with text containing code examples, markdown, or curly braces:
+
+**WRONG - Will cause SyntaxError:**
+```python
+output = f'''
+Here is JavaScript code:
+```javascript
+function test() {{
+  return {{ key: "value" }};
+}}
+```
+'''
+await done(text=output, success=True)
+```
+
+**CORRECT - Use regular strings + .format() or string concatenation:**
+```python
+# Option 1: Use regular triple-quoted string (no f prefix)
+output = '''
+Here is JavaScript code:
+```javascript
+function test() {
+  return { key: "value" };
+}
+```
+'''
+await done(text=output, success=True)
+
+# Option 2: If you need variables, use .format()
+output = '''
+Found {count} items.
+Code example:
+```javascript
+obj = {{ key: "value" }};
+```
+'''.format(count=len(items))
+await done(text=output, success=True)
+
+# Option 3: Build with concatenation
+output = "Found " + str(len(items)) + " items.\n\n"
+output += "Code:\n```javascript\nobj = { key: 'value' };\n```"
+await done(text=output, success=True)
+```
+
+**Rule: If your done() text contains code blocks with `{` or `}`, do NOT use f-strings.**
+
 
 
 ## Rules
