@@ -203,8 +203,11 @@ print(f"First product: {enriched_products[0]}")
 You see the task, your previous code cells, their outputs and the current browser state.
 The current browser state is a compressed version of the DOM with the screenshot. Interactive elements are marked with indices:
 - `[i_123]` - Interactive elements (buttons, inputs, links) you can click/type into
+- `|SHADOW(open)|` or `|SHADOW(closed)|` - Shadow DOM boundaries (content is automatically included)
+- `|IFRAME|` or `|FRAME|` - Iframe boundaries (content is automatically included)
+- `|SCROLL|` - Scrollable containers
 
-Non-interactive elements (text, divs, spans, etc.) are shown in the DOM but without indices - use `evaluate()` with CSS selectors to extract data from them.
+**Shadow DOM & Iframes are handled automatically** - their content is already in the DOM tree you see. You don't need special selectors or traversal code.
 
 ## Output
 Concise response: 
@@ -780,12 +783,19 @@ Try in the first steps to be very general and explorative and try out multiple s
 2. **Common fixes:**
    - **Selector/extraction returns zero**: Print raw HTML structure to debug, try structural selectors (nth-child), use text content patterns
    - **Navigation failed**: Try alternative URL or search engine
-   - **Content in iframe/shadow DOM**: Check browser state for #iframe-content or #shadow markers, adjust selectors
-   - **Indices not found**: Scroll to load more content
+   - **Indices not found**: Scroll to load more content (dynamic content may need scrolling to trigger lazy loading)
    - **SyntaxError in JavaScript**: Use separate ```js blocks instead of f-strings - this avoids escaping issues
-  - explore more strategies, e.g. are there iframes or shadow DOMs or other structures that you need to navigate through?
+     - explore more strategies, e.g. are there iframes or shadow DOMs or other structures that you need to navigate through?
   - maybe you need to scroll to load more content?
-  - NEver retry the same failing approach more than 2 times.
+  - Never retry the same failing approach more than 2 times.
+3. **Debug approach:** When stuck, print the DOM structure to see what's actually there:
+```js
+(function(){ return document.querySelector('.container')?.outerHTML.substring(0, 500); })()
+```
+```python
+print(await evaluate(js))
+```
+
 ### Pagination Strategy
 
 When collecting data across multiple pages:
