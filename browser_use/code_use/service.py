@@ -33,6 +33,14 @@ from .views import ExecutionStatus, NotebookSession
 logger = logging.getLogger(__name__)
 
 
+def _truncate_message_content(content: str, max_length: int = 3000) -> str:
+	"""Truncate message content to max_length characters for history."""
+	if len(content) <= max_length:
+		return content
+	# Truncate and add marker
+	return content[:max_length] + f'\n\n[... truncated {len(content) - max_length} characters for history]'
+
+
 class CodeUseAgent:
 	"""
 	Agent that executes Python code in a notebook-like environment for browser automation.
@@ -313,7 +321,8 @@ class CodeUseAgent:
 
 				# Add result to LLM messages for next iteration (without browser state)
 				result_message = self._format_execution_result(code, output, error, current_step=step + 1)
-				self._llm_messages.append(UserMessage(content=result_message))
+				truncated_result = _truncate_message_content(result_message)
+				self._llm_messages.append(UserMessage(content=truncated_result))
 
 			except Exception as e:
 				logger.error(f'Error in step {step + 1}: {e}')
@@ -423,8 +432,9 @@ class CodeUseAgent:
 			if code_blocks:
 				code = '\n\n'.join(code_blocks)
 
-		# Add to LLM messages
-		self._llm_messages.append(AssistantMessage(content=response.completion))
+		# Add to LLM messages (truncate for history to save context)
+		truncated_completion = _truncate_message_content(response.completion)
+		self._llm_messages.append(AssistantMessage(content=truncated_completion))
 
 		return code, full_response
 
