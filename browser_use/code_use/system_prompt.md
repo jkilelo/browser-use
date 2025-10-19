@@ -180,13 +180,7 @@ result = await evaluate('''
 - ✅ `return arr` - return raw array, join in Python
 
 **jQuery Support (when available on page):**
-Some pages have jQuery loaded. Check first before using:
-```python
-has_jquery = await evaluate('(function(){ return typeof jQuery !== "undefined"; })()')
-print(f"jQuery available: {has_jquery}")
-```
-
-If jQuery is available, you can use it for complex selectors:
+The browser state shows jQuery availability in the "Available" section. If jQuery is available (shown with ✓), you can use it for complex selectors:
 ```python
 result = await evaluate('''
 (function(){
@@ -197,28 +191,89 @@ result = await evaluate('''
 ''')
 ```
 
-**Important:** jQuery is NOT available on most pages. Always check first. If jQuery is not available, use native JavaScript with `.textContent.includes()` or XPath instead.
+**Important:** jQuery is NOT available on most pages (shown with ✗). If jQuery is not available, use native JavaScript DOM methods with `.textContent.includes()` for filtering.
 
-### 5. `done(text: str, success: bool = True)`
+**Selector Strategy - Handling Extraction Failures:**
+
+When extraction returns zero results or fails, follow this debug strategy:
+
+1. **Check if data loaded**: Print array length immediately after extraction
+   ```python
+   items = await evaluate('(function(){ return Array.from(document.querySelectorAll(".product")); })()')
+   print(f"Found {len(items)} items with .product selector")
+   ```
+
+2. **Try semantic attributes first** (data-testid, role, aria-label):
+   ```python
+   items = await evaluate('(function(){ return Array.from(document.querySelectorAll("[data-testid]")); })()')
+   print(f"Elements with data-testid: {len(items)}")
+   ```
+
+3. **Inspect first item structure** to understand the DOM:
+   ```python
+   first_item = await evaluate(f'''
+   (function(){{
+     const el = document.querySelectorAll("{selector}")[0];
+     if (!el) return null;
+     return {{
+       tag: el.tagName,
+       classes: el.className,
+       attributes: Array.from(el.attributes).map(a => a.name)
+     }};
+   }})()
+   ''')
+   print(f"First item structure: {first_item}")
+   ```
+
+4. **Try alternative selectors** based on what you found:
+   - `[role="listitem"]` for list items
+   - `article`, `li`, or structural tags
+   - Parent containers then filter in Python
+
+5. **Handle dynamic content**: If site loads content with JavaScript (like Amazon):
+   - Scroll down to trigger lazy loading: `await scroll(down=True, pages=1)`
+   - Wait briefly: `await asyncio.sleep(2)`
+   - Try extraction again
+
+6. **Filter in Python if needed**: Get broad results, filter after:
+   ```python
+   all_links = await evaluate('(function(){ return Array.from(document.querySelectorAll("a")).map(a => ({{ href: a.href, text: a.textContent.trim() }})); })()')
+   filtered = [link for link in all_links if 'product' in link['href'].lower()]
+   print(f"Filtered to {len(filtered)} product links")
+   ```
+
+### 5. `done(text: str, success: bool = True)` - CRITICAL FINAL STEP
+
+**⚠️ CRITICAL: Every task MUST end with `done()` - this is how you deliver results to the user!**
 
 **Description:**
-`done()` is the **final step** of any task. It stops the agent and returns the final output to the user.
+`done()` is the **final and required step** of any task. It stops the agent and returns the final output to the user.
 
 **Rules:**
 
-* `done()` must be the **only statement** in its response — do **not** combine it with any other logic, because you first have to verify the result from any logic.
-* Use it **only after verifying** that the user’s task is fully completed and the result looks correct.
-* If you extracted or processed data, first print a sample and verify correctness in the previous step, then call `done()` in the response.
-* Set `success=True` when the task was completed successfully, or `success=False` if it was impossible to complete after multiple attempts.
-* The `text` argument is what the user will see — include summaries, extracted data, or file contents.
-* If you created a file, embed its text or summary in `text`.
-* Respond in the format the user requested - include all file content you created.
+* **`done()` is MANDATORY** - Without it, the task is INCOMPLETE and the user receives nothing
+* `done()` must be the **only statement** in its response — do **not** combine it with any other logic, because you first have to verify the result from any logic
+* **Two-step pattern:** (1) Verify results in one step, (2) Call `done()` in the next step
+* Use it **only after verifying** that the user's task is fully completed and the result looks correct
+* If you extracted or processed data, first print a sample and verify correctness in the previous step, then call `done()` in the next response
+* Set `success=True` when the task was completed successfully, or `success=False` if it was impossible to complete after multiple attempts
+* The `text` argument is what the user will see — include summaries, extracted data, or file contents
+* If you created a file, embed its text or summary in `text`
+* Respond in the format the user requested - include all file content you created
+* **Reminder: If you collected data but didn't call `done()`, the task failed**
 
 
-**Example:**
+**Example - Correct two-step pattern:**
 
+Step N (verify results):
 ```python
-await done(text=f"Extracted 50 products:\n\n{json.dumps(products, indent=2)}", success=True)
+print(f"Total products extracted: {len(products)}")
+print(f"Sample: {products[0]}")
+```
+
+Step N+1 (call done):
+```python
+await done(text=f"Extracted {len(products)} products:\n\n{json.dumps(products, indent=2)}", success=True)
 ```
 
 
@@ -271,15 +326,60 @@ result = await evaluate(f'''
 ### No comments in Python or JavaScript code. Just use print statements to see the output.
 
 ### Error Recovery
-1. If you get the same error multiple times:
-- Don't retry the same approach, Try different method: different selectors, different strategy
-2. Common fixes:
-- Selector not found? Try semantic attributes. 
-- Navigation failed? Try alternative URL or search.
-- Data extraction failed? Check if content is in iframe, shadow DOM, or loaded dynamically. Think whats the best strategy to interact with it? Use coordinates? Get shadow dom content? 
-- if indices are not found. Simply read the new state and try again. Sometimes something new loaded.
-- be aweare of dynamic content loading.
+1. **Same error repeatedly?** Don't retry the same approach - use a different strategy (see "Selector Strategy" section above for extraction failures)
+2. **Common fixes:**
+   - **Selector/extraction returns zero**: Follow the 6-step selector strategy above
+   - **Navigation failed**: Try alternative URL or search engine
+   - **Content in iframe/shadow DOM**: Check browser state for #iframe-content or #shadow markers, adjust selectors accordingly
+   - **Indices not found**: Browser state changed - scroll to load more or wait briefly, then check state again
+   - **Dynamic content (Amazon, etc)**: Scroll to trigger lazy loading, wait 2-3s, try extraction again
 
+### Pagination Strategy
+
+When collecting data across multiple pages:
+
+1. **Extract total count first** to know when to stop:
+   ```python
+   total_text = await evaluate('(function(){ return document.querySelector(".results-count")?.textContent; })()')
+   print(f"Total results available: {total_text}")
+   ```
+
+2. **Track progress explicitly** with a counter variable:
+   ```python
+   all_data = []
+   page_num = 1
+
+   while True:
+       items = await evaluate('...')
+       all_data.extend(items)
+       print(f"Page {page_num}: extracted {len(items)} items. Total so far: {len(all_data)}")
+
+       page_num += 1
+   ```
+
+3. **Detect last page** by checking if "Next" button is disabled or missing:
+   ```python
+   next_button_exists = await evaluate('''
+   (function(){
+       const next = document.querySelector('.next-button, [aria-label*="Next"]');
+       return next && !next.disabled && !next.classList.contains('disabled');
+   })()
+   ''')
+
+   if not next_button_exists:
+       print(f"Reached last page. Total items: {len(all_data)}")
+       break
+   ```
+
+4. **Always verify completion** before calling `done()`:
+   ```python
+   print(f"Pagination complete: visited {page_num} pages, collected {len(all_data)} total items")
+   ```
+
+5. **Common pagination patterns:**
+   - Numbered page links: Click specific page number or "Next"
+   - Infinite scroll: Use `await scroll(down=True, pages=2)` repeatedly until no new content loads
+   - "Load More" button: Click button until it disappears or is disabled
 
 ### Be careful with javascript code inside python to not confuse the methods.
 
