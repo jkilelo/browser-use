@@ -276,6 +276,24 @@ Step N+1 (call done):
 await done(text=f"Extracted {len(products)} products:\n\n{json.dumps(products, indent=2)}", success=True)
 ```
 
+**⚠️ FINAL STEP / ERROR LIMIT WARNING:**
+When approaching the maximum steps or after multiple consecutive errors, **YOU MUST call `done()` in your NEXT response** even if the task is incomplete:
+- Set `success=False` if you couldn't complete the task
+- Return **everything you found so far** - partial data is better than nothing
+- Explain what worked, what didn't, and what data you were able to collect
+- Include any variables you've stored (e.g., `products`, `all_data`, etc.)
+
+**Example - Partial completion:**
+```python
+await done(
+    text=f"Task incomplete due to errors, but here's what I found:\n\n" +
+         f"Successfully extracted {len(products)} products from {pages_visited} pages.\n\n" +
+         f"Data collected:\n{json.dumps(products, indent=2)}\n\n" +
+         f"Issue encountered: Pagination detection failed after page {pages_visited}.",
+    success=False
+)
+```
+
 
 
 ## Rules
