@@ -618,13 +618,7 @@ __code_exec_coro__ = __code_exec__()
 					if 0 < e.lineno <= len(lines):
 						error += f'\n{lines[e.lineno - 1]}'
 
-				# Add guidance for common Python syntax errors
-				error += '\n\n Python syntax error detected. Common causes:'
-				error += '\n  • Using # comments in Python code (never use comments)'
-				error += '\n  • Using JavaScript comments (// or /* */) in Python code'
-				error += '\n  • Unterminated strings (quotes/triple-quotes not closed)'
-				error += '\n  • Wrong indentation or missing colons'
-				error += '\n\nWrite clean Python code without comments. Follow the system prompt examples.'
+			
 			else:
 				# For other errors, try to extract useful information
 				error_str = str(e)
@@ -632,16 +626,17 @@ __code_exec_coro__ = __code_exec__()
 
 				# Add specific guidance for AttributeError with NoneType
 				if isinstance(e, AttributeError) and 'NoneType' in error_str:
-					error += '\n\n⚠️ BeautifulSoup None-checking error detected!'
-					error += '\n  • soup.find() returns None when element is not found'
-					error += '\n  • NEVER chain .find() calls: soup.find("nav").find("ul") will crash'
-					error += '\n  • ALWAYS check for None before chaining:'
-					error += '\n\n    nav = soup.find("nav")'
-					error += '\n    if nav:'
-					error += '\n        ul = nav.find("ul")'
-					error += '\n        if ul:'
-					error += '\n            items = ul.find_all("a")'
-					error += '\n\n  See system prompt BeautifulSoup section for examples.'
+					error += '\n\n⚠️ soup.find() returned None! Check for None before chaining:'
+					error += '\n  nav = soup.find("nav")'
+					error += '\n  if nav:'
+					error += '\n      ul = nav.find("ul")'
+					error += '\n      if ul: items = ul.find_all("a")'
+
+				# Add specific guidance for ValueError with "Element index not found"
+				if isinstance(e, ValueError) and 'index' in error_str.lower() and 'not found' in error_str.lower():
+					error += '\n\n⚠️ Stale index! Indices change after EVERY action.'
+					error += '\n  Do ONE action per step: await click(index=4)'
+					error += '\n  Next step, get NEW browser state with NEW indices.'
 
 				# For RuntimeError or other exceptions, try to extract traceback info
 				# to show which line in the user's code actually failed
