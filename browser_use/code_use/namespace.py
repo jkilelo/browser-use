@@ -316,8 +316,13 @@ def create_namespace(
 			raise ValueError('No JavaScript code provided to evaluate()')
 
 		# Auto-wrap in IIFE if not already wrapped
+		# Check for both strict patterns: (function(){ or (async function(){
 		stripped = code.strip()
-		if not (stripped.startswith('(function()') or stripped.startswith('(async function()')):
+		is_wrapped = (
+			(stripped.startswith('(function()') and '})()' in stripped[-10:])
+			or (stripped.startswith('(async function()') and '})()' in stripped[-10:])
+		)
+		if not is_wrapped:
 			code = f'(function(){{{code}}})()'
 
 		# Ignore any extra arguments (like browser_session if passed)
