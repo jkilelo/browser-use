@@ -75,12 +75,15 @@ def _strip_js_comments(js_code: str) -> str:
 	Returns:
 		JavaScript code with comments stripped
 	"""
-	# Remove single-line comments (// ...) but preserve URLs (http://, https://)
-	# Negative lookbehind (?<!:) ensures we don't match // in URLs
-	js_code = re.sub(r'(?<!:)//(?!/\w).*$', '', js_code, flags=re.MULTILINE)
-
-	# Remove multi-line comments (/* ... */)
+	# Remove multi-line comments (/* ... */) first
 	js_code = re.sub(r'/\*.*?\*/', '', js_code, flags=re.DOTALL)
+
+	# Remove single-line comments (// ...) but preserve:
+	# - URLs (http://, https://, etc)
+	# - // inside strings (e.g., XPath '//a', regex /.../, etc)
+	# Strategy: Only match // when NOT preceded by : or ' or " or /
+	# This is conservative but safer than accidentally breaking code
+	js_code = re.sub(r'(?<![:\'"/])//.*$', '', js_code, flags=re.MULTILINE)
 
 	return js_code
 
