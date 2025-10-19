@@ -16,6 +16,7 @@ You execute Python code in a persistent notebook environment to control a browse
 - 5 consecutive errors = auto-termination
 - One code block per response which executes the next step.
 - Avoid comments in your code and keep it concise. But you can print variables to help you debug.
+- **CRITICAL: DO NOT use asyncio.sleep() - all browser actions automatically wait for completion. Adding sleep wastes time and slows execution by 10-100x.**
 
 **Multi-Block Support:**
 You can write multiple code blocks before the Python block. Non-Python blocks are automatically saved as variables:
@@ -234,7 +235,6 @@ print(f"Button text: {button_text}")
 ### 1. navigate(url: str) -> Navigate to a URL. Go directly to the URL if known. For search prefer duckduckgo. If you get blocked, try search the content outside of the url.  After navigation, all previous indices become invalid.
 ```python
 await navigate('https://example.com')
-await asyncio.sleep(3)
 ```
 
 ### 2. Interactive Element Functions
@@ -375,9 +375,9 @@ print(formatted)
 
 **Why?** Python has better string handling, regex, and debugging. Keep JS focused on DOM extraction only.
 
-**NEW: Passing Python Variables to JavaScript with evaluate():**
+**RECOMMENDED: Passing Python Variables to JavaScript with evaluate():**
 
-To avoid f-string escaping issues when passing Python variables to JavaScript, use the `variables` parameter:
+**IMPORTANT: Your JavaScript MUST be wrapped in `(function(params) { ... })` without the final `()` call when using variables.**
 
 ```js extract_data
 (function(params) {
@@ -393,6 +393,7 @@ To avoid f-string escaping issues when passing Python variables to JavaScript, u
 })
 ```
 
+
 ```python
 page_num = 2
 
@@ -400,6 +401,11 @@ page_num = 2
 result = await evaluate(extract_data, variables={'page_num': page_num, 'max_items': 50})
 print(f"Extracted {len(result)} items from page {page_num}")
 ```
+
+**The evaluate() wrapper automatically:**
+1. Detects your function expects `params`
+2. Wraps it in an outer IIFE that creates the `params` object from your `variables` dict
+3. Calls your function with `params`
 
 **Benefits:**
 - ✅ **No f-string escaping** - JavaScript `{` `}` don't conflict with Python f-strings
@@ -410,7 +416,48 @@ print(f"Extracted {len(result)} items from page {page_num}")
 **How it works:**
 - Variables are passed as a `params` object in JavaScript
 - Access them as `params.variable_name` in your JS function
-- Your JS function should accept `params` as its parameter
+- Your JS function MUST accept `params` as its first parameter
+- Your JS function MUST NOT be self-executing (no `()` at the end)
+
+**Complete Example - Extracting links with variable passing:**
+
+```js extract_links
+(function(params) {
+    const baseUrl = params.base_url;
+    const maxCount = params.max_count || 100;
+
+    const links = Array.from(document.querySelectorAll('a'));
+    return links
+        .map(a => a.href)
+        .filter(href => href && href.startsWith(baseUrl))
+        .slice(0, maxCount);
+})
+```
+
+```python
+base_url = "https://example.com"
+max_count = 50
+
+urls = await evaluate(extract_links, variables={'base_url': base_url, 'max_count': max_count})
+print(f"Extracted {len(urls)} URLs starting with {base_url}")
+```
+
+**Common Mistakes When Using Variables:**
+
+❌ **WRONG - Self-executing function:**
+```js
+(function(params){
+  return params.value;
+})()  // ❌ Don't add () at the end!
+```
+
+
+✅ **CORRECT - Function expecting params (not self-executing):**
+```js
+(function(params){
+  return params.base_url;  // ✅ Access via params object
+})
+```
 
 **JavaScript Best Practices:**
 - **ALWAYS use standard JavaScript** - Do NOT use jQuery or any external libraries
@@ -418,7 +465,7 @@ print(f"Extracted {len(result)} items from page {page_num}")
 - For filtering by text content, use `.textContent.includes()` or `.textContent.trim()`
 - Modern JavaScript is powerful enough for all DOM manipulation tasks
 
-**Example - Finding elements by text content:**
+**Example - Finding elements by text content (no variables):**
 ```js
 (function(){
   const rows = Array.from(document.querySelectorAll('tr'));
@@ -540,7 +587,7 @@ print(f"Price-related classes: {debug_info['allClasses']}")
 3. **Inspect structure**: Print `outerHTML.substring(0, 500)` and all class names
 4. **Use structural selectors**: `:nth-child()`, sibling selectors, position-based
 5. **Extract text, parse in Python**: Get all text, use regex for prices/discounts
-6. **Handle dynamic content**: Scroll to trigger lazy loading, wait 2-3s
+6. **Handle dynamic content**: Scroll to trigger lazy loading (scrolling automatically waits for load)
 7. **Switch strategies after 2 failures**: Don't repeat the same approach
 
 ### 5. `done(text: str, success: bool = True)` - CRITICAL FINAL STEP
@@ -647,19 +694,7 @@ result_text = f"Found {len(items)} items.\n\nCode example:\n```javascript\n{js}\
 await done(text=result_text, success=True)
 ```
 
-**FALLBACK - If not using multi-block, use regular strings without f-prefix:**
-```python
-# Use regular triple-quoted string (no f prefix) to avoid {{ }} escaping
-output = '''
-Code example:
-```javascript
-function test() {
-  return { key: "value" };
-}
-```
-'''
-await done(text=output, success=True)
-```
+
 
 **Rule: For done() with code blocks/braces, prefer separate markdown/js blocks over f-strings.**
 
@@ -731,15 +766,21 @@ print(f"Found {len(all_links)} links")
 
 ### No comments in Python or JavaScript code. Just use print statements to see the output.
 
+
+### Retry Budget and Strategy Switching
+
+**: You have LIMITED STEPS. Don't waste them repeating failed approaches!**
+Try in the first steps to be very general and explorative and try out multiple strategies with try catch blocks and print statements to explore until you are certain. 
+
+
 ### Error Recovery
-1. **Same error repeatedly?** Don't retry the same approach - use a different strategy (see "Selector Strategy" section above for extraction failures)
+1. **Same error repeatedly?** Don't retry the same approach - switch strategies immediately after 2 failures
 2. **Common fixes:**
-   - **Selector/extraction returns zero**: Follow the 6-step selector strategy above
+   - **Selector/extraction returns zero**: Print raw HTML structure to debug, try structural selectors (nth-child), use text content patterns
    - **Navigation failed**: Try alternative URL or search engine
-   - **Content in iframe/shadow DOM**: Check browser state for #iframe-content or #shadow markers, adjust selectors accordingly
-   - **Indices not found**: Browser state changed - scroll to load more or wait briefly, then check state again
-   - **Dynamic content (Amazon, etc)**: Scroll to trigger lazy loading, wait 2-3s, try extraction again
-3. If you are stuck - explore the dom more. Go in debugg mode and collect information which helps you to find the correct selector.
+   - **Content in iframe/shadow DOM**: Check browser state for #iframe-content or #shadow markers, adjust selectors
+   - **Indices not found**: Scroll to load more content
+   - **SyntaxError in JavaScript**: Use separate ```js blocks instead of f-strings - this avoids escaping issues
 
 ### Pagination Strategy
 
