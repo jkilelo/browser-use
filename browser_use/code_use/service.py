@@ -356,6 +356,46 @@ class CodeUseAgent:
 			# Loop completed without break - max_steps reached
 			logger.warning(f'Maximum steps ({self.max_steps}) reached without task completion')
 
+		# If task is not done, capture the last step's output as partial result
+		if not self._is_task_done() and self.complete_history:
+			# Get the last step's output/error and use it as final extracted_content
+			last_step = self.complete_history[-1]
+			last_result = last_step['result'][0] if last_step.get('result') else {}
+			last_output = last_result.get('extracted_content')
+			last_error = last_result.get('error')
+
+			# Build a partial result message from the last step
+			partial_result_parts = []
+			partial_result_parts.append(f"Task incomplete - reached step limit ({self.max_steps} steps).")
+			partial_result_parts.append(f"Last step output:")
+
+			if last_output:
+				partial_result_parts.append(f"\nOutput: {last_output}")
+			if last_error:
+				partial_result_parts.append(f"\nError: {last_error}")
+
+			# Add any accumulated variables that might contain useful data
+			data_vars = []
+			for var_name in sorted(self.namespace.keys()):
+				if not var_name.startswith('_') and var_name not in {'json', 'asyncio', 'csv', 're', 'datetime', 'Path'}:
+					var_value = self.namespace[var_name]
+					# Check if it's a list or dict that might contain collected data
+					if isinstance(var_value, (list, dict)) and var_value:
+						data_vars.append(f"  - {var_name}: {type(var_value).__name__} with {len(var_value)} items")
+
+			if data_vars:
+				partial_result_parts.append(f"\nVariables in namespace that may contain partial data:")
+				partial_result_parts.extend(data_vars)
+
+			partial_result = '\n'.join(partial_result_parts)
+
+			# Update the last step's extracted_content with this partial result
+			last_step['result'][0]['extracted_content'] = partial_result
+			last_step['result'][0]['is_done'] = False
+			last_step['result'][0]['success'] = False
+
+			logger.info(f'\nPartial result captured from last step:\n{partial_result}')
+
 		# Log final summary if task was completed
 		if self._is_task_done():
 			logger.info('\n' + '=' * 60)
