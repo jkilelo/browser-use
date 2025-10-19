@@ -376,20 +376,35 @@ def create_namespace(
 
 				# Special validation for done() - enforce minimal code cell
 				if act_name == 'done':
-					# Get the current cell code from namespace (injected by service.py before execution)
-					current_code = namespace.get('_current_cell_code')
-					if current_code and isinstance(current_code, str):
-						# Count non-empty, non-comment lines
-						lines = [line.strip() for line in current_code.strip().split('\n')]
-						code_lines = [line for line in lines if line and not line.startswith('#')]
+					consecutive_failures = namespace.get('_consecutive_errors')
+					if consecutive_failures and consecutive_failures > 3:
+						pass
+					else:
+						# Get the current cell code from namespace (injected by service.py before execution)
+						current_code = namespace.get('_current_cell_code')
+						if current_code and isinstance(current_code, str):
+							# Count non-empty, non-comment lines
+							lines = [line.strip() for line in current_code.strip().split('\n')]
+							code_lines = [line for line in lines if line and not line.startswith('#')]
 
-						if len(code_lines) > 5:
-							error_msg = (
-								f'done() must be called in a minimal code cell (max 5 lines of code).\n'
-								f'Your cell has {len(code_lines)} lines of code.\n\n'
-								f'Please validate your output first, THEN call done() in a final step. '
-							)
-							raise RuntimeError(error_msg)
+							# Check if the line above await done() contains an if block
+							done_line_index = -1
+							for i, line in enumerate(reversed(code_lines)):
+								if 'await done()' in line:
+									done_line_index = len(code_lines) - 1 - i
+									break
+							
+							has_if_above = False
+							if done_line_index > 0:
+								line_above = code_lines[done_line_index - 1]
+								has_if_above = line_above.strip().startswith('if ') and line_above.strip().endswith(':')
+
+							if has_if_above:
+								error_msg = (
+									f'done() must be called individually after verifying the result from any logic	.\n'
+									f'Please validate your output first, THEN call done() in a final step without if blocks. '
+								)
+								raise RuntimeError(error_msg) from None
 
 				# Build special context
 				special_context = {

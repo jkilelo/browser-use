@@ -463,6 +463,8 @@ class CodeUseAgent:
 
 				# Store the current code in namespace for done() validation
 				self.namespace['_current_cell_code'] = code
+				# Store consecutive errors count for done() validation
+				self.namespace['_consecutive_errors'] = self._consecutive_errors
 
 				# Check if code contains await expressions - if so, wrap in async function
 				# This mimics how Jupyter/IPython handles top-level await
