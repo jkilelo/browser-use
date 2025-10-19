@@ -88,6 +88,12 @@ SEMANTIC_ELEMENTS = {
 # Container elements that can be collapsed if they only wrap one child
 COLLAPSIBLE_CONTAINERS = {'div', 'span', 'section', 'article'}
 
+# SVG elements that should be collapsed (shown once with count)
+SVG_ELEMENTS = {'svg', 'path', 'rect', 'g', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'use', 'defs', 'clipPath', 'mask', 'pattern', 'image'}
+
+# Generic repetitive elements to collapse when they appear consecutively
+COLLAPSIBLE_REPETITIVE = {'path', 'rect', 'li', 'option', 'g', 'circle', 'use'}
+
 
 class DOMEvalSerializer:
 	"""Ultra-concise DOM serializer for quick LLM query writing."""
@@ -213,35 +219,83 @@ class DOMEvalSerializer:
 		max_consecutive_links = 5
 		total_links_skipped = 0
 
+		# Track consecutive repetitive elements for generic collapsing
+		last_tag = None
+		consecutive_count = 0
+		consecutive_buffer = []
+		max_consecutive = 3  # Show max 3 of same element type before collapsing
+
 		for child in node.children:
+			# Get tag name for this child
+			current_tag = None
+			if child.original_node.node_type == NodeType.ELEMENT_NODE:
+				current_tag = child.original_node.tag_name.lower()
+
+			# Check if this is a collapsible repetitive element
+			is_collapsible = current_tag in COLLAPSIBLE_REPETITIVE if current_tag else False
+
+			# If we're tracking consecutive elements and hit a different type
+			if last_tag and last_tag != current_tag and consecutive_count > max_consecutive:
+				depth_str = depth * '\t'
+				children_output.append(f'{depth_str}... ({consecutive_count - max_consecutive} more <{last_tag}> elements)')
+				consecutive_buffer = []
+				consecutive_count = 0
+
 			# If we're in a list container and this child is an li element
-			if is_list_container and child.original_node.node_type == NodeType.ELEMENT_NODE:
-				if child.original_node.tag_name.lower() == 'li':
-					li_count += 1
-					# Skip li elements after the 5th one
-					if li_count > max_list_items:
-						continue
+			if is_list_container and current_tag == 'li':
+				li_count += 1
+				# Skip li elements after the 5th one
+				if li_count > max_list_items:
+					continue
 
 			# Track consecutive anchor tags (links)
-			if child.original_node.node_type == NodeType.ELEMENT_NODE:
-				if child.original_node.tag_name.lower() == 'a':
-					consecutive_link_count += 1
-					# Skip links after the 5th consecutive one
-					if consecutive_link_count > max_consecutive_links:
-						total_links_skipped += 1
-						continue
-				else:
-					# Reset counter when we hit a non-link element
-					# But first add truncation message if we skipped links
-					if total_links_skipped > 0:
-						depth_str = depth * '\t'
-						children_output.append(f'{depth_str}... ({total_links_skipped} more links in this list)')
-						total_links_skipped = 0
-					consecutive_link_count = 0
+			if current_tag == 'a':
+				consecutive_link_count += 1
+				# Skip links after the 5th consecutive one
+				if consecutive_link_count > max_consecutive_links:
+					total_links_skipped += 1
+					continue
+			else:
+				# Reset counter when we hit a non-link element
+				# But first add truncation message if we skipped links
+				if total_links_skipped > 0:
+					depth_str = depth * '\t'
+					children_output.append(f'{depth_str}... ({total_links_skipped} more links in this list)')
+					total_links_skipped = 0
+				consecutive_link_count = 0
 
-			child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
-			if child_text:
-				children_output.append(child_text)
+			# Handle consecutive collapsible elements
+			if is_collapsible and current_tag == last_tag:
+				consecutive_count += 1
+				if consecutive_count <= max_consecutive:
+					child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
+					if child_text:
+						consecutive_buffer.append(child_text)
+						children_output.append(child_text)
+				# Skip showing elements beyond max_consecutive, we'll add summary at the end
+			else:
+				# Different element type or not collapsible
+				# Flush any pending collapse message
+				if last_tag and consecutive_count > max_consecutive:
+					depth_str = depth * '\t'
+					children_output.append(f'{depth_str}... ({consecutive_count - max_consecutive} more <{last_tag}> elements)')
+
+				# Reset tracking
+				consecutive_count = 1 if is_collapsible else 0
+				consecutive_buffer = []
+				last_tag = current_tag if is_collapsible else None
+
+				# Serialize this child normally
+				child_text = DOMEvalSerializer.serialize_tree(child, include_attributes, depth)
+				if child_text:
+					if is_collapsible:
+						consecutive_buffer.append(child_text)
+					children_output.append(child_text)
+
+		# Flush any remaining collapsed elements at the end
+		if last_tag and consecutive_count > max_consecutive:
+			depth_str = depth * '\t'
+			children_output.append(f'{depth_str}... ({consecutive_count - max_consecutive} more <{last_tag}> elements)')
 
 		# Add truncation message if we skipped items at the end
 		if is_list_container and li_count > max_list_items:
