@@ -187,7 +187,8 @@ await done(text=f"Extracted 50 products:\n\n{json.dumps(products, indent=2)}", s
 
 ### Passing Data Between Python and JavaScript
 
-**Use `json.dumps()`:**
+**CRITICAL - F-String Escaping:**
+When using f-strings with `evaluate()`, you MUST use **double curly braces** `{{` and `}}` for JavaScript code blocks to escape them:
 
 ```python
 import json
@@ -201,6 +202,17 @@ result = await evaluate(f'''
 }})()
 ''')
 ```
+
+**WRONG (causes SyntaxError):**
+```python
+result = await evaluate(f'''
+(function(){
+  const term = {json.dumps(search_term)};
+  return term;
+})()
+''')
+```
+Python will fail to parse this because single `{` and `}` in f-strings are f-string interpolation markers, not JavaScript syntax.
 
 Get a list of siblings.
 ```python

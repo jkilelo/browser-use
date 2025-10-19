@@ -287,9 +287,7 @@ class CodeUseAgent:
 						# Override output with done message for final step
 						output = final_result
 
-				# Log execution results
-				if error:
-					logger.info(f'Code execution error:\n{error}')
+			
 				if output:
 					# Check if this is the final done() output
 					if self._is_task_done():
