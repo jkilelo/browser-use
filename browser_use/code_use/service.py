@@ -708,6 +708,21 @@ __code_exec_coro__ = __code_exec__()
 				lines.append('')
 
 
+			# Check if jQuery is available on the page
+			has_jquery = False
+			try:
+				cdp_session = await self.browser_session.get_or_create_cdp_session()
+				jquery_check = await cdp_session.cdp_client.send.Runtime.evaluate(
+					params={
+						'expression': '(function(){ return typeof jQuery !== "undefined" && typeof $ !== "undefined"; })()',
+						'returnByValue': True,
+					},
+					session_id=cdp_session.session_id,
+				)
+				has_jquery = jquery_check.get('result', {}).get('value', False)
+			except Exception:
+				pass
+
 			# Add available variables and functions BEFORE DOM structure
 			# Show useful utilities (json, asyncio, etc.) and user-defined vars, but hide system objects
 			skip_vars = {
@@ -723,7 +738,12 @@ __code_exec_coro__ = __code_exec__()
 
 			# Sort for consistent display
 			available_vars_sorted = sorted(available_vars)
-			lines.append(f"**Available variables:** {', '.join(available_vars_sorted)}")
+			# Add jQuery availability info alongside variables
+			jquery_status = '✓' if has_jquery else '✗'
+			if available_vars_sorted:
+				lines.append(f"**Available:** jQuery {jquery_status} | **Variables:** {', '.join(available_vars_sorted)}")
+			else:
+				lines.append(f"**Available:** jQuery {jquery_status}")
 			lines.append('')
 
 			# Add DOM structure
