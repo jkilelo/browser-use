@@ -229,6 +229,7 @@ When extraction returns zero results or fails, follow this debug strategy:
    - `[role="listitem"]` for list items
    - `article`, `li`, or structural tags
    - Parent containers then filter in Python
+   - be efficient loop over many options and find the correct one.
 
 5. **Handle dynamic content**: If site loads content with JavaScript (like Amazon):
    - Scroll down to trigger lazy loading: `await scroll(down=True, pages=1)`
