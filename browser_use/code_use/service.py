@@ -33,7 +33,7 @@ from .views import ExecutionStatus, NotebookSession
 logger = logging.getLogger(__name__)
 
 
-def _truncate_message_content(content: str, max_length: int = 3000) -> str:
+def _truncate_message_content(content: str, max_length: int = 10000) -> str:
 	"""Truncate message content to max_length characters for history."""
 	if len(content) <= max_length:
 		return content
