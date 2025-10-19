@@ -236,24 +236,8 @@ class CodeUseAgent:
 							logger.warning(f'Failed to get new browser state: {e}')
 					continue
 
-				# Check if LLM output multiple code blocks (policy violation)
-				has_multiple_blocks = False
-				if '```python' in full_llm_response:
-					has_multiple_blocks = full_llm_response.count('```python') > 1
-				elif '```' in full_llm_response:
-					has_multiple_blocks = full_llm_response.count('```') > 2
-
 				# Execute code
 				output, error, browser_state = await self._execute_code(code)
-
-				# If multiple blocks detected, add warning to the output
-				if has_multiple_blocks and not error:
-					warning_msg = (
-						'\n\n⚠️ WARNING: You output multiple code blocks. '
-						'Only the FIRST code block was executed. '
-						'Please output ONE code block per step.'
-					)
-					output = (output + warning_msg) if output else warning_msg.strip()
 
 				# Track consecutive errors
 				if error:
@@ -415,32 +399,17 @@ class CodeUseAgent:
 		code = response.completion
 
 		# Try to extract code from markdown code blocks
-		# IMPORTANT: Only extract the FIRST code block to enforce single-step execution
 		if '```python' in code:
 			# Extract code between ```python and ```
 			parts = code.split('```python')
 			if len(parts) > 1:
 				code_part = parts[1].split('```')[0]
 				code = code_part.strip()
-
-				# Check if there are multiple code blocks and warn
-				if len(parts) > 2:
-					logger.warning(
-						'⚠️ LLM output contains multiple code blocks. Only executing the FIRST one. '
-						'The agent should output ONE code block per step.'
-					)
 		elif '```' in code:
 			# Extract code between ``` and ```
 			parts = code.split('```')
 			if len(parts) > 1:
 				code = parts[1].strip()
-
-				# Check if there are multiple code blocks and warn
-				if len(parts) > 3:  # More than 3 means more than 1 code block (opening, content, closing = 3 parts)
-					logger.warning(
-						'⚠️ LLM output contains multiple code blocks. Only executing the FIRST one. '
-						'The agent should output ONE code block per step.'
-					)
 
 		# Add to LLM messages
 		self._llm_messages.append(AssistantMessage(content=response.completion))
