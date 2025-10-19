@@ -228,9 +228,9 @@ class DOMEvalSerializer:
 
 		# Track list items and consecutive links
 		li_count = 0
-		max_list_items = 20
+		max_list_items = 50
 		consecutive_link_count = 0
-		max_consecutive_links = 20
+		max_consecutive_links = 50
 		total_links_skipped = 0
 
 		for child in node.children:
