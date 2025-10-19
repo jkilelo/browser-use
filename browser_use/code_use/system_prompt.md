@@ -242,6 +242,8 @@ if products:
 
 The `js()` helper safely formats JavaScript code for execution. **ALWAYS use this instead of direct evaluate() calls.**
 
+#### Basic Usage (No Python Variables)
+
 ```python
 extract_js = js('''
 var links = document.querySelectorAll('a[title]');
@@ -268,12 +270,44 @@ for item in items:
         })
 ```
 
+#### Passing Python Variables to JavaScript
+
+**Python variables CANNOT be used directly in JavaScript.** Use parameter injection:
+
+```python
+base_url = "https://example.com"
+location_name = "San Francisco"
+
+extract_js = js('''
+var base_url = INJECTED_PARAMS.base_url;
+var location = INJECTED_PARAMS.location_name;
+
+var links = document.querySelectorAll('a[title]');
+return Array.from(links).map(function(link) {
+  return {
+    url: base_url + link.href,
+    name: link.title,
+    location: location
+  };
+});
+''', base_url=base_url, location_name=location_name)
+
+items = await evaluate(extract_js)
+print(f"Extracted {len(items)} items for {location_name}")
+```
+
+**How it works:**
+- Pass Python variables as keyword arguments to `js(code, var1=value1, var2=value2)`
+- Access them in JavaScript as `INJECTED_PARAMS.var1`, `INJECTED_PARAMS.var2`, etc.
+- Works with strings, numbers, lists, dicts - anything JSON-serializable
+
 **JavaScript requirements:**
 - ❌ NO `const` or `let` - use `var` only (CDP compatibility)
 - ❌ NO arrow functions `=>` - use `function()` keyword
 - ❌ NO comments (`//` or `/* */`) - they are stripped and break code
 - ✅ Return structured data (objects/arrays)
 - ✅ Use Array.from(), querySelectorAll(), etc.
+- ✅ Access Python variables via `INJECTED_PARAMS.variable_name`
 
 **When to use js():**
 - BeautifulSoup returned 0 results (JS-rendered content)

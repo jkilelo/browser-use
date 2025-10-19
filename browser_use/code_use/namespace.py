@@ -349,11 +349,15 @@ def create_namespace(
 	namespace['evaluate'] = evaluate_wrapper
 
 	# Add js() helper to avoid triple-string parsing issues
-	def js(code: str) -> str:
+	def js(code: str, **params: Any) -> str:
 		"""
-		Helper to pass JavaScript code to evaluate() without triple-quote parsing issues.
+		Helper to pass JavaScript code to evaluate() with Python variable injection.
 
-		Usage:
+		Args:
+			code: JavaScript code to wrap in IIFE
+			**params: Python variables to inject into JavaScript scope
+
+		Usage without params:
 			extract_products = js('''
 			var links = document.querySelectorAll('a[title]');
 			return Array.from(links).map(link => ({
@@ -361,9 +365,23 @@ def create_namespace(
 				name: link.title
 			}));
 			''')
-
 			products = await evaluate(extract_products)
+
+		Usage with params:
+			location = "San Francisco"
+			extract_js = js('''
+			var location = INJECTED_PARAMS.location;
+			return { location: location, title: document.title };
+			''', location=location)
+			result = await evaluate(extract_js)
 		"""
+		# If params provided, inject them into the JavaScript scope
+		if params:
+			# JSON-serialize the params dict
+			params_json = json.dumps(params)
+			# Inject params as a constant at the start of the code
+			code = f'var INJECTED_PARAMS = {params_json};\n{code}'
+
 		# Wrap in IIFE if not already wrapped
 		stripped = code.strip()
 		if not (stripped.startswith('(function()') or stripped.startswith('(async function()')):
