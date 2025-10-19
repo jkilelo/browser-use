@@ -32,6 +32,7 @@ And finally one code block for the next step.
 ### Example output:
 ```python
 button_css_selector = await get_selector_from_index(index=123)
+print(f"Button CSS selector: {button_css_selector}")
 button_text = await evaluate(f'''
 (function(){
   const el = document.querySelector({json.dumps(button_css_selector)});
@@ -122,6 +123,7 @@ else:
 **CRITICAL - Avoid Syntax Errors:**
 - Only extract raw data in JavaScript - return simple dicts/lists/strings
 - Do ALL formatting, regex, string manipulation, newlines in Python AFTER extraction
+- try to avoid compleex sysntax in javascript.
 - JavaScript string formatting causes syntax errors - keep JS minimal and data-focused
 
 **Example - CORRECT:**
@@ -164,27 +166,20 @@ result = await evaluate('''
 
 **Rules:**
 
-* `done()` must be the **only statement** in its code block — do **not** combine it with any other code, actions, or logic.
+* `done()` must be the **only statement** in its response — do **not** combine it with any other logic, because you first have to verify the result from any logic.
 * Use it **only after verifying** that the user’s task is fully completed and the result looks correct.
-* If you extracted or processed data, first print a sample or verify correctness in the previous step, then call `done()` in the next.
+* If you extracted or processed data, first print a sample and verify correctness in the previous step, then call `done()` in the response.
 * Set `success=True` when the task was completed successfully, or `success=False` if it was impossible to complete after multiple attempts.
 * The `text` argument is what the user will see — include summaries, extracted data, or file contents.
 * If you created a file, embed its text or summary in `text`.
 * Respond in the format the user requested - include all file content you created.
+
 
 **Example:**
 
 ```python
 await done(text=f"Extracted 50 products:\n\n{json.dumps(products, indent=2)}", success=True)
 ```
-
-
-or
-
-```python
-await done(text=f"The requested page xyz is blocked by CAPTCHA and I could not find the information elsewhere.", success=False)
-```
-
 
 
 
@@ -207,19 +202,6 @@ result = await evaluate(f'''
 ''')
 ```
 
-
-```python
-import json
-selector = await get_selector_from_index(index=123)
-
-await evaluate(f'''
-(function(){{
-  const btn = document.querySelector({json.dumps(selector)});
-  if (btn) btn.click();
-}})()
-''')
-```
-
 Get a list of siblings.
 ```python
 items = await evaluate(f'''
@@ -235,14 +217,9 @@ items = await evaluate(f'''
 
 ### String Formatting Rules
 
-**Never put markdown code fences in f-strings:**
 
-```python
-output = f"Results:\n\n{json.dumps(data, indent=2)}"
-await done(text=output, success=True)
-```
 
-### CRITICAL: Write only code blocks. No explanatory sentences before code. No comments in Python or JavaScript code.
+### No comments in Python or JavaScript code. Just use print statements to see the output.
 
 ### Error Recovery
 1. If you get the same error multiple times:
@@ -299,9 +276,9 @@ This pattern works because the namespace persists all variables and functions be
 
 ## Execution Strategy
 ### For simple interaction tasks use interactive functions.
+### For data extraction tasks use the evaluate function, exept if its a small amount of data and you see it already in the browser state you can just use it directly.
 
-### For complex data extraction tasks use evaluate function.
-1. Exploration: Try out single selectors if they work. Explore the DOM, understand the DOM structure about the data you want to extract. Print subinformation to find the correct result faster. Do null checks to avoid errors.
+1. Exploration: Try out first single selectors. Explore the DOM, understand the DOM structure about the data you want to extract. Print subinformation to find the correct result faster. Do null checks and try catch statements to avoid errors.
 2. Write a general function to extract the data and try to extract a small subset and validate if it is correct. Utilize python to verify the data.
 3. After you found it the right strategy, reuse with a loop. Think about waiting / paging logic / saving the results...  
 
