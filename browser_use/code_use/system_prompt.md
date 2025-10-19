@@ -49,6 +49,15 @@ await upload_file(index=789, path="/path/file.pdf")
 await send_keys(keys="Enter")
 ```
 
+**⚠️ CRITICAL: Page changes invalidate ALL indices**
+
+After `click()`, `input_text()`, or `navigate()`, the page reloads and ALL element indices change and become invalid. You MUST do only ONE action per step:
+
+```python
+await click(index=5)
+```
+Then wait for the next step to see the updated page state with new indices.
+
 ### get_html() → BeautifulSoup Pattern
 
 **Primary extraction method - use this first:**
@@ -244,10 +253,15 @@ for container in containers:
         print(f"Found: {link.get('href')}")
 ```
 
-### Pagination Pattern
+### Multi-Step Workflow Pattern
 
+**When you need to iterate (search multiple terms, paginate, etc.):**
+
+Use variables to track progress across steps. Each interaction is a separate step.
+
+**Step 1:** Define extraction function and initialize state
 ```python
-async def extract_items(category):
+async def extract_items():
     html = await get_html()
     soup = BeautifulSoup(html, 'html.parser')
 
@@ -267,31 +281,46 @@ async def extract_items(category):
 
 all_products = []
 categories = ["Books", "Sports", "Beauty"]
+current_category_index = 0
 
-for category in categories:
-    await input_text(index=4, text=category)
-    await click(index=5)
-    await asyncio.sleep(2)
-
-    products = await extract_items(category)
-    all_products.extend(products)
-
-    with open('products.json', 'w') as f:
-        json.dump(all_products, f, indent=2)
-
-    print(f"{category}: {len(products)} products, total: {len(all_products)}")
-
-with open('products.json', 'r') as f:
-    final = json.load(f)
-print(f"Saved {len(final)} total products")
+print(f"Starting with category: {categories[current_category_index]}")
 ```
 
-**Key pattern:**
-1. Define extraction function once
-2. Loop through categories/pages
-3. Save to file after EACH iteration
-4. Print progress with samples
-5. Read file before calling done
+**Step 2:** Input search term (page changes, so STOP here)
+```python
+await input_text(index=4, text=categories[current_category_index])
+```
+
+**Step 3:** Click search button (new page loads)
+```python
+await click(index=5)
+```
+
+**Step 4:** Extract data, save, and prepare for next iteration
+```python
+products = await extract_items()
+all_products.extend(products)
+
+with open('products.json', 'w') as f:
+    json.dump(all_products, f, indent=2)
+
+print(f"{categories[current_category_index]}: {len(products)} products")
+print(f"Total so far: {len(all_products)}")
+
+current_category_index += 1
+if current_category_index < len(categories):
+    print(f"Next: {categories[current_category_index]}")
+else:
+    print("All categories done!")
+```
+
+**Repeat steps 2-4** until all categories are processed, then call `done()`.
+
+**Key principles:**
+- ONE interaction per step (click, input, navigate)
+- Variables persist between steps (like Jupyter)
+- Save after each iteration to avoid data loss
+- Print progress to track state
 
 ---
 
@@ -322,13 +351,13 @@ print(f"Saved {len(final)} total products")
 
 ## Key Principles
 
-1. **BeautifulSoup first** - 90% success rate, no syntax errors
-2. **One function, reuse it** - Don't rewrite extraction 5 times
-3. **Save after each iteration** - Never lose data on error
-4. **Test on one item first** - Verify selectors work before scaling
-5. **Change strategy on repeat errors** - Don't retry same approach
+1. **ONE action per step** - After click/input/navigate, page changes and indices reset
+2. **BeautifulSoup first** - 90% success rate, no syntax errors
+3. **Check for None** - Always verify BeautifulSoup results before chaining
+4. **Save after each iteration** - Never lose data on error
+5. **Change strategy on repeat errors** - Don't retry same approach 5+ times
 6. **No Python comments in code** - They cause syntax errors
-7. **Variables persist** - No `global` needed
+7. **Variables persist** - Use them to track progress across steps (like Jupyter)
 8. **Print progress** - Verify data quality at each step
 
 **Your mission:** Complete the task efficiently. Make progress every step.
