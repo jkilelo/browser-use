@@ -63,6 +63,7 @@ class CodeUseAgent:
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_steps: int = 100,
 		use_vision: bool = True,
+		calculate_cost: bool = False,
 		**kwargs,
 	):
 		"""
@@ -108,6 +109,7 @@ class CodeUseAgent:
 		self._max_consecutive_errors = 5  # Maximum consecutive errors before termination
 		self._last_llm_usage: Any | None = None  # Track last LLM call usage stats
 		self._step_start_time: float = 0.0  # Track step start time for duration calculation
+		self.usage_summary = None  # Track usage summary across run for history property
 
 		# Initialize screenshot service for eval tracking
 		self.id = uuid7str()
@@ -117,7 +119,7 @@ class CodeUseAgent:
 		self.screenshot_service = ScreenshotService(agent_directory=self.agent_directory)
 
 		# Initialize token cost service for usage tracking
-		self.token_cost_service = TokenCost(include_cost=True)
+		self.token_cost_service = TokenCost(include_cost=calculate_cost)
 		self.token_cost_service.register_llm(llm)
 		if page_extraction_llm:
 			self.token_cost_service.register_llm(page_extraction_llm)
@@ -226,15 +228,15 @@ class CodeUseAgent:
 
 			if should_warn:
 				warning_message = (
-					f"\n\n⚠️ CRITICAL WARNING: You are approaching execution limits!\n"
-					f"- Steps remaining: {steps_remaining + 1}\n"
-					f"- Consecutive errors: {self._consecutive_errors}/{self._max_consecutive_errors}\n\n"
-					f"YOU MUST call done() in your NEXT response, even if the task is incomplete:\n"
+					f'\n\n⚠️ CRITICAL WARNING: You are approaching execution limits!\n'
+					f'- Steps remaining: {steps_remaining + 1}\n'
+					f'- Consecutive errors: {self._consecutive_errors}/{self._max_consecutive_errors}\n\n'
+					f'YOU MUST call done() in your NEXT response, even if the task is incomplete:\n'
 					f"- Set success=False if you couldn't complete the task\n"
-					f"- Return EVERYTHING you found so far (partial data is better than nothing)\n"
+					f'- Return EVERYTHING you found so far (partial data is better than nothing)\n'
 					f"- Include any variables you've stored (products, all_data, etc.)\n"
 					f"- Explain what worked and what didn't\n\n"
-					f"Without done(), the user will receive NOTHING."
+					f'Without done(), the user will receive NOTHING.'
 				)
 				self._llm_messages.append(UserMessage(content=warning_message))
 
@@ -245,7 +247,9 @@ class CodeUseAgent:
 				except Exception as llm_error:
 					# LLM call failed - count as consecutive error and retry
 					self._consecutive_errors += 1
-					logger.warning(f'LLM call failed (consecutive errors: {self._consecutive_errors}/{self._max_consecutive_errors}), retrying: {llm_error}')
+					logger.warning(
+						f'LLM call failed (consecutive errors: {self._consecutive_errors}/{self._max_consecutive_errors}), retrying: {llm_error}'
+					)
 
 					# Check if we've hit the consecutive error limit
 					if self._consecutive_errors >= self._max_consecutive_errors:
@@ -304,12 +308,13 @@ class CodeUseAgent:
 						# Override output with done message for final step
 						output = final_result
 
-			
 				if output:
 					# Check if this is the final done() output
 					if self._is_task_done():
 						# Show done() output more prominently
-						logger.info(f'✓ Task completed - Final output from done():\n{output[:300] if len(output) > 300 else output}')
+						logger.info(
+							f'✓ Task completed - Final output from done():\n{output[:300] if len(output) > 300 else output}'
+						)
 						# Also show files_to_display if they exist in namespace
 						attachments = self.namespace.get('_task_attachments')
 						if attachments:
@@ -319,7 +324,9 @@ class CodeUseAgent:
 				if browser_state:
 					# Cap browser state logging to 1000 chars
 					if len(browser_state) > 2000:
-						logger.info(f'Browser state:\n{browser_state[:2000]}...\n[Truncated, full state sent to LLM {len(browser_state)} chars]')
+						logger.info(
+							f'Browser state:\n{browser_state[:2000]}...\n[Truncated, full state sent to LLM {len(browser_state)} chars]'
+						)
 					else:
 						logger.info(f'Browser state:\n{browser_state}')
 
@@ -367,13 +374,13 @@ class CodeUseAgent:
 
 			# Build a partial result message from the last step
 			partial_result_parts = []
-			partial_result_parts.append(f"Task incomplete - reached step limit ({self.max_steps} steps).")
-			partial_result_parts.append(f"Last step output:")
+			partial_result_parts.append(f'Task incomplete - reached step limit ({self.max_steps} steps).')
+			partial_result_parts.append('Last step output:')
 
 			if last_output:
-				partial_result_parts.append(f"\nOutput: {last_output}")
+				partial_result_parts.append(f'\nOutput: {last_output}')
 			if last_error:
-				partial_result_parts.append(f"\nError: {last_error}")
+				partial_result_parts.append(f'\nError: {last_error}')
 
 			# Add any accumulated variables that might contain useful data
 			data_vars = []
@@ -382,10 +389,10 @@ class CodeUseAgent:
 					var_value = self.namespace[var_name]
 					# Check if it's a list or dict that might contain collected data
 					if isinstance(var_value, (list, dict)) and var_value:
-						data_vars.append(f"  - {var_name}: {type(var_value).__name__} with {len(var_value)} items")
+						data_vars.append(f'  - {var_name}: {type(var_value).__name__} with {len(var_value)} items')
 
 			if data_vars:
-				partial_result_parts.append(f"\nVariables in namespace that may contain partial data:")
+				partial_result_parts.append('\nVariables in namespace that may contain partial data:')
 				partial_result_parts.extend(data_vars)
 
 			partial_result = '\n'.join(partial_result_parts)
@@ -413,6 +420,9 @@ class CodeUseAgent:
 
 		# Auto-close browser if keep_alive is False
 		await self.close()
+
+		# Store usage summary for history property
+		self.usage_summary = await self.token_cost_service.get_usage_summary()
 
 		# Log token usage summary
 		await self.token_cost_service.log_usage_summary()
@@ -646,7 +656,7 @@ class CodeUseAgent:
 						# Filter to only existing namespace vars (like Jupyter does)
 						# Include both: assigned vars that exist + user's explicit globals
 						existing_vars = {name for name in (assigned_names | user_global_names) if name in self.namespace}
-					except:
+					except Exception as e:
 						existing_vars = set()
 
 					# Build global declaration if needed
@@ -772,9 +782,9 @@ __code_exec_coro__ = __code_exec__()
 							hint = "Hint: Unterminated '''...''' or \"\"\"...\"\" detected. Check for missing closing quotes or unescaped quotes inside."
 					else:
 						if prefix:
-							hint = f"Hint: Unterminated {prefix}'...' or {prefix}\"...\" ({desc}). Check for missing closing quote or unescaped quotes inside."
+							hint = f'Hint: Unterminated {prefix}\'...\' or {prefix}"..." ({desc}). Check for missing closing quote or unescaped quotes inside.'
 						else:
-							hint = "Hint: Unterminated '...' or \"...\" detected. Check for missing closing quote or unescaped quotes inside the string."
+							hint = 'Hint: Unterminated \'...\' or "..." detected. Check for missing closing quote or unescaped quotes inside the string.'
 					error += f'\n{hint}'
 
 				# Show the problematic line from the code
@@ -786,7 +796,6 @@ __code_exec_coro__ = __code_exec__()
 					if 0 < e.lineno <= len(lines):
 						error += f'\n{lines[e.lineno - 1]}'
 
-
 			else:
 				# For other errors, try to extract useful information
 				error_str = str(e)
@@ -795,8 +804,6 @@ __code_exec_coro__ = __code_exec__()
 				# For RuntimeError or other exceptions, try to extract traceback info
 				# to show which line in the user's code actually failed
 				if hasattr(e, '__traceback__'):
-					import traceback as tb_module
-
 					# Walk the traceback to find the frame with '<code>' filename
 					tb = e.__traceback__
 					user_code_lineno = None
@@ -808,8 +815,6 @@ __code_exec_coro__ = __code_exec__()
 							user_code_lineno = tb.tb_lineno
 							break
 						tb = tb.tb_next
-
-			
 
 			cell.status = ExecutionStatus.ERROR
 			cell.error = error
@@ -848,8 +853,8 @@ __code_exec_coro__ = __code_exec__()
 
 			# Use eval_representation (compact serializer for code agents)
 			dom_html = dom_state.eval_representation()
-			if dom_html == "":
-				dom_html = "Empty DOM tree (you might have to wait for the page to load)"
+			if dom_html == '':
+				dom_html = 'Empty DOM tree (you might have to wait for the page to load)'
 
 			# Format with URL and title header
 			lines = ['## Browser State']
@@ -885,7 +890,6 @@ __code_exec_coro__ = __code_exec__()
 				lines.append(scroll_info)
 				lines.append('')
 
-
 			# Check if jQuery is available on the page
 			has_jquery = False
 			try:
@@ -904,8 +908,20 @@ __code_exec_coro__ = __code_exec__()
 			# Add available variables and functions BEFORE DOM structure
 			# Show useful utilities (json, asyncio, etc.) and user-defined vars, but hide system objects
 			skip_vars = {
-				'browser', 'file_system',  # System objects
-				'np', 'pd', 'plt', 'numpy', 'pandas', 'matplotlib', 'requests', 'BeautifulSoup', 'bs4', 'pypdf', 'PdfReader',  'wait'
+				'browser',
+				'file_system',  # System objects
+				'np',
+				'pd',
+				'plt',
+				'numpy',
+				'pandas',
+				'matplotlib',
+				'requests',
+				'BeautifulSoup',
+				'bs4',
+				'pypdf',
+				'PdfReader',
+				'wait',
 			}
 
 			# Highlight code block variables separately from regular variables
@@ -928,13 +944,13 @@ __code_exec_coro__ = __code_exec__()
 			jquery_status = 'Yes' if has_jquery else 'No'
 
 			# Build available line with code blocks and variables
-			parts = [f"jQuery {jquery_status}"]
+			parts = [f'jQuery {jquery_status}']
 			if code_block_vars_sorted:
-				parts.append(f"**Code block variables:** {', '.join(code_block_vars_sorted)}")
+				parts.append(f'**Code block variables:** {", ".join(code_block_vars_sorted)}')
 			if available_vars_sorted:
-				parts.append(f"**Variables:** {', '.join(available_vars_sorted)}")
+				parts.append(f'**Variables:** {", ".join(available_vars_sorted)}')
 
-			lines.append(f"**Available:** {' | '.join(parts)}")
+			lines.append(f'**Available:** {" | ".join(parts)}')
 			lines.append('')
 
 			# Add DOM structure
@@ -960,7 +976,9 @@ __code_exec_coro__ = __code_exec__()
 			max_dom_length = 60000
 			if len(dom_html) > max_dom_length:
 				lines.append(dom_html[:max_dom_length])
-				lines.append(f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]')
+				lines.append(
+					f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]'
+				)
 			else:
 				lines.append(dom_html)
 
@@ -987,8 +1005,6 @@ __code_exec_coro__ = __code_exec__()
 
 		if error:
 			result.append(f'Error: {error}')
-
-		
 
 		if output:
 			# Truncate output if too long
@@ -1216,24 +1232,13 @@ __code_exec_coro__ = __code_exec__()
 					return None
 
 		class MockAgentHistoryList:
-			def __init__(self, complete_history, token_cost_service):
+			def __init__(self, complete_history, usage_summary):
 				# Convert each dict in complete_history to objects with attribute access
 				self.history = [DictToObject(item) for item in complete_history]
-				# Get usage summary from token cost service (sync version)
-				try:
-					import asyncio
+				# Use the provided usage summary
+				self.usage = usage_summary
 
-					loop = asyncio.get_event_loop()
-					if loop.is_running():
-						# If loop is running, we can't await, so usage will be None
-						self.usage = None
-					else:
-						# Get the usage summary synchronously
-						self.usage = loop.run_until_complete(token_cost_service.get_usage_summary())
-				except Exception:
-					self.usage = None
-
-		return MockAgentHistoryList(self.complete_history, self.token_cost_service)
+		return MockAgentHistoryList(self.complete_history, self.usage_summary)
 
 	async def close(self):
 		"""Close the browser session."""
