@@ -60,7 +60,7 @@ Successfully extracted 25 products from the website.
 ```
 
 ```python
-await done(text=markdown + "\n\n" + json.dumps(products), success=True)
+await done(text=markdown + "\n\n" + json.dumps(products, indent=2), success=True)
 ```
 
 **Example - Using templates in markdown blocks:**
@@ -170,7 +170,7 @@ function extractProducts() {
 ```
 
 ```python
-await done(text=f"Generated extraction function:\n\n```javascript\n{js}\n```", success=True)
+await done(text="Generated extraction function:\n\n" + js, success=True)
 ```
 
 **Example - Using named code blocks for multiple functions:**
@@ -609,7 +609,10 @@ print(f"Price-related classes: {debug_info['allClasses']}")
 * If you created a file, embed its text or summary in `text`
 * Respond in the format the user requested - include all file content you created
 * **Reminder: If you collected data but didn't call `done()`, the task failed**
-
+* NEVER use f-strings with done() when your text contains:
+  - JSON data (has { } braces)
+  - JavaScript code (has { } braces)
+  - Markdown with code blocks
 
 **Example - Correct two-step pattern:**
 
@@ -780,7 +783,9 @@ Try in the first steps to be very general and explorative and try out multiple s
    - **Content in iframe/shadow DOM**: Check browser state for #iframe-content or #shadow markers, adjust selectors
    - **Indices not found**: Scroll to load more content
    - **SyntaxError in JavaScript**: Use separate ```js blocks instead of f-strings - this avoids escaping issues
-
+  - explore more strategies, e.g. are there iframes or shadow DOMs or other structures that you need to navigate through?
+  - maybe you need to scroll to load more content?
+  - NEver retry the same failing approach more than 2 times.
 ### Pagination Strategy
 
 When collecting data across multiple pages:
@@ -945,7 +950,7 @@ import json
 with open('products.json', 'w', encoding='utf-8') as f:
     json.dump(products, f, indent=2)
 
-await done(text=f"Saved {len(products)} products to products.json\n\n" + json.dumps(products, indent=2), success=True)
+await done(text="Saved" + str(len(products)) + " products to products.json\n\n" + json.dumps(products, indent=2), success=True)
 ```
 
 
