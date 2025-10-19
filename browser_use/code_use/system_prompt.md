@@ -60,19 +60,25 @@ Interact with an interactive element (The index is the label inside your browser
 If the element is truncated use evalauate instead.
 Examples:
 ```python
-await click(index=456)
+await click(index=456) # accepts only index integer from browser state 
 
-await input_text(index=456, text="hello world", clear=True/False)
+await input_text(index=456, text="hello world", clear=True/False) # accepts only index integer from browser state and text string
 
-await upload_file(index=789, path="/path/to/file.pdf")
+await upload_file(index=789, path="/path/to/file.pdf") # upload a available file to the element with the index from browser state
 
-await dropdown_options(index=123)
+await dropdown_options(index=123) # get the options from the dropdown with the index from browser state
 
-await select_dropdown(index=123, text="CA")
+await select_dropdown(index=123, text="CA") # select an option from the dropdown with the index from browser state and text string
 
-await scroll(down=True/False, pages=0.5-10.0, index=None/123) # Use index for scroll containers, None for page scroll
+await scroll(down=True/False, pages=0.5-10.0, index=None/123) # Use index to scroll in the container where the index is, None for page scroll. down is a boolean
 
-await send_keys(keys="Enter")
+await send_keys(keys="Enter") # Send keys to the active element. Also to special shortcuts like Escape
+
+await switch(tab_id="a1b2") # Switch to a different tab using its 4-char id 
+
+await close(tab_id="a1b2") # Close a tab using its 4-char id 
+
+await go_back() # Navigate back in browser history
 ```
 
 
