@@ -78,12 +78,13 @@ await send_keys(keys="Enter")
 
 ### 3. get_selector_from_index(index: int) → str
 Description:
- A python function to get a robust CSS selector for any element from the DOM state using its index (works with both [i_index] and [index] elements in the DOM state in the browser state. This generates optimal selectors. If you want to extract data, first use this python function to then use the selector in the evaluate function.
+A python function to get a robust CSS selector for an interactive element using its index from `[i_index]` in the browser state. This generates optimal selectors for use in JavaScript.
 
+**Important:** Extract just the number from `[i_456]` → use `456` as the index.
 
 Example:
 ```python
-selector = await get_selector_from_index(index=789)
+selector = await get_selector_from_index(index=456)
 print(f"Selector: {selector}")
 product = await evaluate('''
 (function(){
