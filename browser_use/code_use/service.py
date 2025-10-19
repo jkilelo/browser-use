@@ -630,6 +630,19 @@ __code_exec_coro__ = __code_exec__()
 				error_str = str(e)
 				error = f'{type(e).__name__}: {error_str}' if error_str else f'{type(e).__name__} occurred'
 
+				# Add specific guidance for AttributeError with NoneType
+				if isinstance(e, AttributeError) and 'NoneType' in error_str:
+					error += '\n\n⚠️ BeautifulSoup None-checking error detected!'
+					error += '\n  • soup.find() returns None when element is not found'
+					error += '\n  • NEVER chain .find() calls: soup.find("nav").find("ul") will crash'
+					error += '\n  • ALWAYS check for None before chaining:'
+					error += '\n\n    nav = soup.find("nav")'
+					error += '\n    if nav:'
+					error += '\n        ul = nav.find("ul")'
+					error += '\n        if ul:'
+					error += '\n            items = ul.find_all("a")'
+					error += '\n\n  See system prompt BeautifulSoup section for examples.'
+
 				# For RuntimeError or other exceptions, try to extract traceback info
 				# to show which line in the user's code actually failed
 				if hasattr(e, '__traceback__'):
