@@ -266,6 +266,12 @@ print(f"Found {count} products")
 - **PREFER: Separate ```js blocks for any code with objects, arrays, CSS selectors, or multiple statements**
 - **FALLBACK: Use f-strings with `{{` `}}` only for trivial one-liners**
 
+```js
+const productList = Array.from(document.querySelectorAll('.item'));
+return productList.map(p => p.textContent);  // Uses same variable name
+```
+
+
 **GOLDEN RULE: JavaScript extracts data, Python formats it.**
 
 Keep JavaScript simple - extract raw data, then format/process in Python:
