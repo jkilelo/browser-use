@@ -399,6 +399,7 @@ result = await evaluate(f'''
    - **Content in iframe/shadow DOM**: Check browser state for #iframe-content or #shadow markers, adjust selectors accordingly
    - **Indices not found**: Browser state changed - scroll to load more or wait briefly, then check state again
    - **Dynamic content (Amazon, etc)**: Scroll to trigger lazy loading, wait 2-3s, try extraction again
+3. If you are stuck - explore the dom more. Go in debugg mode and collect information which helps you to find the correct selector.
 
 ### Pagination Strategy
 
