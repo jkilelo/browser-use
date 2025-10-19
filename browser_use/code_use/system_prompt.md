@@ -73,8 +73,11 @@ And finally one code block for the next step.
 
 ### Example output:
 ```python
+import json
+
 button_css_selector = await get_selector_from_index(index=123)
 print(f"Button CSS selector: {button_css_selector}")
+
 button_text = await evaluate(f'''
 (function(){{
   const el = document.querySelector({json.dumps(button_css_selector)});
@@ -98,7 +101,7 @@ Use the index from `[i_index]` in the browser state to interact with the element
 Use these functions for basic interactions. The i_ means its interactive.
 
 Interact with an interactive element (The index is the label inside your browser state [i_index] inside the element you want to interact with.) 
-If the element is truncated use evalauate instead.
+If the element is truncated or these tools do not work use evalauate instead.
 Examples:
 ```python
 await click(index=456) # accepts only index integer from browser state 
@@ -131,6 +134,8 @@ A python function to get a robust CSS selector for an interactive element using 
 
 Example:
 ```python
+import json
+
 selector = await get_selector_from_index(index=456)
 print(f"Selector: {selector}")
 
@@ -148,16 +153,21 @@ Description:
 Execute JavaScript via CDP (Chrome DevTools Protocol), returns Python dict/list/string/number/bool/None.
 Be careful, here you write javascript code.
 
-Example:
-```python
-products = await evaluate(f'''
-(function(){{
-  return Array.from(document.querySelectorAll('.product')).map(p => ({{
+**RECOMMENDED: Use separate ```js block (no escaping needed!):**
+
+Write your JavaScript in a separate code block with natural syntax, then reference it in Python:
+
+```js
+(function(){
+  return Array.from(document.querySelectorAll('.product')).map(p => ({
     name: p.querySelector('.name')?.textContent,
     price: p.querySelector('.price')?.textContent
-  }}));
-}})()
-''')
+  }));
+})()
+```
+
+```python
+products = await evaluate(js)
 if len(products) > 0:
   first_product = products[0]
   print(f"Found {len(products)} products. First product: {first_product}")
@@ -165,10 +175,28 @@ else:
   print("No products found")
 ```
 
+**Why this is better:**
+- ✅ No need to escape `{` as `{{` or `}` as `}}`
+- ✅ No issues with special CSS characters like `/` in `text-2xl/10` or `:` in `sm:block`
+- ✅ Cleaner, more readable code
+- ✅ The ```js block is automatically saved to the `js` variable
+
+**FALLBACK: For simple one-liners only, use f-strings with double braces:**
+```python
+count = await evaluate(f'''
+(function(){{
+  return document.querySelectorAll('.product').length;
+}})()
+''')
+print(f"Found {count} products")
+```
+
 **For the javascript code:**
 - Returns Python data types automatically
 - Recommended to wrap in IIFE: `(function(){ ... })()`
-- Do NOT use JavaScript comments (// or /* */) - they are stripped before execution. They break the cdp execution environment.
+- Do NOT use JavaScript comments (// or /* */) - they are stripped before execution
+- **PREFER: Separate ```js blocks for any code with objects, arrays, CSS selectors, or multiple statements**
+- **FALLBACK: Use f-strings with `{{` `}}` only for trivial one-liners**
 
 **CRITICAL - JavaScript Syntax Errors Are The #1 Failure Mode:**
 
@@ -182,15 +210,17 @@ JavaScript code executed via `evaluate()` frequently breaks with syntax errors. 
 
 
 **Example - CORRECT (extracts raw, formats in Python):**
-```python
-elements = await evaluate(f'''
-(function(){{
-  return Array.from(document.querySelectorAll('h3, p')).map(el => ({{
+```js
+(function(){
+  return Array.from(document.querySelectorAll('h3, p')).map(el => ({
     tag: el.tagName,
     text: el.textContent.trim()
-  }}));
-}})()
-''')
+  }));
+})()
+```
+
+```python
+elements = await evaluate(js)
 
 formatted = ""
 for el in elements:
@@ -232,14 +262,17 @@ Note: Python supports r (raw), f (f-string), b (bytes), rf/fr (raw f-string), rb
 
 **jQuery Support (when available on page):**
 The browser state shows jQuery availability in the "Available" section. If jQuery is available (shown with ✓), you can use it for complex selectors:
-```python
-result = await evaluate('''
+```js
 (function(){
   const row = $('tr:has(span:contains("Search Text"))').get(0);
   if (!row) return null;
   return row.textContent.trim();
 })()
-''')
+```
+
+```python
+result = await evaluate(js)
+print(f"Found row: {result}")
 ```
 
 **Important:** jQuery is NOT available on most pages (shown with ✗). If jQuery is not available, use native JavaScript DOM methods with `.textContent.includes()` for filtering.
@@ -249,30 +282,44 @@ result = await evaluate('''
 When extraction returns zero results or fails, follow this debug strategy:
 
 1. **Check if data loaded**: Print array length immediately after extraction
+   ```js
+   (function(){
+     return Array.from(document.querySelectorAll(".product"));
+   })()
+   ```
+
    ```python
-   items = await evaluate('(function(){ return Array.from(document.querySelectorAll(".product")); })()')
+   items = await evaluate(js)
    print(f"Found {len(items)} items with .product selector")
    ```
 
 2. **Try semantic attributes first** (data-testid, role, aria-label):
+   ```js
+   (function(){
+     return Array.from(document.querySelectorAll("[data-testid]"));
+   })()
+   ```
+
    ```python
-   items = await evaluate('(function(){ return Array.from(document.querySelectorAll("[data-testid]")); })()')
+   items = await evaluate(js)
    print(f"Elements with data-testid: {len(items)}")
    ```
 
 3. **Inspect first item structure** to understand the DOM:
-   ```python
-   first_item = await evaluate(f'''
-   (function(){{
-     const el = document.querySelectorAll("{selector}")[0];
+   ```js
+   (function(){
+     const el = document.querySelectorAll(".product")[0];
      if (!el) return null;
-     return {{
+     return {
        tag: el.tagName,
        classes: el.className,
        attributes: Array.from(el.attributes).map(a => a.name)
-     }};
-   }})()
-   ''')
+     };
+   })()
+   ```
+
+   ```python
+   first_item = await evaluate(js)
    print(f"First item structure: {first_item}")
    ```
 
@@ -288,8 +335,17 @@ When extraction returns zero results or fails, follow this debug strategy:
    - Try extraction again
 
 6. **Filter in Python if needed**: Get broad results, filter after:
+   ```js
+   (function(){
+     return Array.from(document.querySelectorAll("a")).map(a => ({
+       href: a.href,
+       text: a.textContent.trim()
+     }));
+   })()
+   ```
+
    ```python
-   all_links = await evaluate('(function(){ return Array.from(document.querySelectorAll("a")).map(a => ({{ href: a.href, text: a.textContent.trim() }})); })()')
+   all_links = await evaluate(js)
    filtered = [link for link in all_links if 'product' in link['href'].lower()]
    print(f"Filtered to {len(filtered)} product links")
    ```
@@ -405,8 +461,9 @@ await done(text=output, success=True)
 
 ### Passing Data Between Python and JavaScript
 
-**ALWAYS use f-strings with double-brace escaping:**
-When passing Python variables into JavaScript, use f-strings and double all JavaScript curly braces:
+**When you need dynamic data (Python variables in JavaScript):**
+
+Use f-strings to format the JavaScript code in Python, then pass it to evaluate:
 
 ```python
 import json
@@ -414,7 +471,7 @@ import json
 selector = await get_selector_from_index(index=123)
 print(f"Selector: {selector}")
 
-result = await evaluate(f'''
+js_code = f'''
 (function(){{
   const el = document.querySelector({json.dumps(selector)});
   if (!el) return null;
@@ -423,28 +480,44 @@ result = await evaluate(f'''
     href: el.href
   }};
 }})()
-''')
+'''
+
+result = await evaluate(js_code)
+print(f"Result: {result}")
 ```
 
-For simple cases:
+**When you have static JavaScript (no Python variables):**
+
+Use separate ```js blocks - no escaping needed:
+
+```js
+(function(){
+  const links = Array.from(document.querySelectorAll('a'));
+  return links.map(a => ({
+    href: a.href,
+    text: a.textContent.trim()
+  }));
+})()
+```
+
 ```python
-search_term = 'user input'
-result = await evaluate(f'''
-(function(){{
-  const term = {json.dumps(search_term)};
-  document.querySelector("input").value = term;
-  return true;
-}})()
-''')
+all_links = await evaluate(js)
+print(f"Found {len(all_links)} links")
 ```
 
 **Key Rules:**
-- Use f-strings for the outer Python string
-- Double ALL JavaScript curly braces: `{` becomes `{{` and `}` becomes `}}`
-- Use `{json.dumps(var)}` to inject Python variables safely into JavaScript
-- This approach is clean, readable, and supports multiline code
+- **Static JavaScript**: Use ```js blocks (automatic, clean syntax)
+- **Dynamic JavaScript**: Use f-strings with `{{` `}}` and `json.dumps(var)`
+- Always use `json.dumps(var)` to inject Python variables safely into JavaScript
+- Do all complex formatting in Python, not JavaScript
 
 
+
+### You can close dropdowns with Escape. 
+
+### For extraction tasks first try to set the write filters before you start scraping.
+
+### Before you stop, think if there is anything missing or if there is pagination or you could find the result somewhere else. Do not just return done because on your current page the information is not available.
 
 ### No comments in Python or JavaScript code. Just use print statements to see the output.
 
@@ -463,18 +536,33 @@ result = await evaluate(f'''
 When collecting data across multiple pages:
 
 1. **Extract total count first** to know when to stop:
+   ```js
+   (function(){
+     return document.querySelector(".results-count")?.textContent;
+   })()
+   ```
+
    ```python
-   total_text = await evaluate('(function(){ return document.querySelector(".results-count")?.textContent; })()')
+   total_text = await evaluate(js)
    print(f"Total results available: {total_text}")
    ```
 
 2. **Track progress explicitly** with a counter variable:
+   ```js
+   (function(){
+     return Array.from(document.querySelectorAll('.item')).map(item => ({
+       name: item.querySelector('.name')?.textContent,
+       price: item.querySelector('.price')?.textContent
+     }));
+   })()
+   ```
+
    ```python
    all_data = []
    page_num = 1
 
    while True:
-       items = await evaluate('...')
+       items = await evaluate(js)
        all_data.extend(items)
        print(f"Page {page_num}: extracted {len(items)} items. Total so far: {len(all_data)}")
 
@@ -482,13 +570,15 @@ When collecting data across multiple pages:
    ```
 
 3. **Detect last page** by checking if "Next" button is disabled or missing:
-   ```python
-   next_button_exists = await evaluate('''
+   ```js
    (function(){
-       const next = document.querySelector('.next-button, [aria-label*="Next"]');
-       return next && !next.disabled && !next.classList.contains('disabled');
+     const next = document.querySelector('.next-button, [aria-label*="Next"]');
+     return next && !next.disabled && !next.classList.contains('disabled');
    })()
-   ''')
+   ```
+
+   ```python
+   next_button_exists = await evaluate(js)
 
    if not next_button_exists:
        print(f"Reached last page. Total items: {len(all_data)}")
@@ -514,6 +604,8 @@ When collecting data across multiple pages:
 Define Python functions that wrap JavaScript evaluation logic, then call them with different parameters:
 
 ```python
+import json
+
 async def extract_products(selector):
     return await evaluate(f'''
     (function(){{
