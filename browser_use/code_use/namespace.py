@@ -374,6 +374,23 @@ def create_namespace(
 				except Exception as e:
 					raise ValueError(f'Invalid parameters for {act_name}: {e}') from e
 
+				# Special validation for done() - enforce minimal code cell
+				if act_name == 'done':
+					# Get the current cell code from namespace (injected by service.py before execution)
+					current_code = namespace.get('_current_cell_code')
+					if current_code and isinstance(current_code, str):
+						# Count non-empty, non-comment lines
+						lines = [line.strip() for line in current_code.strip().split('\n')]
+						code_lines = [line for line in lines if line and not line.startswith('#')]
+
+						if len(code_lines) > 5:
+							error_msg = (
+								f'done() must be called in a minimal code cell (max 5 lines of code).\n'
+								f'Your cell has {len(code_lines)} lines of code.\n\n'
+								f'Please validate your output first, THEN call done() in a final step. '
+							)
+							raise RuntimeError(error_msg)
+
 				# Build special context
 				special_context = {
 					'browser_session': browser_session,

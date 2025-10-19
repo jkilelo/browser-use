@@ -480,6 +480,9 @@ class CodeUseAgent:
 				if 'asyncio' not in self.namespace:
 					self.namespace['asyncio'] = asyncio
 
+				# Store the current code in namespace for done() validation
+				self.namespace['_current_cell_code'] = code
+
 				# Check if code contains await expressions - if so, wrap in async function
 				# This mimics how Jupyter/IPython handles top-level await
 				try:
