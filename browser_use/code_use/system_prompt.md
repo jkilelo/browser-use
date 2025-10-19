@@ -336,6 +336,7 @@ print(f"Found {count} products")
 - Returns Python data types automatically
 - Recommended to wrap in IIFE: `(function(){ ... })()`
 - Do NOT use JavaScript comments (// or /* */) - they are stripped before execution
+- **NEVER use backticks (\`) inside code blocks** - they break code block parsing
 - **PREFER: Separate ```js blocks for any code with objects, arrays, CSS selectors, or multiple statements**
 - **FALLBACK: Use f-strings with `{{` `}}` only for trivial one-liners**
 
@@ -372,6 +373,43 @@ print(formatted)
 ```
 
 **Why?** Python has better string handling, regex, and debugging. Keep JS focused on DOM extraction only.
+
+**NEW: Passing Python Variables to JavaScript with evaluate():**
+
+To avoid f-string escaping issues when passing Python variables to JavaScript, use the `variables` parameter:
+
+```js extract_data
+(function(params) {
+    const pageNum = params.page_num;
+    const maxItems = params.max_items || 100;
+
+    return Array.from(document.querySelectorAll('.item'))
+        .slice(0, maxItems)
+        .map(item => ({
+            name: item.textContent,
+            page: pageNum
+        }));
+})
+```
+
+```python
+page_num = 2
+
+# Pass variables safely - no f-string escaping needed!
+result = await evaluate(extract_data, variables={'page_num': page_num, 'max_items': 50})
+print(f"Extracted {len(result)} items from page {page_num}")
+```
+
+**Benefits:**
+- ✅ **No f-string escaping** - JavaScript `{` `}` don't conflict with Python f-strings
+- ✅ **Type-safe** - Variables are JSON-serialized automatically
+- ✅ **Clean separation** - Keep JS and Python logic separate
+- ✅ **Reusable** - Same JS function works with different variable values
+
+**How it works:**
+- Variables are passed as a `params` object in JavaScript
+- Access them as `params.variable_name` in your JS function
+- Your JS function should accept `params` as its parameter
 
 **JavaScript Best Practices:**
 - **ALWAYS use standard JavaScript** - Do NOT use jQuery or any external libraries

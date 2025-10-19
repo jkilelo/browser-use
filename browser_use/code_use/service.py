@@ -529,7 +529,7 @@ class CodeUseAgent:
 
 			# Only process supported types
 			if lang_normalized in ('python', 'js', 'bash', 'markdown'):
-				content = content.strip()
+				content = content.rstrip()  # Only strip trailing whitespace, preserve leading for indentation
 				if content:
 					# Determine the key to use
 					if var_name:
@@ -539,13 +539,10 @@ class CodeUseAgent:
 						# Unnamed block - use the language type
 						block_key = lang_normalized
 
-					# For unnamed blocks of same type, combine them
-					# For named blocks, each gets its own entry
-					if block_key in blocks and not var_name:
-						# Only combine unnamed blocks of same language
-						blocks[block_key] += '\n\n' + content
-					else:
-						blocks[block_key] = content
+					# Keep only the last occurrence of each unnamed block type
+					# (Don't combine multiple blocks - just use the last one)
+					# Named blocks always get their own entry
+					blocks[block_key] = content
 
 		# Fallback: if no python block but there's generic ``` block, treat as python
 		if 'python' not in blocks:

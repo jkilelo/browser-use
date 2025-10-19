@@ -75,15 +75,12 @@ def _strip_js_comments(js_code: str) -> str:
 	Returns:
 		JavaScript code with comments stripped
 	"""
-	# Remove multi-line comments (/* ... */) first
+	# Remove multi-line comments (/* ... */)
 	js_code = re.sub(r'/\*.*?\*/', '', js_code, flags=re.DOTALL)
 
-	# Remove single-line comments (// ...) but preserve:
-	# - URLs (http://, https://, etc)
-	# - // inside strings (e.g., XPath '//a', regex /.../, etc)
-	# Strategy: Only match // when NOT preceded by : or ' or " or /
-	# This is conservative but safer than accidentally breaking code
-	js_code = re.sub(r'(?<![:\'"/])//.*$', '', js_code, flags=re.MULTILINE)
+	# Remove single-line comments - only lines that START with // (after whitespace)
+	# This avoids breaking XPath strings, URLs, regex patterns, etc.
+	js_code = re.sub(r'^\s*//.*$', '', js_code, flags=re.MULTILINE)
 
 	return js_code
 
@@ -253,23 +250,66 @@ def create_namespace(
 		namespace['pypdf'] = PdfReader
 
 	# Add custom evaluate function that returns values directly
-	async def evaluate_wrapper(code: str | None = None, *_args: Any, **kwargs: Any) -> Any:
+	async def evaluate_wrapper(
+		code: str | None = None,
+		variables: dict[str, Any] | None = None,
+		*_args: Any,
+		**kwargs: Any
+	) -> Any:
 		# Handle both positional and keyword argument styles
 		if code is None:
 			# Check if code was passed as keyword arg
 			code = kwargs.get('code', kwargs.get('js_code', kwargs.get('expression', '')))
+		# Extract variables if passed as kwarg
+		if variables is None:
+			variables = kwargs.get('variables')
+
 		if not code:
 			raise ValueError('No JavaScript code provided to evaluate()')
 
-		# Auto-wrap in IIFE if not already wrapped
-		# Check for both strict patterns: (function(){ or (async function(){
-		stripped = code.strip()
-		is_wrapped = (
-			(stripped.startswith('(function()') and '})()' in stripped[-10:])
-			or (stripped.startswith('(async function()') and '})()' in stripped[-10:])
-		)
-		if not is_wrapped:
-			code = f'(function(){{{code}}})()'
+		# Inject variables if provided
+		if variables:
+			vars_json = json.dumps(variables)
+			stripped = code.strip()
+
+			# Check if code is already a function expression expecting params
+			# Pattern: (function(params) { ... }) or (async function(params) { ... })
+			if re.match(r'\((?:async\s+)?function\s*\(\s*\w+\s*\)', stripped):
+				# Already expects params, wrap to call it with our variables
+				code = f'(function(){{ const params = {vars_json}; return {stripped}(params); }})()'
+			else:
+				# Not a parameterized function, inject params in scope
+				# Check if already wrapped in IIFE
+				is_wrapped = (
+					(stripped.startswith('(function()') and '})()' in stripped[-10:])
+					or (stripped.startswith('(async function()') and '})()' in stripped[-10:])
+				)
+				if is_wrapped:
+					# Already wrapped, inject params at the start
+					# Find the opening brace of the function body
+					match = re.match(r'(\((?:async\s+)?function\s*\(\s*\)\s*\{)', stripped)
+					if match:
+						prefix = match.group(1)
+						rest = stripped[len(prefix):]
+						code = f'{prefix} const params = {vars_json}; {rest}'
+					else:
+						# Fallback: wrap in outer function
+						code = f'(function(){{ const params = {vars_json}; return {stripped}; }})()'
+				else:
+					# Not wrapped, wrap with params
+					code = f'(function(){{ const params = {vars_json}; {code} }})()'
+					# Skip auto-wrap below
+					return await evaluate(code, browser_session)
+
+		# Auto-wrap in IIFE if not already wrapped (and no variables were injected)
+		if not variables:
+			stripped = code.strip()
+			is_wrapped = (
+				(stripped.startswith('(function()') and '})()' in stripped[-10:])
+				or (stripped.startswith('(async function()') and '})()' in stripped[-10:])
+			)
+			if not is_wrapped:
+				code = f'(function(){{{code}}})()'
 
 		# Ignore any extra arguments (like browser_session if passed)
 		return await evaluate(code, browser_session)
