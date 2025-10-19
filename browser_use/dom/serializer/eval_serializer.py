@@ -276,15 +276,14 @@ class DOMEvalSerializer:
 					# Special handling for different attributes
 					if attr == 'class':
 						# For class, limit to first 2 classes to save space
-						classes = value.split()[:2]
+						classes = value.split()[:3]
 						value = ' '.join(classes)
-						value = cap_text_length(value, 40)
 					elif attr == 'href':
 						# For href, cap at 20 chars to save space
-						value = cap_text_length(value, 40)
+						value = cap_text_length(value, 80)
 					else:
 						# Cap at 25 chars for other attributes
-						value = cap_text_length(value, 40)
+						value = cap_text_length(value, 80)
 
 					attrs.append(f'{attr}="{value}"')
 
@@ -321,7 +320,7 @@ class DOMEvalSerializer:
 			return ''
 
 		combined = ' '.join(text_parts)
-		return cap_text_length(combined, 25)
+		return cap_text_length(combined, 80)
 
 	@staticmethod
 	def _serialize_iframe(node: SimplifiedNode, include_attributes: list[str], depth: int) -> str:
@@ -407,7 +406,7 @@ class DOMEvalSerializer:
 
 			if text_parts:
 				combined = ' '.join(text_parts)
-				line += f'>{cap_text_length(combined, 30)}'
+				line += f'>{cap_text_length(combined, 100)}'
 			else:
 				line += ' />'
 
