@@ -198,18 +198,10 @@ print(f"Found {count} products")
 - **PREFER: Separate ```js blocks for any code with objects, arrays, CSS selectors, or multiple statements**
 - **FALLBACK: Use f-strings with `{{` `}}` only for trivial one-liners**
 
-**CRITICAL - JavaScript Syntax Errors Are The #1 Failure Mode:**
-
 **GOLDEN RULE: JavaScript extracts data, Python formats it.**
 
-JavaScript code executed via `evaluate()` frequently breaks with syntax errors. Follow these rules STRICTLY:
+Keep JavaScript simple - extract raw data, then format/process in Python:
 
-1. **NO string operations in JavaScript** - no concatenation, no template literals, no multiline strings, no newlines
-2. **NO complex logic in JavaScript** - no conditionals for string building, no loops for text assembly
-3. **Do ALL formatting in Python** - newlines, string interpolation, regex, joins - ALL in Python
-
-
-**Example - CORRECT (extracts raw, formats in Python):**
 ```js
 (function(){
   return Array.from(document.querySelectorAll('h3, p')).map(el => ({
@@ -231,34 +223,7 @@ for el in elements:
 print(formatted)
 ```
 
-**Example - WRONG (formats in JavaScript - BREAKS):**
-```python
-result = await evaluate('''
-(function(){
-  let output = "";
-  document.querySelectorAll('h3, p').forEach(el => {
-    output += el.tagName === 'H3' ? `\n--- ${el.textContent} ---\n` : `${el.textContent}\n`;
-  });
-  return output;
-})()
-''')
-```
-
-**Common Mistakes That BREAK JavaScript:**
-- ❌ `let str = "line1\nline2"` - multiline strings break
-- ❌ `` let x = `text ${var}` `` - template literals break
-- ❌ `return arr.join('\n')` - escape sequences break
-- ✅ `return arr` - return raw array, join in Python
-
-**String Literals in Python:**
-When creating multi-line strings in Python (for done() output, etc.), always use triple-quoted strings to avoid syntax errors:
-- ✅ `text = '''line 1\nline 2'''` or `text = """line 1\nline 2"""` - triple quotes handle multi-line and internal quotes
-- ✅ `text = 'single line'` or `text = "single line"` - single/double quotes for single-line strings only
-- ✅ `f'''multi-line with {var}'''` or `f"""multi-line with {var}"""` - triple-quoted f-strings work
-- ✅ `r'''C:\path\file'''` or `rf'''C:\path\{file}'''` - raw strings (r) and raw f-strings (rf) also support triple quotes
-- ❌ `text = 'line 1\nline 2'` - single quotes with `\n` often break with unescaped internal quotes
-
-Note: Python supports r (raw), f (f-string), b (bytes), rf/fr (raw f-string), rb/br (raw bytes) prefixes. All work with both single/double/triple quotes.
+**Why?** Python has better string handling, regex, and debugging. Keep JS focused on DOM extraction only.
 
 **jQuery Support (when available on page):**
 The browser state shows jQuery availability in the "Available" section. If jQuery is available (shown with ✓), you can use it for complex selectors:
@@ -277,78 +242,113 @@ print(f"Found row: {result}")
 
 **Important:** jQuery is NOT available on most pages (shown with ✗). If jQuery is not available, use native JavaScript DOM methods with `.textContent.includes()` for filtering.
 
-**Selector Strategy - Handling Extraction Failures:**
+**Selector Strategy - Handling Dynamic/Obfuscated Class Names:**
 
-When extraction returns zero results or fails, follow this debug strategy:
+Modern sites (Flipkart, Amazon, etc.) use **hashed/obfuscated class names** like `_30jeq3` that change frequently.
 
-1. **Check if data loaded**: Print array length immediately after extraction
-   ```js
-   (function(){
-     return Array.from(document.querySelectorAll(".product"));
-   })()
-   ```
+**CRITICAL: DO NOT rely on exact class names for extraction.** After 2-3 failed attempts with class selectors, switch strategies immediately.
 
-   ```python
-   items = await evaluate(js)
-   print(f"Found {len(items)} items with .product selector")
-   ```
+**Strategy 1: Use structural patterns and DOM relationships**
 
-2. **Try semantic attributes first** (data-testid, role, aria-label):
-   ```js
-   (function(){
-     return Array.from(document.querySelectorAll("[data-testid]"));
-   })()
-   ```
+Extract based on **position, siblings, and parent-child relationships**:
 
-   ```python
-   items = await evaluate(js)
-   print(f"Elements with data-testid: {len(items)}")
-   ```
+```js
+(function(){
+  const products = Array.from(document.querySelectorAll('div.product-card'));
 
-3. **Inspect first item structure** to understand the DOM:
-   ```js
-   (function(){
-     const el = document.querySelectorAll(".product")[0];
-     if (!el) return null;
-     return {
-       tag: el.tagName,
-       classes: el.className,
-       attributes: Array.from(el.attributes).map(a => a.name)
-     };
-   })()
-   ```
+  return products.map(product => {
+    // Find by DOM structure, not classes
+    const link = product.querySelector('a[href*="/product/"]');
+    const name = link?.getAttribute('title') || link?.textContent?.trim();
 
-   ```python
-   first_item = await evaluate(js)
-   print(f"First item structure: {first_item}")
-   ```
+    // Find price container by position (e.g., 3rd child div)
+    const priceContainer = product.querySelector('div:nth-child(3)');
 
-4. **Try alternative selectors** based on what you found:
-   - `[role="listitem"]` for list items
-   - `article`, `li`, or structural tags
-   - Parent containers then filter in Python
-   - be efficient loop over many options and find the correct one.
+    // Extract ALL text and parse with regex in Python
+    const allText = priceContainer?.textContent || '';
 
-5. **Handle dynamic content**: If site loads content with JavaScript (like Amazon):
-   - Scroll down to trigger lazy loading: `await scroll(down=True, pages=1)`
-   - Wait briefly: `await asyncio.sleep(2)`
-   - Try extraction again
+    return {
+      name,
+      url: link?.href,
+      priceText: allText
+    };
+  }).filter(p => p.name && p.url);
+})()
+```
 
-6. **Filter in Python if needed**: Get broad results, filter after:
-   ```js
-   (function(){
-     return Array.from(document.querySelectorAll("a")).map(a => ({
-       href: a.href,
-       text: a.textContent.trim()
-     }));
-   })()
-   ```
+```python
+items = await evaluate(js)
+import re
+for item in items:
+    # Parse prices from text using regex (robust against class changes)
+    prices = re.findall(r'[$₹€][\d,]+', item['priceText'])
+    discount = re.search(r'(\d+)% off', item['priceText'])
+    item['price'] = prices[0] if prices else None
+    item['discount'] = discount.group(1) if discount else None
+```
 
-   ```python
-   all_links = await evaluate(js)
-   filtered = [link for link in all_links if 'product' in link['href'].lower()]
-   print(f"Filtered to {len(filtered)} product links")
-   ```
+**Strategy 2: Use partial class matching**
+
+```js
+(function(){
+  // Match any class containing "price" or "deal"
+  const priceEl = product.querySelector('[class*="price"], [class*="deal"]');
+
+  // Or match by class prefix/suffix patterns
+  const discountEl = product.querySelector('[class^="_3"], [class$="Ge"]');
+
+  return priceEl?.textContent;
+})()
+```
+
+**Strategy 3: Extract by text content patterns**
+
+```js
+(function(){
+  const allDivs = Array.from(product.querySelectorAll('div, span'));
+
+  // Find elements by their text content
+  const priceDiv = allDivs.find(el => /^[$₹€][\d,]+$/.test(el.textContent.trim()));
+  const discountDiv = allDivs.find(el => /\d+% off/.test(el.textContent.trim()));
+
+  return {
+    price: priceDiv?.textContent,
+    discount: discountDiv?.textContent
+  };
+})()
+```
+
+**Strategy 4: Debug by inspecting structure**
+
+When stuck after 2-3 attempts, print the actual HTML to understand the pattern:
+
+```js
+(function(){
+  const product = document.querySelector('div.product-card');
+  return {
+    outerHTML: product?.outerHTML.substring(0, 500),
+    allClasses: Array.from(product?.querySelectorAll('*') || [])
+      .map(el => el.className)
+      .filter(c => c.includes('price') || c.includes('discount'))
+  };
+})()
+```
+
+```python
+debug_info = await evaluate(js)
+print(f"HTML structure: {debug_info['outerHTML']}")
+print(f"Price-related classes: {debug_info['allClasses']}")
+```
+
+**Quick Reference:**
+
+1. **Check if data loaded**: `document.querySelectorAll(".container")` → print length
+2. **Try semantic attributes**: `[data-testid]`, `[role]`, `[aria-label]`
+3. **Inspect structure**: Print `outerHTML.substring(0, 500)` and all class names
+4. **Use structural selectors**: `:nth-child()`, sibling selectors, position-based
+5. **Extract text, parse in Python**: Get all text, use regex for prices/discounts
+6. **Handle dynamic content**: Scroll to trigger lazy loading, wait 2-3s
+7. **Switch strategies after 2 failures**: Don't repeat the same approach
 
 ### 5. `done(text: str, success: bool = True)` - CRITICAL FINAL STEP
 
