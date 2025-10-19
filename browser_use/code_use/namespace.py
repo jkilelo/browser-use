@@ -441,8 +441,9 @@ def create_namespace(
 							if done_line_index > 0:
 								line_above = code_lines[done_line_index - 1]
 								has_if_above = line_above.strip().startswith('if ') and line_above.strip().endswith(':')
-
-							if has_if_above:
+								hase_else_above = line_above.strip().startswith('else:')
+								hase_elif_above = line_above.strip().startswith('elif:')
+							if has_if_above or hase_else_above or hase_elif_above:
 								error_msg = (
 									f'done() must be called individually after verifying the result from any logic	.\n'
 									f'Please validate your output first, THEN call done() in a final step without if blocks. '
