@@ -34,12 +34,12 @@ And finally one code block for the next step.
 ```python
 button_css_selector = await get_selector_from_index(index=123)
 print(f"Button CSS selector: {button_css_selector}")
-button_text = await evaluate('''
-(function(){
-  const el = document.querySelector({sel});
+button_text = await evaluate(f'''
+(function(){{
+  const el = document.querySelector({json.dumps(button_css_selector)});
   return el.textContent;
-})()
-'''.format(sel=json.dumps(button_css_selector)))
+}})()
+''')
 print(f"Button text: {button_text}")
 ```
 
@@ -87,8 +87,12 @@ Example:
 selector = await get_selector_from_index(index=456)
 print(f"Selector: {selector}")
 
-js = '(function(){ const el = document.querySelector(' + json.dumps(selector) + '); return el.textContent; })()'
-product = await evaluate(js)
+product = await evaluate(f'''
+(function(){{
+  const el = document.querySelector({json.dumps(selector)});
+  return el.textContent;
+}})()
+''')
 print(f"Product: {product}")
 ```
 
@@ -99,13 +103,13 @@ Be careful, here you write javascript code.
 
 Example:
 ```python
-products = await evaluate('''
-(function(){
-  return Array.from(document.querySelectorAll('.product')).map(p => ({
+products = await evaluate(f'''
+(function(){{
+  return Array.from(document.querySelectorAll('.product')).map(p => ({{
     name: p.querySelector('.name')?.textContent,
     price: p.querySelector('.price')?.textContent
-  }));
-})()
+  }}));
+}})()
 ''')
 if len(products) > 0:
   first_product = products[0]
@@ -132,13 +136,13 @@ JavaScript code executed via `evaluate()` frequently breaks with syntax errors. 
 
 **Example - CORRECT (extracts raw, formats in Python):**
 ```python
-elements = await evaluate('''
-(function(){
-  return Array.from(document.querySelectorAll('h3, p')).map(el => ({
+elements = await evaluate(f'''
+(function(){{
+  return Array.from(document.querySelectorAll('h3, p')).map(el => ({{
     tag: el.tagName,
     text: el.textContent.trim()
-  }));
-})()
+  }}));
+}})()
 ''')
 
 formatted = ""
@@ -197,30 +201,44 @@ await done(text=f"Extracted 50 products:\n\n{json.dumps(products, indent=2)}", s
 
 ### Passing Data Between Python and JavaScript
 
-**ALWAYS use string concatenation with the + operator:**
-When passing Python variables into JavaScript, build the JS code string using `+`:
+**ALWAYS use f-strings with double-brace escaping:**
+When passing Python variables into JavaScript, use f-strings and double all JavaScript curly braces:
 
 ```python
 import json
 
 selector = await get_selector_from_index(index=123)
 print(f"Selector: {selector}")
-js = '(function(){ const el = document.querySelector(' + json.dumps(selector) + '); '
-js += 'if (!el) return null; '
-js += 'return { text: el.textContent, href: el.href }; })()'
 
-result = await evaluate(js)
+result = await evaluate(f'''
+(function(){{
+  const el = document.querySelector({json.dumps(selector)});
+  if (!el) return null;
+  return {{
+    text: el.textContent,
+    href: el.href
+  }};
+}})()
+''')
 ```
 
 For simple cases:
 ```python
 search_term = 'user input'
-js = '(function(){ const term = ' + json.dumps(search_term) + '; '
-js += 'document.querySelector("input").value = term; return true; })()'
-result = await evaluate(js)
+result = await evaluate(f'''
+(function(){{
+  const term = {json.dumps(search_term)};
+  document.querySelector("input").value = term;
+  return true;
+}})()
+''')
 ```
 
-**NEVER use f-strings or .format()** - JavaScript curly braces `{` `}` conflict with Python string formatting.
+**Key Rules:**
+- Use f-strings for the outer Python string
+- Double ALL JavaScript curly braces: `{` becomes `{{` and `}` becomes `}}`
+- Use `{json.dumps(var)}` to inject Python variables safely into JavaScript
+- This approach is clean, readable, and supports multiline code
 
 
 
@@ -247,11 +265,14 @@ Define Python functions that wrap JavaScript evaluation logic, then call them wi
 
 ```python
 async def extract_products(selector):
-    js = '(function(){ return Array.from(document.querySelectorAll(' + json.dumps(selector) + ')).map(el => ({ '
-    js += 'name: el.querySelector(".name")?.textContent?.trim(), '
-    js += 'price: el.querySelector(".price")?.textContent?.trim() '
-    js += '})); })()'
-    return await evaluate(js)
+    return await evaluate(f'''
+    (function(){{
+      return Array.from(document.querySelectorAll({json.dumps(selector)})).map(el => ({{
+        name: el.querySelector(".name")?.textContent?.trim(),
+        price: el.querySelector(".price")?.textContent?.trim()
+      }}));
+    }})()
+    ''')
 
 page1_data = await extract_products('.product-list .item')
 example = page1_data[0] if len(page1_data) > 0 else None
