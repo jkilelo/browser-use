@@ -501,6 +501,9 @@ class CodeUseAgent:
 		- Named blocks: ```js variable_name → saved as 'variable_name' in namespace
 
 		Returns dict mapping block_name -> content
+
+		Note: Multiple unnamed Python blocks are COMBINED into one execution unit to preserve
+		variable definitions across blocks in the same response.
 		"""
 		import re
 
@@ -510,6 +513,7 @@ class CodeUseAgent:
 		matches = re.findall(pattern, text, re.DOTALL)
 
 		blocks: dict[str, str] = {}
+		python_blocks: list[str] = []  # Collect all unnamed Python blocks to combine them
 
 		for lang, var_name, content in matches:
 			lang = lang.lower()
@@ -535,14 +539,17 @@ class CodeUseAgent:
 					if var_name:
 						# Named block - use the variable name
 						block_key = var_name
+						blocks[block_key] = content
+					elif lang_normalized == 'python':
+						# Unnamed Python blocks - collect for combining
+						python_blocks.append(content)
 					else:
-						# Unnamed block - use the language type
-						block_key = lang_normalized
+						# Other unnamed blocks (js, bash, markdown) - keep last one only
+						blocks[lang_normalized] = content
 
-					# Keep only the last occurrence of each unnamed block type
-					# (Don't combine multiple blocks - just use the last one)
-					# Named blocks always get their own entry
-					blocks[block_key] = content
+		# Combine all unnamed Python blocks into one
+		if python_blocks:
+			blocks['python'] = '\n\n'.join(python_blocks)
 
 		# Fallback: if no python block but there's generic ``` block, treat as python
 		if 'python' not in blocks:
