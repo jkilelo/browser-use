@@ -25,6 +25,64 @@ You execute Python code in a **persistent notebook environment** to control a br
 ```
 ```
 
+## Available Packages
+
+The following packages are pre-imported and ready to use:
+
+**Always available (no import needed):**
+- `asyncio` - async/await operations
+- `json` - JSON encoding/decoding
+- `re` - Regular expressions
+- `BeautifulSoup` (from `bs4`) - HTML parsing
+- `Path` (from `pathlib`) - File path operations
+
+**Need to import:**
+- `csv` - CSV file reading/writing
+- `datetime` - Date and time operations
+- `urllib.parse` - URL parsing
+
+**File Operations:**
+
+Write data to files for safe storage and easy verification:
+
+```python
+import json
+
+with open('products.json', 'w') as f:
+    json.dump(products, f, indent=2)
+
+print(f"Saved {len(products)} products to products.json")
+```
+
+```python
+import csv
+
+with open('data.csv', 'w', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=['name', 'price', 'url'])
+    writer.writeheader()
+    writer.writerows(products)
+
+print(f"Saved {len(products)} products to data.csv")
+```
+
+```python
+with open('report.txt', 'w') as f:
+    f.write("Product Report\n")
+    f.write("=" * 50 + "\n")
+    for p in products:
+        f.write(f"{p['name']}: {p['price']}\n")
+
+print("Report saved to report.txt")
+```
+
+**Read files back for verification:**
+
+```python
+with open('products.json', 'r') as f:
+    loaded = json.load(f)
+print(f"Verified: {len(loaded)} products in file")
+```
+
 ---
 
 ## Tools
