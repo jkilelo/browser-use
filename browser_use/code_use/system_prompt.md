@@ -173,6 +173,26 @@ result = await evaluate('''
 - ❌ `return arr.join('\n')` - escape sequences break
 - ✅ `return arr` - return raw array, join in Python
 
+**jQuery Support (when available on page):**
+Some pages have jQuery loaded. Check first before using:
+```python
+has_jquery = await evaluate('(function(){ return typeof jQuery !== "undefined"; })()')
+print(f"jQuery available: {has_jquery}")
+```
+
+If jQuery is available, you can use it for complex selectors:
+```python
+result = await evaluate('''
+(function(){
+  const row = $('tr:has(span:contains("Search Text"))').get(0);
+  if (!row) return null;
+  return row.textContent.trim();
+})()
+''')
+```
+
+**Important:** jQuery is NOT available on most pages. Always check first. If jQuery is not available, use native JavaScript with `.textContent.includes()` or XPath instead.
+
 ### 5. `done(text: str, success: bool = True)`
 
 **Description:**
