@@ -87,12 +87,12 @@ Example:
 selector = await get_selector_from_index(index=456)
 print(f"Selector: {selector}")
 
-js_code = '(function(){ const el = document.querySelector(' + json.dumps(selector) + '); return el.textContent; })()'
-product = await evaluate(js_code)
+js = '(function(){ const el = document.querySelector(' + json.dumps(selector) + '); return el.textContent; })()'
+product = await evaluate(js)
 print(f"Product: {product}")
 ```
 
-### 4. evaluate(js_code: str) → Python data
+### 4. evaluate(js: str) → Python data
 Description:
 Execute JavaScript via CDP (Chrome DevTools Protocol), returns Python dict/list/string/number/bool/None.
 Be careful, here you write javascript code.
@@ -119,13 +119,18 @@ else:
 - Recommended to wrap in IIFE: `(function(){ ... })()`
 - Do NOT use JavaScript comments (// or /* */) - they are stripped before execution. They break the cdp execution environment.
 
-**CRITICAL - Avoid Syntax Errors:**
-- Only extract raw data in JavaScript - return simple dicts/lists/strings
-- Do ALL formatting, regex, string manipulation, newlines in Python AFTER extraction
-- try to avoid compleex sysntax in javascript.
-- JavaScript string formatting causes syntax errors - keep JS minimal and data-focused
+**CRITICAL - JavaScript Syntax Errors Are The #1 Failure Mode:**
 
-**Example - CORRECT:**
+**GOLDEN RULE: JavaScript extracts data, Python formats it.**
+
+JavaScript code executed via `evaluate()` frequently breaks with syntax errors. Follow these rules STRICTLY:
+
+1. **NO string operations in JavaScript** - no concatenation, no template literals, no multiline strings, no newlines
+2. **NO complex logic in JavaScript** - no conditionals for string building, no loops for text assembly
+3. **Do ALL formatting in Python** - newlines, string interpolation, regex, joins - ALL in Python
+
+
+**Example - CORRECT (extracts raw, formats in Python):**
 ```python
 elements = await evaluate('''
 (function(){
@@ -145,7 +150,7 @@ for el in elements:
 print(formatted)
 ```
 
-**Example - WRONG (causes syntax errors):**
+**Example - WRONG (formats in JavaScript - BREAKS):**
 ```python
 result = await evaluate('''
 (function(){
@@ -157,6 +162,12 @@ result = await evaluate('''
 })()
 ''')
 ```
+
+**Common Mistakes That BREAK JavaScript:**
+- ❌ `let str = "line1\nline2"` - multiline strings break
+- ❌ `` let x = `text ${var}` `` - template literals break
+- ❌ `return arr.join('\n')` - escape sequences break
+- ✅ `return arr` - return raw array, join in Python
 
 ### 5. `done(text: str, success: bool = True)`
 
@@ -194,19 +205,19 @@ import json
 
 selector = await get_selector_from_index(index=123)
 print(f"Selector: {selector}")
-js_code = '(function(){ const el = document.querySelector(' + json.dumps(selector) + '); '
-js_code += 'if (!el) return null; '
-js_code += 'return { text: el.textContent, href: el.href }; })()'
+js = '(function(){ const el = document.querySelector(' + json.dumps(selector) + '); '
+js += 'if (!el) return null; '
+js += 'return { text: el.textContent, href: el.href }; })()'
 
-result = await evaluate(js_code)
+result = await evaluate(js)
 ```
 
 For simple cases:
 ```python
 search_term = 'user input'
-js_code = '(function(){ const term = ' + json.dumps(search_term) + '; '
-js_code += 'document.querySelector("input").value = term; return true; })()'
-result = await evaluate(js_code)
+js = '(function(){ const term = ' + json.dumps(search_term) + '; '
+js += 'document.querySelector("input").value = term; return true; })()'
+result = await evaluate(js)
 ```
 
 **NEVER use f-strings or .format()** - JavaScript curly braces `{` `}` conflict with Python string formatting.
@@ -236,11 +247,11 @@ Define Python functions that wrap JavaScript evaluation logic, then call them wi
 
 ```python
 async def extract_products(selector):
-    js_code = '(function(){ return Array.from(document.querySelectorAll(' + json.dumps(selector) + ')).map(el => ({ '
-    js_code += 'name: el.querySelector(".name")?.textContent?.trim(), '
-    js_code += 'price: el.querySelector(".price")?.textContent?.trim() '
-    js_code += '})); })()'
-    return await evaluate(js_code)
+    js = '(function(){ return Array.from(document.querySelectorAll(' + json.dumps(selector) + ')).map(el => ({ '
+    js += 'name: el.querySelector(".name")?.textContent?.trim(), '
+    js += 'price: el.querySelector(".price")?.textContent?.trim() '
+    js += '})); })()'
+    return await evaluate(js)
 
 page1_data = await extract_products('.product-list .item')
 example = page1_data[0] if len(page1_data) > 0 else None
