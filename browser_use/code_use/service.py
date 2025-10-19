@@ -455,8 +455,11 @@ class CodeUseAgent:
 						'The agent should output ONE code block per step.'
 					)
 
-		# Add to LLM messages (use full_response with URLs replaced back)
-		self._llm_messages.append(AssistantMessage(content=full_response))
+		# Add to LLM messages (truncate to 3000 chars to prevent context overflow)
+		truncated_response = full_response
+		if len(full_response) > 3000:
+			truncated_response = full_response[:2950] + '\n[Response truncated after 3000 chars]'
+		self._llm_messages.append(AssistantMessage(content=truncated_response))
 
 		return code, full_response
 
@@ -804,13 +807,17 @@ __code_exec_coro__ = __code_exec__()
 			result.append(progress_header)
 
 		result.append('Executed')
+
+		# Truncate error to 2000 chars to prevent context overflow
 		if error:
+			if len(error) > 2000:
+				error = error[:1950] + '\n[Error truncated after 2000 chars]'
 			result.append(f'Error: {error}')
 
+		# Truncate output to 2000 chars to prevent context overflow
 		if output:
-			# Truncate output if too long
-			if len(output) > 10000:
-				output = output[:9950] + '\n[Truncated after 10000 characters]'
+			if len(output) > 2000:
+				output = output[:1950] + '\n[Output truncated after 2000 chars]'
 			result.append(f'Output: {output}')
 
 		return '\n'.join(result)
