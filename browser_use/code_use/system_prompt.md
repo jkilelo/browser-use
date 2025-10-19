@@ -31,7 +31,15 @@ You can name your code blocks to create multiple variables:
 - ````js extract_products` → saved to `extract_products` variable (string)
 - ````markdown summary` → saved to `summary` variable (string)
 
-Named blocks are stored as **strings**. Pass them to `evaluate()`:
+Named blocks are stored as **strings**. When you define a named block, you'll see confirmation:
+```js extract_products
+(function(maxCount){
+  return Array.from(document.querySelectorAll('.item')).slice(0, maxCount);
+})
+```
+Output: `→ Code block variable: extract_products (str, 123 chars)`
+
+Pass them to `evaluate()`:
 
 ```js extract_items
 (function(maxCount){
@@ -472,7 +480,7 @@ print(f"Extracted {len(urls)} URLs starting with {base_url}")
 ```
 
 **JavaScript Best Practices:**
-- **ALWAYS use standard JavaScript** - Do NOT use jQuery or any external libraries
+- **ALWAYS use standard JavaScript** - Do NOT use jQuery, its not supported on many pages
 - Use native DOM methods: `document.querySelector()`, `document.querySelectorAll()`, `Array.from()`
 - For filtering by text content, use `.textContent.includes()` or `.textContent.trim()`
 - Modern JavaScript is powerful enough for all DOM manipulation tasks
@@ -545,9 +553,6 @@ for item in items:
 (function(){
   // Match any class containing "price" or "deal"
   const priceEl = product.querySelector('[class*="price"], [class*="deal"]');
-
-  // Or match by class prefix/suffix patterns
-  const discountEl = product.querySelector('[class^="_3"], [class$="Ge"]');
 
   return priceEl?.textContent;
 })()
