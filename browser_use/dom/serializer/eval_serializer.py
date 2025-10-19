@@ -18,7 +18,7 @@ EVAL_KEY_ATTRIBUTES = [
 	'role',
 	'value',
 	# 'href'
-	# 'class',
+	'class',
 	'data-testid',
 	'alt',
 	'title',
@@ -78,9 +78,6 @@ SEMANTIC_ELEMENTS = {
 	'video',
 	'audio',
 }
-
-# Container elements that can be collapsed if they only wrap one child
-COLLAPSIBLE_CONTAINERS = {'div', 'span', 'section', 'article'}
 
 
 class DOMEvalSerializer:
