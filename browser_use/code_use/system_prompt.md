@@ -143,6 +143,59 @@ Print what you find to verify:
 await click(index=4)
 ```
 
+### get_element_info(index: int) → dict
+
+Get detailed information about an element including CSS selector, coordinates, and attributes:
+
+```python
+info = await get_element_info(123)
+print(json.dumps(info, indent=2))
+```
+
+**Returns:**
+```python
+{
+  'css_selector': 'button.submit-btn',  # Best CSS selector for element
+  'xpath': '/html/body/div[1]/button',  # XPath to element
+  'tag_name': 'button',                  # HTML tag
+  'attributes': {'class': 'submit-btn', 'type': 'submit'},  # All attributes
+  'text': 'Submit',                      # Text content
+  'coords': {'x': 100, 'y': 200, 'width': 80, 'height': 40},  # Position & size
+  'is_visible': True,                    # Visibility status
+  'is_interactive': True                 # Whether clickable/inputable
+}
+```
+
+**Use cases:**
+
+
+
+2. **Use CSS selector or coordinates as fallback in JavaScript:**
+```python
+info = await get_element_info(123)
+selector = info['css_selector']
+
+result = await evaluate(js('''
+var selector = INJECTED_PARAMS.selector;
+var el = document.querySelector(selector);
+if (el) {
+    el.style.backgroundColor = 'yellow';
+    return el.textContent;
+}
+return null;
+''', selector=selector))
+
+print(f"Element text: {result}")
+```
+
+
+
+**When to use:**
+- Need CSS selector for JavaScript manipulation
+- Want to see exact coordinates before clicking
+- Debugging why an element isn't behaving as expected
+- Need to inspect attributes (id, class, data-* attributes, etc.)
+
 ### get_html() → BeautifulSoup Pattern
 
 **Primary extraction method - use this first:**

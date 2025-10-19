@@ -421,28 +421,39 @@ def create_namespace(
 
 	namespace['get_html'] = get_html
 
-	# Add get_selector_from_index helper for code_use mode
-	async def get_selector_from_index_wrapper(index: int) -> str:
+	# Add get_element_info helper for code_use mode
+	async def get_element_info_wrapper(index: int) -> dict[str, Any]:
 		"""
-		Get the CSS selector for an element by its interactive index.
+		Get comprehensive information about an element by its interactive index.
 
-		This allows you to use the element's index from the browser state to get
-		its CSS selector for use in JavaScript evaluate() calls.
+		This is useful when you need to interact with elements via JavaScript or need
+		detailed element information for debugging.
 
 		Args:
 			index: The interactive index from the browser state (e.g., [123])
 
 		Returns:
-			str: CSS selector that can be used in JavaScript
+			dict with keys:
+				- css_selector: Best CSS selector for the element
+				- xpath: XPath to the element
+				- tag_name: HTML tag name (e.g., 'button', 'input')
+				- attributes: Dict of element attributes
+				- text: Text content of the element
+				- coords: Dict with x, y, width, height (absolute position)
+				- is_visible: Whether element is visible
+				- is_interactive: Whether element is clickable/inputable
 
 		Example:
-			selector = await get_selector_from_index(123)
-			await evaluate(f'''
-			(function(){{
-				const el = document.querySelector({json.dumps(selector)});
-				if (el) el.click();
-			}})()
-			''')
+			info = await get_element_info(123)
+			print(f"Element: {info['tag_name']} at ({info['coords']['x']}, {info['coords']['y']})")
+
+			# Use in JavaScript
+			selector = info['css_selector']
+			result = await evaluate(js('''
+			var selector = INJECTED_PARAMS.selector;
+			var el = document.querySelector(selector);
+			return el ? el.textContent : null;
+			''', selector=selector))
 		"""
 		# Get element by index from browser session
 		node = await browser_session.get_element_by_index(index)
@@ -450,16 +461,15 @@ def create_namespace(
 			raise ValueError(f'Element index {index} not found in browser state')
 
 		# Build CSS selector from node attributes
+		css_selector = None
 		selector_parts = []
 
 		# Try id first (most specific)
 		if node.attributes and 'id' in node.attributes and node.attributes['id']:
 			element_id = node.attributes['id']
 			# Check if id contains special characters that need escaping
-			if any(char in element_id for char in ['$', '.', ':', '[', ']', ' ']):
-				# Return a note that getElementById should be used instead
-				return f'[USE_GET_ELEMENT_BY_ID]{element_id}'
-			selector_parts.append(f'#{element_id}')
+			if not any(char in element_id for char in ['$', '.', ':', '[', ']', ' ']):
+				selector_parts.append(f'#{element_id}')
 
 		# Add tag name
 		if node.tag_name:
@@ -481,16 +491,35 @@ def create_namespace(
 
 			selector_parts.append(tag_selector)
 
-		# Join parts - use the most specific one available
+		# Choose best selector
 		if selector_parts and selector_parts[0].startswith('#'):
-			return selector_parts[0]  # ID is sufficient
+			css_selector = selector_parts[0]  # ID is sufficient
 		elif selector_parts:
-			return selector_parts[-1]  # Use the tag+class+name selector
-		else:
-			# Fallback to xpath if no good selector
-			return f'[USE_XPATH]{node.xpath}'
+			css_selector = selector_parts[-1]  # Use the tag+class+name selector
 
-	namespace['get_selector_from_index'] = get_selector_from_index_wrapper
+		# Build coordinates dict
+		coords = None
+		if node.absolute_position:
+			coords = {
+				'x': node.absolute_position.x,
+				'y': node.absolute_position.y,
+				'width': node.absolute_position.width,
+				'height': node.absolute_position.height,
+			}
+
+		# Return comprehensive element info
+		return {
+			'css_selector': css_selector,
+			'xpath': node.xpath,
+			'tag_name': node.tag_name,
+			'attributes': dict(node.attributes) if node.attributes else {},
+			'text': node.text_content or '',
+			'coords': coords,
+			'is_visible': node.is_visible,
+			'is_interactive': node.is_interactive,
+		}
+
+	namespace['get_element_info'] = get_element_info_wrapper
 
 	# Inject all tools as functions into the namespace
 	# Skip 'evaluate' since we have a custom implementation above
