@@ -367,33 +367,46 @@ class DOMEvalSerializer:
 
 			# Process content document children
 			for child_node in node.original_node.content_document.children_nodes or []:
-				# Create temporary SimplifiedNode wrapper to reuse serialize_tree
-				# We need to process the content document's DOM tree
+				# Process html documents
 				if child_node.tag_name.lower() == 'html':
-					# Find body or start serializing from html
+					# Find and serialize body content only (skip head)
 					for html_child in child_node.children:
-						if html_child.tag_name.lower() in ['body', 'head']:
-							# Only serialize body content for iframes
-							if html_child.tag_name.lower() == 'body':
-								for body_child in html_child.children:
-									# Recursively process body children
-									DOMEvalSerializer._serialize_document_node(body_child, formatted_text, include_attributes, depth + 2)
-							break
+						if html_child.tag_name.lower() == 'body':
+							for body_child in html_child.children:
+								# Recursively process body children (iframe content)
+								DOMEvalSerializer._serialize_document_node(body_child, formatted_text, include_attributes, depth + 2, is_iframe_content=True)
+							break  # Stop after processing body
+				else:
+					# Not an html element - serialize directly
+					DOMEvalSerializer._serialize_document_node(child_node, formatted_text, include_attributes, depth + 1, is_iframe_content=True)
 
 		return '\n'.join(formatted_text)
 
 	@staticmethod
 	def _serialize_document_node(
-		dom_node: EnhancedDOMTreeNode, output: list[str], include_attributes: list[str], depth: int
+		dom_node: EnhancedDOMTreeNode, output: list[str], include_attributes: list[str], depth: int, is_iframe_content: bool = True
 	) -> None:
-		"""Helper to serialize a document node without SimplifiedNode wrapper."""
+		"""Helper to serialize a document node without SimplifiedNode wrapper.
+
+		Args:
+			is_iframe_content: If True, be more permissive with visibility checks since
+				iframe content might not have snapshot data from parent page.
+		"""
 		depth_str = depth * '\t'
 
 		if dom_node.node_type == NodeType.ELEMENT_NODE:
 			tag = dom_node.tag_name.lower()
 
-			# Skip invisible and non-semantic elements
-			is_visible = dom_node.snapshot_node and dom_node.is_visible
+			# For iframe content, be permissive - show all semantic elements even without snapshot data
+			# For regular content, skip invisible elements
+			if is_iframe_content:
+				# Only skip if we have snapshot data AND it's explicitly invisible
+				# If no snapshot data, assume visible (cross-origin iframe content)
+				is_visible = (not dom_node.snapshot_node) or dom_node.is_visible
+			else:
+				# Regular strict visibility check
+				is_visible = dom_node.snapshot_node and dom_node.is_visible
+
 			if not is_visible:
 				return
 
@@ -404,7 +417,7 @@ class DOMEvalSerializer:
 			if not is_semantic and not attributes_str:
 				# Skip but process children
 				for child in dom_node.children:
-					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth)
+					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth, is_iframe_content=is_iframe_content)
 				return
 
 			# Build element line
@@ -431,4 +444,4 @@ class DOMEvalSerializer:
 			# Process non-text children
 			for child in dom_node.children:
 				if child.node_type != NodeType.TEXT_NODE:
-					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth + 1)
+					DOMEvalSerializer._serialize_document_node(child, output, include_attributes, depth + 1, is_iframe_content=is_iframe_content)

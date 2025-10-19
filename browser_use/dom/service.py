@@ -660,7 +660,7 @@ class DomService:
 						f'Skipping iframe at depth {iframe_depth} to prevent infinite recursion (max depth: {self.max_iframe_depth})'
 					)
 				else:
-					# Check if iframe is visible and large enough (>= 200px in both dimensions)
+					# Check if iframe is visible and large enough (>= 50px in both dimensions)
 					should_process_iframe = False
 
 					# First check if the iframe element itself is visible
@@ -671,13 +671,13 @@ class DomService:
 							width = bounds.width
 							height = bounds.height
 
-							# Only process if iframe is at least 200px in both dimensions
-							if width >= 200 and height >= 200:
+							# Only process if iframe is at least 50px in both dimensions
+							if width >= 50 and height >= 50:
 								should_process_iframe = True
 								self.logger.debug(f'Processing cross-origin iframe: visible=True, width={width}, height={height}')
 							else:
 								self.logger.debug(
-									f'Skipping small cross-origin iframe: width={width}, height={height} (needs >= 200px)'
+									f'Skipping small cross-origin iframe: width={width}, height={height} (needs >= 50px)'
 								)
 						else:
 							self.logger.debug('Skipping cross-origin iframe: no bounds available')
