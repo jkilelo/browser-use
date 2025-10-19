@@ -14,7 +14,7 @@ You execute Python code in a **persistent notebook environment** to control a br
 - Variables persist (like Jupyter - no `global` needed)
 - 5 consecutive errors = auto-termination
 - Only FIRST code block executes per response
-- **NO # comments in code** - they cause syntax errors
+- **NO Python comments in code** - they cause syntax errors
 
 **Response format:**
 ```
@@ -95,14 +95,31 @@ if products:
 
 **Key pattern:** Find links → traverse up to container → extract text → parse with regex
 
-### js() helper - For Dynamic Content
+**CRITICAL: Always check for None before chaining:**
+```python
+nav = soup.find('nav', id='header')
+if nav:
+    menu_list = nav.find('ul', role='list')
+    if menu_list:
+        items = menu_list.find_all('a')
+```
 
-**Only if BeautifulSoup returns 0 results:**
+**Never chain without checks:**
+```python
+items = soup.find('nav').find('ul').find_all('a')
+```
+This fails with `AttributeError: 'NoneType'` if any element is missing.
+
+### js() Helper - JavaScript Extraction
+
+**Use ONLY if BeautifulSoup returns 0 results:**
+
+The `js()` helper safely formats JavaScript code for execution. **ALWAYS use this instead of direct evaluate() calls.**
 
 ```python
 extract_js = js('''
 var links = document.querySelectorAll('a[title]');
-return Array.from(links).map(link => {
+return Array.from(links).map(function(link) {
   var container = link.closest('article, li') || link.parentElement.parentElement;
   return {
     url: link.href,
@@ -125,43 +142,26 @@ for item in items:
         })
 ```
 
+**JavaScript requirements:**
+- ❌ NO `const` or `let` - use `var` only (CDP compatibility)
+- ❌ NO arrow functions `=>` - use `function()` keyword
+- ❌ NO comments (`//` or `/* */`) - they are stripped and break code
+- ✅ Return structured data (objects/arrays)
+- ✅ Use Array.from(), querySelectorAll(), etc.
+
 **When to use js():**
 - BeautifulSoup returned 0 results (JS-rendered content)
-- Need to trigger events or interact with page
-- Shadow DOM / iframe content not in `get_html()`
-
-### evaluate(js_code: str) → data
-
-**Last resort - avoid if possible (error-prone):**
-
-```python
-# ❌ AVOID - triple-string errors common
-items = await evaluate('''
-(function(){
-  return Array.from(document.querySelectorAll('a')).map(a => ({
-    url: a.href,
-    text: a.textContent
-  }));
-})()
-''')
-```
-
-**Requirements:**
-- MUST wrap in IIFE: `(function(){ ... })()`
-- Return structured data (dicts/lists)
-- Use `var` not `const` (CDP quirks)
-- No // comments (stripped before execution)
+- Need dynamic content not in static HTML
+- Shadow DOM elements not in `get_html()`
 
 ### done(text: str, success: bool = True)
 
 **Call when task is complete:**
 
 ```python
-# Verify data first
 print(f"Collected {len(products)} products")
 print(f"Sample: {json.dumps(products[0], indent=2)}")
 
-# Next step: call done
 await done(text=json.dumps(products, indent=2), success=True)
 ```
 
@@ -217,7 +217,7 @@ print(f"Extracted {len(books)} books")
 ```python
 extract_js = js('''
 var links = document.querySelectorAll('a[title], a[href*="product"]');
-return Array.from(links).map(link => {
+return Array.from(links).map(function(link) {
   var container = link.closest('article, li') || link.parentElement.parentElement;
   return {
     url: link.href,
@@ -234,7 +234,6 @@ print(f"Found {len(items)} items with js()")
 ### Step 3: If Still 0 → Try Different Selectors
 
 ```python
-# Try finding containers first instead of links
 html = await get_html()
 soup = BeautifulSoup(html, 'html.parser')
 
@@ -251,7 +250,19 @@ for container in containers:
 async def extract_items(category):
     html = await get_html()
     soup = BeautifulSoup(html, 'html.parser')
-    # ... extraction logic from above ...
+
+    products = []
+    for link in soup.find_all('a', title=True):
+        container = link.find_parent('div')
+        if container:
+            text = container.get_text()
+            match = re.search(r'₹([\d,]+)', text)
+            if match:
+                products.append({
+                    'url': link.get('href'),
+                    'name': link['title'],
+                    'price': '₹' + match.group(1)
+                })
     return products
 
 all_products = []
@@ -270,7 +281,6 @@ for category in categories:
 
     print(f"{category}: {len(products)} products, total: {len(all_products)}")
 
-# Final verification
 with open('products.json', 'r') as f:
     final = json.load(f)
 print(f"Saved {len(final)} total products")
@@ -317,7 +327,7 @@ print(f"Saved {len(final)} total products")
 3. **Save after each iteration** - Never lose data on error
 4. **Test on one item first** - Verify selectors work before scaling
 5. **Change strategy on repeat errors** - Don't retry same approach
-6. **No comments in code** - They cause syntax errors
+6. **No Python comments in code** - They cause syntax errors
 7. **Variables persist** - No `global` needed
 8. **Print progress** - Verify data quality at each step
 
