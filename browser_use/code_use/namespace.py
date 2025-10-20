@@ -87,15 +87,17 @@ def _strip_js_comments(js_code: str) -> str:
 
 class EvaluateError(Exception):
 	"""Special exception raised by evaluate() to stop Python execution immediately."""
+
 	pass
 
 
-async def evaluate(code: str, browser_session: BrowserSession) -> Any:
+async def evaluate(code: str, browser_session: BrowserSession, element_index: int | None = None) -> Any:
 	"""
 	Execute JavaScript code in the browser and return the result.
 
 	Args:
-		code: JavaScript code to execute (must be wrapped in IIFE)
+		code: JavaScript code to execute
+		element_index: Optional element index - if provided, 'this' is bound to that element
 
 	Returns:
 		The result of the JavaScript execution
@@ -103,7 +105,8 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 	Raises:
 		EvaluateError: If JavaScript execution fails. This stops Python execution immediately.
 
-	Example:
+	Examples:
+		# Page-level (self-executing IIFE)
 		result = await evaluate('''
 		(function(){
 			return Array.from(document.querySelectorAll('.product')).map(p => ({
@@ -112,6 +115,9 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 			}))
 		})()
 		''')
+
+		# Element-bound (this = element at index 456)
+		text = await evaluate('function(){ return this.textContent; }', element_index=456)
 	"""
 	# Strip JavaScript comments before CDP evaluation (CDP doesn't support them in all contexts)
 	code = _strip_js_comments(code)
@@ -119,11 +125,48 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 	cdp_session = await browser_session.get_or_create_cdp_session()
 
 	try:
-		# Execute JavaScript with proper error handling
-		result = await cdp_session.cdp_client.send.Runtime.evaluate(
-			params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
-			session_id=cdp_session.session_id,
-		)
+		# If element_index is provided, use Runtime.callFunctionOn
+		if element_index is not None:
+			# Get the element node from the index
+			node = await browser_session.get_element_by_index(element_index)
+			if node is None:
+				raise EvaluateError(f'Element index {element_index} not available - page may have changed')
+
+			# Get backend_node_id from the node
+			backend_node_id = node.backend_node_id
+			if backend_node_id is None:
+				raise EvaluateError(f'Element at index {element_index} has no backend_node_id')
+
+			# Resolve backend_node_id to object ID
+			resolve_result = await cdp_session.cdp_client.send.DOM.resolveNode(
+				params={'backendNodeId': backend_node_id},
+				session_id=cdp_session.session_id,
+			)
+			object_id = resolve_result.get('object', {}).get('objectId')
+			if not object_id:
+				raise EvaluateError(f'Could not resolve element at index {element_index} to object ID')
+
+			# Strip trailing () if present (convert self-executing to non-self-executing)
+			stripped_code = code.strip()
+			if stripped_code.endswith('()'):
+				code = stripped_code[:-2]
+
+			# Execute JavaScript with 'this' bound to the element
+			result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+				params={
+					'functionDeclaration': code,
+					'objectId': object_id,
+					'returnByValue': True,
+					'awaitPromise': True,
+				},
+				session_id=cdp_session.session_id,
+			)
+		else:
+			# Page-level evaluation
+			result = await cdp_session.cdp_client.send.Runtime.evaluate(
+				params={'expression': code, 'returnByValue': True, 'awaitPromise': True},
+				session_id=cdp_session.session_id,
+			)
 
 		# Check for JavaScript execution errors
 		if result.get('exceptionDetails'):
@@ -266,8 +309,9 @@ def create_namespace(
 	async def evaluate_wrapper(
 		code: str | None = None,
 		variables: dict[str, Any] | None = None,
+		element_index: int | None = None,
 		*_args: Any,
-		**kwargs: Any
+		**kwargs: Any,
 	) -> Any:
 		# Handle both positional and keyword argument styles
 		if code is None:
@@ -276,6 +320,9 @@ def create_namespace(
 		# Extract variables if passed as kwarg
 		if variables is None:
 			variables = kwargs.get('variables')
+		# Extract element_index if passed as kwarg
+		if element_index is None:
+			element_index = kwargs.get('element_index')
 
 		if not code:
 			raise ValueError('No JavaScript code provided to evaluate()')
@@ -293,9 +340,8 @@ def create_namespace(
 			else:
 				# Not a parameterized function, inject params in scope
 				# Check if already wrapped in IIFE
-				is_wrapped = (
-					(stripped.startswith('(function()') and '})()' in stripped[-10:])
-					or (stripped.startswith('(async function()') and '})()' in stripped[-10:])
+				is_wrapped = (stripped.startswith('(function()') and '})()' in stripped[-10:]) or (
+					stripped.startswith('(async function()') and '})()' in stripped[-10:]
 				)
 				if is_wrapped:
 					# Already wrapped, inject params at the start
@@ -303,7 +349,7 @@ def create_namespace(
 					match = re.match(r'(\((?:async\s+)?function\s*\(\s*\)\s*\{)', stripped)
 					if match:
 						prefix = match.group(1)
-						rest = stripped[len(prefix):]
+						rest = stripped[len(prefix) :]
 						code = f'{prefix} const params = {vars_json}; {rest}'
 					else:
 						# Fallback: wrap in outer function
@@ -312,36 +358,32 @@ def create_namespace(
 					# Not wrapped, wrap with params
 					code = f'(function(){{ const params = {vars_json}; {code} }})()'
 					# Skip auto-wrap below
-					return await evaluate(code, browser_session)
+					return await evaluate(code, browser_session, element_index=element_index)
 
-		# Auto-wrap in IIFE if not already wrapped (and no variables were injected)
-		if not variables:
+		# Auto-wrap in IIFE if not already wrapped (and no variables were injected, and no element_index)
+		if not variables and element_index is None:
 			stripped = code.strip()
-			is_wrapped = (
-				(stripped.startswith('(function()') and '})()' in stripped[-10:])
-				or (stripped.startswith('(async function()') and '})()' in stripped[-10:])
+			is_wrapped = (stripped.startswith('(function()') and '})()' in stripped[-10:]) or (
+				stripped.startswith('(async function()') and '})()' in stripped[-10:]
 			)
 			if not is_wrapped:
 				code = f'(function(){{{code}}})()'
 
 		# Execute and track failures
 		try:
-			result = await evaluate(code, browser_session)
+			result = await evaluate(code, browser_session, element_index=element_index)
 
 			# Print result structure for debugging
 			if isinstance(result, (list, dict)):
 				result_preview = str(result)[:100]
-				print(f"→ type={type(result).__name__}, len={len(result)}, preview={result_preview}...")
+				print(f'→ type={type(result).__name__}, len={len(result)}, preview={result_preview}...')
 			else:
-				print(f"→ type={type(result).__name__}, value={repr(result)[:50]}")
+				print(f'→ type={type(result).__name__}, value={repr(result)[:50]}')
 
 			return result
 		except Exception as e:
 			# Track errors for pattern detection
-			namespace['_evaluate_failures'].append({
-				'error': str(e),
-				'type': 'exception'
-			})
+			namespace['_evaluate_failures'].append({'error': str(e), 'type': 'exception'})
 			raise
 
 	namespace['evaluate'] = evaluate_wrapper
@@ -407,9 +449,11 @@ def create_namespace(
 			shadow_path = ' > '.join(shadow_hosts)
 			logger.info(f'Element [{index}] is inside Shadow DOM. Path: {shadow_path}')
 			logger.info(f'    Selector: {selector}')
-			logger.info(f'    To access: document.querySelector("{shadow_hosts[0].split("#")[0]}").shadowRoot.querySelector("{selector}")')
+			logger.info(
+				f'    To access: document.querySelector("{shadow_hosts[0].split("#")[0]}").shadowRoot.querySelector("{selector}")'
+			)
 		if in_iframe:
-			logger.info(f'Element [{index}] is inside an iframe. Regular querySelector won\'t work.')
+			logger.info(f"Element [{index}] is inside an iframe. Regular querySelector won't work.")
 
 		if selector:
 			return selector
@@ -466,7 +510,7 @@ def create_namespace(
 								if 'await done()' in line:
 									done_line_index = len(code_lines) - 1 - i
 									break
-							
+
 							has_if_above = False
 							hase_else_above = False
 							hase_elif_above = False
@@ -477,8 +521,8 @@ def create_namespace(
 								hase_elif_above = line_above.strip().startswith('elif:')
 							if has_if_above or hase_else_above or hase_elif_above:
 								error_msg = (
-									f'done() must be called individually after verifying the result from any logic	.\n'
-									f'Please validate your output first, THEN call done() in a final step without if blocks. '
+									'done() must be called individually after verifying the result from any logic.\n'
+									'Please validate your output first, THEN call done() in a final step without if blocks.'
 								)
 								raise RuntimeError(error_msg) from None
 

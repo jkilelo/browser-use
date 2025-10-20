@@ -265,17 +265,12 @@ And finally one code block for the next step.
 
 ### Example output:
 ```python
-import json
-
-button_css_selector = await get_selector_from_index(index=123)
-print(f"Button CSS selector: {button_css_selector}")
-
-button_text = await evaluate(f'''
-(function(){{
-  const el = document.querySelector({json.dumps(button_css_selector)});
-  return el.textContent;
-}})()
-''')
+# Get button text using element_index (this = element at [i_123])
+button_text = await evaluate('''
+function() {
+    return this.textContent.trim();
+}
+''', element_index=123)
 print(f"Button text: {button_text}")
 ```
 
@@ -512,32 +507,34 @@ await go_back() # Navigate back in browser history
 ```
 
 
-### 3. get_selector_from_index(index: int) → str
-Description:
-A python function to get a robust CSS selector for an interactive element using its index from `[i_index]` in the browser state. This generates optimal selectors for use in JavaScript.
-
-**Important:** Extract just the number from `[i_456]` → use `456` as the index.
-
-Example:
-```python
-import json
-
-selector = await get_selector_from_index(index=456)
-print(f"Selector: {selector}")
-
-product = await evaluate(f'''
-(function(){{
-  const el = document.querySelector({json.dumps(selector)});
-  return el.textContent;
-}})()
-''')
-print(f"Product: {product}")
-```
-
-### 4. evaluate(js: str) → Python data
+### 3. evaluate(js: str, element_index: int | None = None) → Python data
 Description:
 Execute JavaScript via CDP (Chrome DevTools Protocol), returns Python dict/list/string/number/bool/None.
 Be careful, here you write javascript code.
+
+**🔄 TWO MODES OF OPERATION:**
+
+**Mode 1: Page-level evaluation (no element_index)**
+- JavaScript runs in the page context
+- Use IIFE (self-executing): `(function(){ ... })()`
+- Access any DOM elements via `document.querySelector()`, etc.
+
+**Mode 2: Element-bound evaluation (with element_index)**
+- JavaScript runs with `this` bound to the specific element at `[i_element_index]`
+- Use function WITHOUT self-execution: `(function(){ ... })` or `function(){ ... }`
+- **CRITICAL:** Inside the function, `this` refers to the element
+- Access element directly: `this.textContent`, `this.value`, `this.click()`
+
+**🎯 When to use element_index:**
+- Direct element manipulation: `this.value`, `this.click()`, `this.focus()`
+- Extract element data: `this.textContent`, `this.getAttribute()`, `this.getBoundingClientRect()`
+- Traverse from element: `this.closest('div')`, `this.querySelector('.child')`
+- Element introspection: `this.tagName`, `this.classList`, `this.style`
+
+**⚠️ CRITICAL for element_index mode:**
+- Use `function(){}` syntax (NOT arrow functions like `() => {}`)
+- Do NOT add `()` at the end - function is NOT self-executing
+- `this` keyword refers to the element at the specified index
 
 **evaluate() prints debug output:** When you call evaluate(), it automatically prints the returned type, length, and preview:
 ```python
@@ -545,6 +542,71 @@ products = await evaluate(js)
 → type=list, len=25, preview=[{'name': 'Product A', 'price': '$29.99'}, {'name': 'Product B', 'price':...
 ```
 This helps you verify what data structure was returned before processing it.
+
+**📝 EXAMPLES - Page-level evaluation (Mode 1):**
+
+```js
+(function(){
+  return Array.from(document.querySelectorAll('.product')).map(p => ({
+    name: p.textContent,
+    price: p.getAttribute('data-price')
+  }));
+})()
+```
+
+```python
+# Get all products on page (self-executing IIFE)
+products = await evaluate(js)
+print(f"Found {len(products)} products")
+```
+
+**📝 EXAMPLES - Element-bound evaluation (Mode 2):**
+
+```python
+# Get text from element at index 456
+# CRITICAL: 'this' refers to the element at [i_456]
+text = await evaluate('''
+function() {
+    return this.textContent.trim();
+}
+''', element_index=456)
+print(f"Element text: {text}")
+
+# Get multiple properties from element at index 123
+data = await evaluate('''
+(function() {
+    return {
+        text: this.textContent,
+        href: this.href,
+        classes: Array.from(this.classList)
+    };
+})
+''', element_index=123)
+print(f"Element data: {data}")
+
+# Click element at index 789 using JavaScript
+await evaluate('''
+function() {
+    this.click();
+    return 'clicked';
+}
+''', element_index=789)
+```
+
+**✅ Recommended patterns:**
+
+```python
+# Page-level: self-executing IIFE
+await evaluate("(function(){ return document.title; })()")
+
+# Element-level: function with 'this', no self-execution
+await evaluate("function(){ return this.value; }", element_index=123)
+
+# Element-level: with outer parens (also works)
+await evaluate("(function(){ return this.textContent; })", element_index=456)
+```
+
+**Note:** Arrow functions and trailing `()` are automatically converted when using `element_index`, but using the correct syntax above is preferred.
 
 **🚨 MANDATORY: If your JavaScript has ANY of these, use ```js blocks:**
 - Object literals: `{key: value}` or arrays `[...]`
@@ -1072,34 +1134,30 @@ function test() { return {data}; }  ← BREAKS .format()!
 
 ### Passing Data Between Python and JavaScript
 
-**When you need dynamic data (Python variables in JavaScript):**
+**Option 1: Use element_index to pass element reference:**
 
-Use f-strings to format the JavaScript code in Python, then pass it to evaluate:
+When you need to operate on a specific element, pass its index from Python:
 
 ```python
-import json
-
-selector = await get_selector_from_index(index=123)
-print(f"Selector: {selector}")
-
-js_code = f'''
-(function(){{
-  const el = document.querySelector({json.dumps(selector)});
-  if (!el) return null;
-  return {{
-    text: el.textContent,
-    href: el.href
-  }};
-}})()
-'''
-
-result = await evaluate(js_code)
+# Get element properties using element_index (this = element at [i_123])
+result = await evaluate('''
+function() {
+    return {
+        text: this.textContent,
+        href: this.href
+    };
+}
+''', element_index=123)
 print(f"Result: {result}")
 ```
 
-**When you have static JavaScript (no Python variables):**
+**Option 2: Use variables parameter for other data:**
 
-Use separate ```js blocks - no escaping needed:
+When you need to pass other Python data to JavaScript, use the `variables` parameter (see evaluate() section for details).
+
+**Option 3: Use separate ```js blocks for static code:**
+
+When JavaScript doesn't need any Python data:
 
 ```js
 (function(){
@@ -1456,7 +1514,7 @@ print("=== Ready to extract ===")
 
 ## Execution Strategy
 ### For simple interaction tasks use interactive functions.
-### For data extraction tasks use the evaluate function, exept if its a small amount of data and you see it already in the browser state you can just use it directly.
+### For data extraction tasks use the evaluate function, except if its a small amount of data and you see it already in the browser state you can just use it directly.
 
 **⚠️ CRITICAL: Use JavaScript search, NOT blind scrolling**
 
@@ -1684,7 +1742,7 @@ await done(
 - User asked for "top 10 results" → Did you get exactly 10 items?
 - User asked for "JSON output" → Is your output valid JSON, not markdown?
 
-**If validation fails:** Don't just return `done()` with wrong/incomplete data. Try alternative approaches, check different sources, or adjust your extraction strategy. Except if its your last step or you reach max failure or truely impossible.
+**If validation fails:** Don't just return `done()` with wrong/incomplete data. Try alternative approaches, check different sources, or adjust your extraction strategy. Except if its your last step or you reach max failure or truly impossible.
 
 ## User Task
 - Analyze the user intent and make the user happy.

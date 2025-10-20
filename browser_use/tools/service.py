@@ -954,9 +954,9 @@ class Tools(Generic[Context]):
 		# File System Actions removed - use normal Python file operations instead
 
 		@self.registry.action(
-			"""Execute browser JavaScript. Best practice: wrap in IIFE (function(){...})() with try-catch for safety. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example: (function(){try{const el=document.querySelector('#id');return el?el.value:'not found'}catch(e){return 'Error: '+e.message}})() Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, shadow DOM, or analysing page structure. Limit output size.""",
+			"""Execute browser JavaScript. Two modes: 1) Page-level (no element_index): wrap in IIFE (function(){...})() 2) Element-bound (with element_index): use function(){...} where 'this' is the element. Use ONLY browser APIs (document, window, DOM). NO Node.js APIs (fs, require, process). Example page-level: (function(){return document.querySelectorAll('.item').length})() Example element-bound: function(){return this.textContent} with element_index=123. Avoid comments. Use for hover, drag, zoom, custom selectors, extract/filter links, shadow DOM, or analysing page structure. Limit output size.""",
 		)
-		async def evaluate(code: str, browser_session: BrowserSession):
+		async def evaluate(code: str, browser_session: BrowserSession, element_index: int | None = None):
 			# Execute JavaScript with proper error handling and promise support
 
 			cdp_session = await browser_session.get_or_create_cdp_session()
@@ -965,11 +965,59 @@ class Tools(Generic[Context]):
 				# Validate and potentially fix JavaScript code before execution
 				validated_code = self._validate_and_fix_javascript(code)
 
-				# Always use awaitPromise=True - it's ignored for non-promises
-				result = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={'expression': validated_code, 'returnByValue': True, 'awaitPromise': True},
-					session_id=cdp_session.session_id,
-				)
+				# If element_index is provided, use Runtime.callFunctionOn instead of Runtime.evaluate
+				if element_index is not None:
+					# Get the element node from the index
+					node = await browser_session.get_element_by_index(element_index)
+					if node is None:
+						msg = (
+							f'Element index {element_index} not available - page may have changed. Try refreshing browser state.'
+						)
+						logger.warning(f'⚠️ {msg}')
+						return ActionResult(error=msg)
+
+					# Get backend_node_id from the node
+					backend_node_id = node.backend_node_id
+					if backend_node_id is None:
+						msg = f'Element at index {element_index} has no backend_node_id'
+						logger.error(f'❌ {msg}')
+						return ActionResult(error=msg)
+
+					# Resolve backend_node_id to object ID
+					resolve_result = await cdp_session.cdp_client.send.DOM.resolveNode(
+						params={'backendNodeId': backend_node_id},
+						session_id=cdp_session.session_id,
+					)
+					object_id = resolve_result.get('object', {}).get('objectId')
+					if not object_id:
+						msg = f'Could not resolve element at index {element_index} to object ID'
+						logger.error(f'❌ {msg}')
+						return ActionResult(error=msg)
+
+					# Strip trailing () if present (convert self-executing to non-self-executing)
+					stripped_code = validated_code.strip()
+					if stripped_code.endswith('()'):
+						validated_code = stripped_code[:-2]
+						logger.debug('Stripped trailing () from code for element_index mode')
+
+					# Call Runtime.callFunctionOn with the object ID
+					# This binds 'this' to the element
+					result = await cdp_session.cdp_client.send.Runtime.callFunctionOn(
+						params={
+							'functionDeclaration': validated_code,
+							'objectId': object_id,
+							'returnByValue': True,
+							'awaitPromise': True,
+						},
+						session_id=cdp_session.session_id,
+					)
+				else:
+					# Page-level evaluation (existing behavior)
+					# Always use awaitPromise=True - it's ignored for non-promises
+					result = await cdp_session.cdp_client.send.Runtime.evaluate(
+						params={'expression': validated_code, 'returnByValue': True, 'awaitPromise': True},
+						session_id=cdp_session.session_id,
+					)
 
 				# Check for JavaScript execution errors
 				if result.get('exceptionDetails'):
@@ -1081,8 +1129,43 @@ Validated Code (after quote fixing):
 		# Note: Removed getAttribute fix - attribute names rarely have mixed quotes
 		# getAttribute typically uses simple names like "data-value", not complex selectors
 
-		# Log changes made
+		# Initialize changes tracking
 		changes_made = []
+
+		# Pattern 7: Convert arrow functions to regular functions (for element_index mode compatibility)
+		# Arrow functions don't have their own 'this' binding, so they won't work with Runtime.callFunctionOn
+		# Match: () => expression or () => { ... }
+		arrow_pattern = r'^\s*\(\s*\)\s*=>\s*(.+)$'
+		arrow_match = re.match(arrow_pattern, fixed_code.strip(), re.DOTALL)
+		if arrow_match:
+			body = arrow_match.group(1).strip()
+			# Check if body is wrapped in braces or is a single expression
+			if body.startswith('{') and body.endswith('}'):
+				# Already has braces: () => { return x; }
+				fixed_code = f'function() {body}'
+			else:
+				# Single expression: () => this.value
+				fixed_code = f'function() {{ return {body}; }}'
+			changes_made.append('converted arrow function to regular function')
+
+		# Pattern 8: Convert arrow functions with single param: (el) => el.value
+		arrow_single_param_pattern = r'^\s*\(\s*(\w+)\s*\)\s*=>\s*(.+)$'
+		arrow_single_match = re.match(arrow_single_param_pattern, fixed_code.strip(), re.DOTALL)
+		if arrow_single_match:
+			param = arrow_single_match.group(1)
+			body = arrow_single_match.group(2).strip()
+			# Replace param references with 'this'
+			if body.startswith('{') and body.endswith('}'):
+				body_content = body[1:-1]  # Remove braces
+				body_content = re.sub(rf'\b{param}\b', 'this', body_content)
+				fixed_code = f'function() {{{body_content}}}'
+			else:
+				# Single expression: replace param with 'this'
+				body = re.sub(rf'\b{param}\b', 'this', body)
+				fixed_code = f'function() {{ return {body}; }}'
+			changes_made.append('converted parameterized arrow function to regular function with this')
+
+		# Track other changes
 		if r'\"' in code and r'\"' not in fixed_code:
 			changes_made.append('fixed escaped quotes')
 		if '`' in fixed_code and '`' not in code:
