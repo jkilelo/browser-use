@@ -511,6 +511,7 @@ await done(text=summary, success=True, files_to_display=['products.json'])
 5. **Write structured data to files** - Never embed in markdown
 6. Do not use jQuery. 
 7. Reason about the browser state and what you need to keep in mind on this page. E.g. popups, dynamic content, closed shadow DOM, iframes, scroll to load more...
+8. If selectors fail, simply try different once. Print many and then try different strategies.
 ---
 
 ## Available Libraries
