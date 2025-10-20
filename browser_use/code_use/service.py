@@ -1,10 +1,10 @@
 """Code-use agent service - Jupiter notebook-like code execution for browser automation."""
 
 import asyncio
+import datetime
 import logging
 import re
 import traceback
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -113,7 +113,7 @@ class CodeUseAgent:
 
 		# Initialize screenshot service for eval tracking
 		self.id = uuid7str()
-		timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+		timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
 		base_tmp = Path('/tmp')
 		self.agent_directory = base_tmp / f'browser_use_code_agent_{self.id}_{timestamp}'
 		self.screenshot_service = ScreenshotService(agent_directory=self.agent_directory)
@@ -214,7 +214,7 @@ class CodeUseAgent:
 			logger.info(f'\n\n\n\n\n\n\nStep {step + 1}/{self.max_steps}')
 
 			# Start timing this step
-			self._step_start_time = datetime.now().timestamp()
+			self._step_start_time = datetime.datetime.now().timestamp()
 
 			# Check if we're approaching the step limit or error limit and inject warning
 			steps_remaining = self.max_steps - step - 1
@@ -273,8 +273,35 @@ class CodeUseAgent:
 							logger.warning(f'Failed to get new browser state: {e}')
 					continue
 
-				# Execute code
-				output, error, browser_state = await self._execute_code(code)
+				# Execute code blocks sequentially if multiple python blocks exist
+				# This allows JS/bash blocks to be injected into namespace before Python code uses them
+				all_blocks = self.namespace.get('_all_code_blocks', {})
+				python_blocks = [k for k in sorted(all_blocks.keys()) if k.startswith('python_')]
+
+				if len(python_blocks) > 1:
+					# Multiple Python blocks - execute each sequentially
+					output = None
+					error = None
+					browser_state = None
+
+					for i, block_key in enumerate(python_blocks):
+						logger.info(f'Executing Python block {i+1}/{len(python_blocks)}')
+						block_code = all_blocks[block_key]
+						block_output, block_error, block_browser_state = await self._execute_code(block_code)
+
+						# Accumulate outputs
+						if block_output:
+							output = (output or '') + block_output
+						if block_error:
+							error = block_error
+							# Stop on first error
+							break
+						# Keep last browser state
+						if block_browser_state:
+							browser_state = block_browser_state
+				else:
+					# Single Python block - execute normally
+					output, error, browser_state = await self._execute_code(code)
 
 				# Track consecutive errors
 				if error:
@@ -489,14 +516,18 @@ class CodeUseAgent:
 			self.namespace['_code_block_vars'] = set()
 
 		for block_type, block_content in code_blocks.items():
-			if block_type != 'python':
+			if not block_type.startswith('python'):
 				# Store js, bash, markdown blocks (and named variants) as variables in namespace
 				self.namespace[block_type] = block_content
 				self.namespace['_code_block_vars'].add(block_type)
 				print(f'→ Code block variable: {block_type} (str, {len(block_content)} chars)')
 				logger.debug(f'Injected {block_type} block into namespace ({len(block_content)} chars)')
 
+		# Store all code blocks for sequential execution
+		self.namespace['_all_code_blocks'] = code_blocks
+
 		# Get Python code (or fallback to raw completion)
+		# For backward compatibility, still return 'python' block if it exists
 		code = code_blocks.get('python', response.completion)
 
 		# Add to LLM messages (truncate for history to save context)
@@ -505,7 +536,7 @@ class CodeUseAgent:
 
 		return code, full_response
 
-	def _print_variable_info(self, var_name: str, value: any) -> None:
+	def _print_variable_info(self, var_name: str, value: Any) -> None:
 		"""Print compact info about a variable assignment."""
 		# Skip built-in modules and known imports
 		skip_names = {'json', 'asyncio', 'csv', 're', 'datetime', 'Path', 'pd', 'np', 'plt', 'requests', 'BeautifulSoup', 'PdfReader', 'browser', 'file_system'}
@@ -536,8 +567,8 @@ class CodeUseAgent:
 
 		Returns dict mapping block_name -> content
 
-		Note: Multiple unnamed Python blocks are COMBINED into one execution unit to preserve
-		variable definitions across blocks in the same response.
+		Note: Python blocks are NO LONGER COMBINED. Each python block executes separately
+		to allow sequential execution with JS/bash blocks in between.
 		"""
 		import re
 
@@ -547,7 +578,7 @@ class CodeUseAgent:
 		matches = re.findall(pattern, text, re.DOTALL)
 
 		blocks: dict[str, str] = {}
-		python_blocks: list[str] = []  # Collect all unnamed Python blocks to combine them
+		python_block_counter = 0
 
 		for lang, var_name, content in matches:
 			lang = lang.lower()
@@ -575,18 +606,20 @@ class CodeUseAgent:
 						block_key = var_name
 						blocks[block_key] = content
 					elif lang_normalized == 'python':
-						# Unnamed Python blocks - collect for combining
-						python_blocks.append(content)
+						# Unnamed Python blocks - give each a unique key to preserve order
+						block_key = f'python_{python_block_counter}'
+						blocks[block_key] = content
+						python_block_counter += 1
 					else:
 						# Other unnamed blocks (js, bash, markdown) - keep last one only
 						blocks[lang_normalized] = content
 
-		# Combine all unnamed Python blocks into one
-		if python_blocks:
-			blocks['python'] = '\n\n'.join(python_blocks)
+		# If we have multiple python blocks, mark the first one as 'python' for backward compat
+		if python_block_counter > 0:
+			blocks['python'] = blocks['python_0']
 
 		# Fallback: if no python block but there's generic ``` block, treat as python
-		if 'python' not in blocks:
+		if python_block_counter == 0 and 'python' not in blocks:
 			generic_pattern = r'```\n(.*?)```'
 			generic_matches = re.findall(generic_pattern, text, re.DOTALL)
 			if generic_matches:
@@ -715,8 +748,7 @@ __code_exec_coro__ = __code_exec__()
 							for key, value in result_locals.items():
 								if not key.startswith('_'):
 									self.namespace[key] = value
-									# Print variable info for user visibility
-									self._print_variable_info(key, value)
+									# Variable info is tracked in "Available" section, no need for verbose inline output
 
 						# Clean up temporary variables
 						self.namespace.pop('__code_exec_coro__', None)
@@ -731,12 +763,9 @@ __code_exec_coro__ = __code_exec__()
 					compiled_code = compile(code, '<code>', 'exec')
 					exec(compiled_code, self.namespace, self.namespace)
 
-					# Print info for newly created/modified variables
+					# Track newly created/modified variables (info shown in "Available" section)
 					vars_after = set(self.namespace.keys())
 					new_vars = vars_after - vars_before
-					for key in new_vars:
-						if not key.startswith('_'):
-							self._print_variable_info(key, self.namespace[key])
 
 				# Get output
 				output_value = sys.stdout.getvalue()
@@ -790,44 +819,6 @@ __code_exec_coro__ = __code_exec__()
 			# Handle NameError specially - check for code block variable confusion
 			if isinstance(e, NameError):
 				error_msg = str(e)
-
-				# Check if user tried to use 'js' but there are named blocks instead
-				if "'js' is not defined" in error_msg or '"js" is not defined' in error_msg:
-					code_block_vars = self.namespace.get('_code_block_vars', set())
-					js_vars = [v for v in code_block_vars if v != 'js' and v not in {'bash', 'markdown'}]
-
-					if js_vars:
-						hint = f"\n\n💡 HINT: You defined named code blocks: {', '.join(sorted(js_vars))}\n"
-						hint += f"   Use the EXACT variable name shown in the output:\n"
-						for var in sorted(js_vars):
-							hint += f"   → await evaluate({var})  # NOT await evaluate(js)\n"
-						error = f'{type(e).__name__}: {error_msg}{hint}'
-					else:
-						error = f'{type(e).__name__}: {error_msg}'
-				else:
-					# Generic NameError - check if variable exists but was mistyped
-					var_match = re.search(r"name '(\w+)' is not defined", error_msg)
-					if var_match:
-						missing_var = var_match.group(1)
-						code_block_vars = self.namespace.get('_code_block_vars', set())
-
-						# Find similar variable names
-						all_vars = [v for v in self.namespace.keys() if not v.startswith('_')]
-						similar = [v for v in all_vars if v.lower().startswith(missing_var[0].lower()) or missing_var.lower() in v.lower()]
-
-						if similar:
-							hint = f"\n\n💡 Did you mean one of these variables?\n"
-							for var in sorted(similar)[:5]:
-								if var in code_block_vars:
-									hint += f"   → {var} (code block variable)\n"
-								else:
-									hint += f"   → {var}\n"
-							error = f'{type(e).__name__}: {error_msg}{hint}'
-						else:
-							error = f'{type(e).__name__}: {error_msg}'
-					else:
-						error = f'{type(e).__name__}: {error_msg}'
-
 				cell.status = ExecutionStatus.ERROR
 				cell.error = error
 
@@ -1234,7 +1225,7 @@ __code_exec_coro__ = __code_exec__()
 		}
 
 		# Create metadata entry (eval system uses this for token counting and timing)
-		step_end_time = datetime.now().timestamp()
+		step_end_time = datetime.datetime.now().timestamp()
 		metadata_entry = {
 			'input_tokens': self._last_llm_usage.prompt_tokens if self._last_llm_usage else None,
 			'output_tokens': self._last_llm_usage.completion_tokens if self._last_llm_usage else None,
