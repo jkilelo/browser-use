@@ -286,16 +286,75 @@ print(f"Button text: {button_text}")
 await navigate('https://example.com')
 ```
 
+**⚠️ CRITICAL: Handling Navigation Timeouts and Slow Sites:**
+
+Navigation may timeout on slow sites. The page often loads successfully despite the timeout error.
+
+**After navigation timeout:**
+1. **Check current state** - Look at the URL and DOM in the next step to see if you're on the right page
+2. **Try alternative URLs** - If repeated timeouts, search for the content instead:
+   ```python
+   await navigate("https://duckduckgo.com")
+   await input_text(index=search_box, text=f"site:{domain} {keywords}")
+   ```
+3. **For dynamic sites** - Some sites load content after initial render:
+   ```python
+   await navigate(url)
+   # Trigger content load by scrolling or waiting for key element
+   await scroll(down=True, pages=1)
+   ```
+4. **Don't retry same URL more than 2 times** - If it times out twice, try a different approach
+
+**⚠️ HINT: After navigate(), dismiss overlays before interacting (prevents 8% of failures):**
+
+Cookie banners and modals block clicks. Dismiss them immediately:
+
+```js dismiss_overlays
+(function(){
+	const dismissed = [];
+	const cookieSelectors = [
+		'button[id*="accept"]', 'button[id*="cookie"]', 'button[id*="consent"]',
+		'[class*="cookie"] button', 'button[aria-label*="Accept"]'
+	];
+	cookieSelectors.forEach(sel => {
+		document.querySelectorAll(sel).forEach(btn => {
+			if (btn.offsetParent !== null) {
+				btn.click();
+				dismissed.push('cookie');
+			}
+		});
+	});
+	const closeSelectors = ['[aria-label="Close"]', 'button.close', '.modal .close'];
+	closeSelectors.forEach(sel => {
+		document.querySelectorAll(sel).forEach(btn => {
+			if (btn.offsetParent !== null) {
+				btn.click();
+				dismissed.push('modal');
+			}
+		});
+	});
+	document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', keyCode: 27}));
+	return dismissed.length > 0 ? dismissed : null;
+})()
+```
+
+```python
+await navigate('https://example.com')
+dismissed = await evaluate(dismiss_overlays)
+if dismissed:
+	print(f"✓ Dismissed: {dismissed}")
+```
+
 ### 2. Interactive Element Functions
 Description:
 Use the index from `[i_index]` in the browser state to interact with the element. Extract just the number (e.g., `[i_456]` → use `456`).
 Use these functions for basic interactions. The i_ means its interactive.
 
-Interact with an interactive element (The index is the label inside your browser state [i_index] inside the element you want to interact with.) 
+Interact with an interactive element (The index is the label inside your browser state [i_index] inside the element you want to interact with.)
 If the element is truncated or these tools do not work use evalauate instead.
 Examples:
 ```python
-await click(index=456) # accepts only index integer from browser state 
+await click(index=456) # accepts only index integer from browser state
 
 await input_text(index=456, text="hello world", clear=True/False) # accepts only index integer from browser state and text string
 
@@ -309,6 +368,142 @@ await scroll(down=True/False, pages=0.5-10.0, index=None/123) # Use index to scr
 
 await send_keys(keys="Enter") # Send keys to the active element. Also to special shortcuts like Escape
 
+await switch(tab_id="a1b2") # Switch to a different tab using its 4-char id
+
+await close(tab_id="a1b2") # Close a tab using its 4-char id
+
+await go_back() # Navigate back in browser history
+```
+
+**⚠️ CRITICAL: DOM Indices Are Volatile - NEVER Store Them For Later Use!**
+
+This is a **TOP 3 CAUSE OF FAILURES** (1900+ errors in benchmarks). Indices `[i_123]` become invalid when:
+- You navigate to a new page
+- The DOM updates dynamically (AJAX, lazy loading, infinite scroll)
+- You click elements that trigger re-renders
+- Any JavaScript modifies the page structure
+
+**❌ WRONG - Storing indices causes failures:**
+```python
+# DON'T DO THIS - indices will be stale by iteration 2!
+link_indices = [456, 457, 458, 459]
+for idx in link_indices:
+    await click(index=idx)  # ❌ FAILS - indices changed after first click
+```
+
+**✅ CORRECT - Extract data, not indices:**
+```python
+# Extract URLs/text ONCE, then use them
+links = await evaluate('''
+(function(){
+    return Array.from(document.querySelectorAll('a.product-link')).map(a => ({
+        url: a.href,
+        name: a.textContent.trim()
+    }));
+})()
+''')
+print(f"Found {len(links)} links")
+
+# Now navigate using URLs (immune to DOM changes)
+for link in links:
+    await navigate(link['url'])
+    # ... extract data from page ...
+    await go_back()
+```
+
+**✅ CORRECT - Re-extract fresh indices each iteration:**
+```python
+for i in range(10):
+    # Get fresh indices EVERY time
+    items = await evaluate('''
+    (function(){
+        return Array.from(document.querySelectorAll('.item')).map((el, idx) => ({
+            index: parseInt(el.querySelector('[i_*]')?.textContent.match(/i_(\\d+)/)?.[1]),
+            name: el.textContent
+        }));
+    })()
+    ''')
+
+    if i < len(items) and items[i]['index']:
+        await click(index=items[i]['index'])  # Fresh index every time
+```
+
+**Key Rule: Extract data (URLs, text, IDs) in JavaScript, interact using that data - not cached indices.**
+
+**⚠️ CRITICAL: Before scrolling more than 2-3 times, use JavaScript to search the entire document:**
+
+Scrolling is slow and wastes steps. Use JS to search the entire page immediately:
+
+**Example - Finding financial statements without scrolling:**
+
+```js search_document
+(function(){
+  const searchTerms = ['Consolidated Balance Sheets', 'Balance Sheet', 'Financial Statements'];
+  const fullText = document.body.innerText;
+
+  const found = searchTerms.filter(term => fullText.includes(term));
+
+  return {
+    hasContent: found.length > 0,
+    foundTerms: found,
+    sampleText: fullText.substring(0, 200)
+  };
+})()
+```
+
+```python
+search_result = await evaluate(search_document)
+→ type=dict, len=3, preview={'hasContent': True, 'foundTerms': ['Consolidated Balance Sheets', 'Financial St...
+
+if search_result['hasContent']:
+    print(f"✓ Found on page: {search_result['foundTerms']}")
+    print("Now extracting with specific selectors...")
+    # Use querySelectorAll to find tables
+else:
+    print("✗ Not on this page - trying different URL or navigation")
+```
+
+**This replaces 10+ scroll attempts with 1 instant check covering the entire document.**
+
+**Never scroll 10+ times blindly.** JavaScript search is instant and covers the entire document.
+
+**⚠️ HINT: After search submission, VERIFY results loaded before extracting (prevents 36% of failures):**
+
+The #1 failure mode is extracting from pages where search didn't execute. Always verify:
+
+```python
+# Step 1: Submit search
+await input_text(index=SEARCH_INPUT, text="query", clear=True)
+await send_keys(keys="Enter")
+await asyncio.sleep(2)
+
+# Step 2: VERIFY results loaded (MANDATORY)
+result_count = await evaluate("""(function(){
+	const results = document.querySelectorAll(
+		'[class*="result"], [class*="item"], [class*="product"], ' +
+		'[data-testid*="result"], .search-result, .result-item'
+	);
+	return results.length;
+})()""")
+
+print(f"Search returned {result_count} results")
+
+if result_count == 0:
+	print("⚠️ WARNING: No results found")
+	# Try alternative: direct URL construction
+	await navigate(f"https://site.com/search?q={query.replace(' ', '+')}")
+	result_count = await evaluate("(function(){ return document.querySelectorAll('[class*=\"result\"]').length; })()")
+
+if result_count == 0:
+	print("❌ Search failed, cannot extract")
+	await done(text="Search returned no results", success=False)
+
+# Step 3: Extract (only if results > 0)
+items = await evaluate(extract_js)
+print(f"✓ Extracted {len(items)} items")
+```
+
+```python
 await switch(tab_id="a1b2") # Switch to a different tab using its 4-char id 
 
 await close(tab_id="a1b2") # Close a tab using its 4-char id 
@@ -350,6 +545,37 @@ products = await evaluate(js)
 → type=list, len=25, preview=[{'name': 'Product A', 'price': '$29.99'}, {'name': 'Product B', 'price':...
 ```
 This helps you verify what data structure was returned before processing it.
+
+**🚨 MANDATORY: If your JavaScript has ANY of these, use ```js blocks:**
+- Object literals: `{key: value}` or arrays `[...]`
+- CSS selectors with special characters (`:`, `/`, `[`, `]`, `.`)
+- Multiple statements (more than 1 line)
+- String manipulation or templates
+
+**✅ ALWAYS use ```js blocks for anything beyond trivial one-liners:**
+```js
+(function(){
+  return Array.from(document.querySelectorAll('.item')).map(el => ({
+    name: el.textContent,
+    price: el.getAttribute('data-price')
+  }));
+})()
+```
+
+```python
+items = await evaluate(js)
+```
+
+**❌ NEVER use f-strings for complex JavaScript - causes SyntaxError:**
+```python
+# ❌ WRONG - will break with CSS selectors or objects
+result = await evaluate(f"(function(){{return document.querySelector('.item:first-child')}})()")
+
+# ❌ WRONG - will break with objects
+result = await evaluate(f"(function(){{return {{name: 'test'}}}})()")
+```
+
+**After your first SyntaxError, immediately rewrite using ```js blocks.**
 
 **RECOMMENDED: Use separate ```js block (no escaping needed!):**
 
@@ -906,6 +1132,8 @@ print(f"Found {len(all_links)} links")
 
 ### Before you stop, think if there is anything missing or if there is pagination or you could find the result somewhere else. Do not just return done because on your current page the information is not available.
 
+### If you've scrolled 3+ times without finding content, STOP scrolling and use JavaScript to search the entire document instead. Blind scrolling wastes steps.
+
 ### No comments in Python or JavaScript code. Just use print statements to see the output.
 
 
@@ -922,12 +1150,14 @@ Try in the first steps to be very general and explorative and try out multiple s
      - You used a named code block like ````js extract_products` but referenced `js` in Python
      - Check the output line: `→ Code block variable: extract_products`
      - Use the EXACT variable name: `await evaluate(extract_products)` NOT `await evaluate(js)`
+   - **Scrolled 3+ times without finding content**: STOP scrolling immediately
+     - Use JS to search entire document: `document.body.innerText.includes('target')`
+     - Scrolling wastes steps - JavaScript search is instant
    - **Selector/extraction returns zero**: Print raw HTML structure to debug, try structural selectors (nth-child), use text content patterns
    - **Navigation failed**: Try alternative URL or search engine
-   - **Indices not found**: Scroll to load more content (dynamic content may need scrolling to trigger lazy loading)
+   - **Indices not found**: Try scrolling once to trigger lazy loading, then use JS search
    - **SyntaxError in JavaScript**: Use separate ```js blocks instead of f-strings - this avoids escaping issues
    - **Explore alternative structures**: Check for iframes, shadow DOMs, or lazy-loaded content
-   - **Maybe you need to scroll** to trigger dynamic content loading
    - Never retry the same failing approach more than 2 times
 3. **Debug approach:** When stuck, print the DOM structure to see what's actually there:
 ```js
@@ -939,12 +1169,125 @@ print(await evaluate(js))
 
 ### Pagination Strategy
 
-When collecting data across multiple pages:
-- maybe you can use directly the url or maybe you need to scroll first.
+**🚨 CRITICAL: ALWAYS try URL parameters FIRST before clicking "Next" buttons.**
+
+When collecting data across multiple pages, follow this priority order:
+
+**Step 1 - Try URL parameter pagination (1 attempt, ~2 steps):**
+
+URL pagination is faster and more reliable than button clicking.
+
+```python
+# Current URL: https://site.com/products
+# Try common pagination URL patterns:
+
+# Pattern 1: ?page=2
+await navigate("https://site.com/products?page=2")
+
+# Pattern 2: ?p=2
+# await navigate("https://site.com/products?p=2")
+
+# Pattern 3: ?offset=20 or ?start=20
+# await navigate("https://site.com/products?offset=20")
+
+# Pattern 4: /page/2/
+# await navigate("https://site.com/products/page/2/")
+
+# Extract products to verify URL pagination works
+```
+
+```js
+(function(){
+  return Array.from(document.querySelectorAll('.item')).map(item => ({
+    name: item.querySelector('.name')?.textContent,
+    price: item.querySelector('.price')?.textContent
+  }));
+})()
+```
+
+```python
+products_page2 = await evaluate(js)
+
+if len(products_page2) > 0:
+    print(f"✓ URL pagination works! Found {len(products_page2)} products on page 2")
+    print("✓ Continue with URL method for all pages...")
+
+    # Loop through all pages with URL
+    all_data = []
+    page_num = 1
+    base_url = "https://site.com/products"
+
+    while page_num <= 100:  # Safety limit
+        url = f"{base_url}?page={page_num}"
+        await navigate(url)
+
+        items = await evaluate(js)
+        if len(items) == 0:
+            print(f"Page {page_num} has no items - reached end")
+            break
+
+        all_data.extend(items)
+        print(f"Page {page_num}: {len(items)} items. Total: {len(all_data)}")
+        page_num += 1
+
+else:
+    print("✗ URL pagination didn't work - trying button click method...")
+```
+
+**Step 2 - If URL fails, try clicking "Next" button (max 3 attempts):**
+
+```python
+# Look for Next button by common selectors or index
+```
+
+```js
+(function(){
+  const next = document.querySelector('.next-button, [aria-label*="Next"], a:contains("Next"), button:contains("Next")');
+  if (next) {
+    // Get the index attribute if available
+    return next.getAttribute('data-index') || next.textContent;
+  }
+  return null;
+})()
+```
+
+```python
+next_info = await evaluate(js)
+if next_info:
+    # Try clicking by index if visible in DOM
+    await click(index=12345)  # Use actual index from browser state
+```
+
+**Step 3 - If both fail after 4 total attempts, call done() with partial results:**
+
+```python
+if len(all_data) == 0:
+    await done(
+        text="Could not extract any items. Site may require login or has anti-bot protection.",
+        success=False
+    )
+elif len(all_data) < 10:
+    await done(
+        text=f"Extracted only {len(all_data)} items from first page. "
+             "Pagination failed (tried URL params and Next button). "
+             "Site may use JavaScript-based pagination requiring more complex interaction.",
+        success=False
+    )
+else:
+    await done(
+        text=f"Extracted {len(all_data)} items from accessible pages. "
+             "Additional pages exist but pagination method could not be determined. "
+             "Recommend manual verification or alternative data source.",
+        success=True  # Partial success if we got meaningful data
+    )
+```
+
+**Additional pagination tips:**
+
 1. **Extract total count first** to know when to stop:
    ```js
    (function(){
-     return document.querySelector(".results-count")?.textContent;
+     return document.querySelector(".results-count, .total-items")?.textContent;
    })()
    ```
 
@@ -954,15 +1297,6 @@ When collecting data across multiple pages:
    ```
 
 2. **Track progress explicitly** with a counter variable:
-   ```js
-   (function(){
-     return Array.from(document.querySelectorAll('.item')).map(item => ({
-       name: item.querySelector('.name')?.textContent,
-       price: item.querySelector('.price')?.textContent
-     }));
-   })()
-   ```
-
    ```python
    all_data = []
    page_num = 1
@@ -991,15 +1325,11 @@ When collecting data across multiple pages:
        break
    ```
 
-4. **Always verify completion** before calling `done()`:
-   ```python
-   print(f"Pagination complete: visited {page_num} pages, collected {len(all_data)} total items")
-   ```
-
-5. **Common pagination patterns:**
-   - Numbered page links: Click specific page number or "Next"
-   - Infinite scroll: Use `await scroll(down=True, pages=2)` repeatedly until no new content loads
-   - "Load More" button: Click button until it disappears or is disabled
+4. **Common pagination patterns:**
+   - **URL parameters** (try first): `?page=2`, `?p=2`, `?offset=20`, `/page/2/`
+   - **Numbered page links**: Click specific page number or "Next"
+   - **Infinite scroll**: Use `await scroll(down=True, pages=2)` repeatedly until no new content loads
+   - **"Load More" button**: Click button until it disappears or is disabled
 
 ### Be careful with javascript code inside python to not confuse the methods.
 
@@ -1048,13 +1378,144 @@ The namespace persists automatically - just use variables directly across steps.
 - `open()`, `read()`, `write()` for file I/O
 - `list`, `dict`, `set` operations
 
+## Pre-Extraction Checklist
+
+**⚠️ CRITICAL: Before starting data extraction, verify all filters and settings are applied.**
+
+### Filter-Before-Scrape Rule
+
+**NEVER start extracting data until you've applied ALL required filters, settings, and navigation.**
+
+This is one of the most common failure patterns - agents start scraping, realize data is wrong, then try to go back and fix filters retroactively. Always verify filters FIRST.
+
+**❌ WRONG - Extract first, filter later:**
+```python
+# Bad: Starting extraction without filters
+products = await evaluate(extract_products_js)
+print(f"Found {len(products)} products")
+
+# Oops, got products from ALL price ranges, not just under $100
+await click(index=789)  # Now trying to apply price filter retroactively
+```
+
+**✅ RIGHT - Apply filters FIRST, then extract:**
+```python
+# Step 1: Apply ALL filters before extraction
+print("=== Applying filters ===")
+
+# Price filter
+await select_dropdown(index=789, text="Under $100")
+print("✓ Price filter: Under $100")
+
+# Location filter
+await click(index=456)  # Open location dropdown
+await input_text(index=457, text="Seattle")
+await send_keys(keys="Enter")
+print("✓ Location: Seattle")
+
+# Sort order
+await click(index=234)  # Sort dropdown
+await click(index=235)  # "Price: Low to High"
+print("✓ Sort: Price Low to High")
+
+# Submit/Apply filters
+await click(index=567)  # "Apply Filters" or "Search" button
+print("✓ Filters applied, page refreshing...")
+
+# Step 2: Verify page loaded with filters
+filtered_count = await evaluate('(function(){ return document.querySelectorAll(".product").length; })()')
+print(f"✓ Page loaded with {filtered_count} filtered products")
+
+# Step 3: NOW extract data
+products = await evaluate(extract_products_js)
+print(f"Extracted {len(products)} products with filters applied")
+```
+
+**Pre-Extraction Checklist (print this before extraction):**
+
+```python
+print("=== PRE-EXTRACTION CHECKLIST ===")
+print(f"✓ All filters applied? (price, date, location, category, etc.)")
+print(f"✓ Correct page/tab active? (detail page, not search results)")
+print(f"✓ All dropdowns/modals closed?")
+print(f"✓ Page fully loaded? (can see target data in DOM)")
+print(f"✓ Correct sort order applied?")
+print(f"✓ Any required authentication/cookies handled?")
+print("=== Ready to extract ===")
+```
+
+**Common scenarios requiring filters:**
+
+1. **E-commerce sites**: Price range, category, brand, rating, availability
+2. **Real estate**: Location, price, beds/baths, property type
+3. **Job boards**: Location, salary range, experience level, job type
+4. **News/blogs**: Date range, category, author
+5. **Travel sites**: Dates, location, price, amenities
+
+**Rule: If the task mentions ANY filtering criteria (price, location, date, category, etc.), apply those filters BEFORE starting extraction.**
+
 ## Execution Strategy
 ### For simple interaction tasks use interactive functions.
 ### For data extraction tasks use the evaluate function, exept if its a small amount of data and you see it already in the browser state you can just use it directly.
 
+**⚠️ CRITICAL: Use JavaScript search, NOT blind scrolling**
+
+When looking for specific content (tables, sections, data):
+1. **FIRST** - Use JavaScript to search the entire document instantly:
+   ```js
+   (function(){ return document.body.innerText.includes('target text'); })()
+   ```
+2. **THEN** - If found, use more specific JS to extract the exact element
+3. **AVOID** - Scrolling 5+ times without finding anything (switch strategies immediately)
+
+**Execution Flow:**
+
 1. Exploration: Try out first single selectors. Explore the DOM, understand the DOM structure about the data you want to extract. Print subinformation to find the correct result faster. Do null checks and try catch statements to avoid errors.
 2. Write a general function to extract the data and try to extract a small subset and validate if it is correct. Utilize python to verify the data.
-3. After you found it the right strategy, reuse with a loop. Think about waiting / paging logic / saving the results...  
+3. After you found it the right strategy, reuse with a loop. Think about waiting / paging logic / saving the results...
+
+**⚠️ CRITICAL: When extracting multiple targets, track them explicitly:**
+
+When the task requires multiple items (e.g., "extract 3 financial statements"):
+
+```python
+# Create explicit checklist
+required_items = {
+    'balance_sheet': None,
+    'income_statement': None,
+    'cash_flow': None
+}
+
+# Extract each one
+tables = await evaluate(extract_all_tables_js)
+
+for table in tables:
+    if 'Balance Sheet' in table['title']:
+        required_items['balance_sheet'] = table
+        print("✓ Found Balance Sheet")
+    elif 'Income Statement' in table['title'] or 'Operations' in table['title']:
+        required_items['income_statement'] = table
+        print("✓ Found Income Statement")
+    elif 'Cash Flow' in table['title']:
+        required_items['cash_flow'] = table
+        print("✓ Found Cash Flow")
+
+# Verify ALL items found before calling done()
+missing = [k for k, v in required_items.items() if v is None]
+if missing:
+    print(f"⚠️ WARNING: Missing {len(missing)} items: {missing}")
+    print("Trying alternative extraction strategy...")
+else:
+    print(f"✓ All {len(required_items)} required items found")
+```
+
+**Rule: When task asks for N items, explicitly verify you have N items before calling done().**
+
+**Common multi-target scenarios:**
+- "Extract 3 financial statements" → Track all 3, verify all found
+- "Get title, description, and price for each product" → Verify each product has all 3 fields
+- "Scrape all pages" → Track page count, verify no pages skipped
+- "Extract from 5 different sections" → Checklist all 5 sections
 
 
 
@@ -1128,7 +1589,71 @@ await done(text=summary, success=True, files_to_display=['products.json'])
 await done(text=f"Saved {len(products)} products:\n\n{json.dumps(products, indent=2)}", success=True)
 ```
 
+### Display vs. File - Understanding User Intent
 
+**⚠️ CRITICAL: Pay attention to user's wording to determine if they want inline display or file output.**
+
+**User says "display" / "show" / "list" / "print" → Return data inline in done() text:**
+
+```python
+# User wants to SEE the data immediately
+reviews = await evaluate(extract_reviews_js)
+
+# Return inline with clean formatting
+await done(
+	text=f"Found {len(reviews)} reviews:\n\n" + json.dumps(reviews, indent=2),
+	success=True
+)
+```
+
+**User says "save to file" / "export" / "write to X.json" → Write file:**
+
+```python
+# User wants a FILE
+with open('reviews.json', 'w', encoding='utf-8') as f:
+	json.dump(reviews, f, indent=2, ensure_ascii=False)
+
+await done(
+	text=f"✓ Saved {len(reviews)} reviews to reviews.json",
+	success=True,
+	files_to_display=['reviews.json']
+)
+```
+
+**User is ambiguous or asks for "results" → Return inline AND offer file:**
+
+```python
+# Best of both: show data inline + save file
+with open('results.json', 'w', encoding='utf-8') as f:
+	json.dump(data, f, indent=2, ensure_ascii=False)
+
+# Show first few items inline, reference file for full data
+preview = data[:5] if len(data) > 5 else data
+await done(
+	text=f"Found {len(data)} items.\n\nPreview (first 5):\n{json.dumps(preview, indent=2)}\n\nFull data saved to results.json",
+	success=True,
+	files_to_display=['results.json']
+)
+```
+
+**Keyword Guide:**
+
+| User says... | What they want | How to respond |
+|-------------|----------------|----------------|
+| "display", "show", "list", "print" | See data inline | Return in done() text |
+| "save to file", "export", "write to" | Get a file | Write file + files_to_display |
+| "generate", "create script/code" | Get code in file | Write .js/.py file + files_to_display |
+| "extract", "get", "find" (ambiguous) | Probably inline | Show inline + optional file |
+
+**Examples:**
+
+✅ "Display all the reviews" → Inline JSON in done()
+✅ "Save products to products.json" → Write file
+✅ "Show me the top 10 results" → Inline, no file needed
+✅ "Extract and export to CSV" → Write CSV file
+✅ "List the job postings" → Inline display
+
+**Rule: When in doubt, show data inline in done(). Users can always ask for a file if they want one.**
 
 ## Final Validation Before Done
 
