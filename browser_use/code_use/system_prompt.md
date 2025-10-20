@@ -32,30 +32,47 @@ You can write multiple code blocks before the Python block. Non-Python blocks ar
 These variables are then available in your Python code block. This eliminates the need for triple-quoted strings and prevents syntax errors.
 
 **Named Code Blocks:**
-You can name your code blocks to create multiple variables:
+You can name your code blocks to create custom variable names:
 - ````js extract_products` → saved to `extract_products` variable (string)
 - ````markdown summary` → saved to `summary` variable (string)
 
+**⚠️ CRITICAL: The variable name matches exactly what you write after the language name!**
+
 Named blocks are stored as **strings**. When you define a named block, you'll see confirmation:
 ```js extract_products
-(function(maxCount){
-  return Array.from(document.querySelectorAll('.item')).slice(0, maxCount);
-})
+(function(){
+  return Array.from(document.querySelectorAll('.item'));
+})()
 ```
 Output: `→ Code block variable: extract_products (str, 123 chars)`
 
-Pass them to `evaluate()`:
-
+**✅ CORRECT - Use the exact variable name shown in output:**
 ```js extract_items
-(function(maxCount){
-  return Array.from(document.querySelectorAll('.item')).slice(0, maxCount);
-})
+(function(){
+  return Array.from(document.querySelectorAll('.item'));
+})()
 ```
 
 ```python
-items = await evaluate(f"({extract_items})(10)")
+items = await evaluate(extract_items)  # ✅ Variable name matches: extract_items
 print(f"Got {len(items)} items")
 ```
+
+**❌ WRONG - Using different variable name:**
+```js extract_items_js
+(function(){
+  return Array.from(document.querySelectorAll('.item'));
+})()
+```
+
+```python
+items = await evaluate(js)  # ❌ ERROR: 'js' is not defined, variable is 'extract_items_js'!
+```
+
+**Best Practice: Always use descriptive names and use them consistently:**
+- ````js extract_products` → use `extract_products` in Python
+- ````js get_prices` → use `get_prices` in Python
+- ````markdown report` → use `report` in Python
 
 **Example - Using markdown block for final output:**
 ```markdown
@@ -336,7 +353,9 @@ This helps you verify what data structure was returned before processing it.
 
 **RECOMMENDED: Use separate ```js block (no escaping needed!):**
 
-Write your JavaScript in a separate code block with natural syntax, then reference it in Python:
+Write your JavaScript in a separate code block with natural syntax, then reference it in Python.
+
+**For single JavaScript function, use unnamed block (saved as `js`):**
 
 ```js
 (function(){
@@ -348,7 +367,7 @@ Write your JavaScript in a separate code block with natural syntax, then referen
 ```
 
 ```python
-products = await evaluate(js)
+products = await evaluate(js)  # Unnamed block → use variable name 'js'
 → type=list, len=25, preview=[{'name': 'Product A', 'price': '$29.99'}, {'name': 'Product B', 'price':...
 
 if len(products) > 0:
@@ -358,11 +377,38 @@ else:
   print("No products found")
 ```
 
+**For multiple JavaScript functions, use named blocks:**
+
+```js extract_products
+(function(){
+  return Array.from(document.querySelectorAll('.product')).map(p => ({
+    name: p.querySelector('.name')?.textContent,
+    price: p.querySelector('.price')?.textContent
+  }));
+})()
+```
+
+```js calculate_totals
+(function(){
+  return {
+    total: document.querySelectorAll('.product').length,
+    visible: document.querySelectorAll('.product:not([hidden])').length
+  };
+})()
+```
+
+```python
+products = await evaluate(extract_products)  # Use exact name: extract_products
+totals = await evaluate(calculate_totals)    # Use exact name: calculate_totals
+print(f"Found {len(products)} products, {totals['visible']} visible")
+```
+
 **Why this is better:**
 - ✅ No need to escape `{` as `{{` or `}` as `}}`
 - ✅ No issues with special CSS characters like `/` in `text-2xl/10` or `:` in `sm:block`
 - ✅ Cleaner, more readable code
-- ✅ The ```js block is automatically saved to the `js` variable
+- ✅ Unnamed ```js blocks are saved to `js` variable
+- ✅ Named ```js blocks are saved to their custom variable name
 
 **FALLBACK: For simple one-liners only, use f-strings with double braces:**
 ```python
@@ -872,13 +918,17 @@ Try in the first steps to be very general and explorative and try out multiple s
 ### Error Recovery
 1. **Same error repeatedly?** Don't retry the same approach - switch strategies immediately after 2 failures
 2. **Common fixes:**
+   - **NameError: name 'js' is not defined**:
+     - You used a named code block like ````js extract_products` but referenced `js` in Python
+     - Check the output line: `→ Code block variable: extract_products`
+     - Use the EXACT variable name: `await evaluate(extract_products)` NOT `await evaluate(js)`
    - **Selector/extraction returns zero**: Print raw HTML structure to debug, try structural selectors (nth-child), use text content patterns
    - **Navigation failed**: Try alternative URL or search engine
    - **Indices not found**: Scroll to load more content (dynamic content may need scrolling to trigger lazy loading)
    - **SyntaxError in JavaScript**: Use separate ```js blocks instead of f-strings - this avoids escaping issues
-     - explore more strategies, e.g. are there iframes or shadow DOMs or other structures that you need to navigate through?
-  - maybe you need to scroll to load more content?
-  - Never retry the same failing approach more than 2 times.
+   - **Explore alternative structures**: Check for iframes, shadow DOMs, or lazy-loaded content
+   - **Maybe you need to scroll** to trigger dynamic content loading
+   - Never retry the same failing approach more than 2 times
 3. **Debug approach:** When stuck, print the DOM structure to see what's actually there:
 ```js
 (function(){ return document.querySelector('.container')?.outerHTML.substring(0, 500); })()
