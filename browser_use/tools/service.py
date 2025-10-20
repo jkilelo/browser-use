@@ -1141,6 +1141,15 @@ Validated Code (after quote fixing):
 							if file_content:
 								file_msg += f'\n\n{file_name}:\n{file_content}'
 								attachments.append(file_name)
+							elif os.path.exists(file_name):
+								# File exists on disk but not in FileSystem - read it directly
+								try:
+									with open(file_name, 'r', encoding='utf-8') as f:
+										file_content = f.read()
+									file_msg += f'\n\n{file_name}:\n{file_content}'
+									attachments.append(file_name)
+								except Exception as e:
+									logger.warning(f'Failed to read file {file_name}: {e}')
 						if file_msg:
 							user_message += '\n\nAttachments:'
 							user_message += file_msg
@@ -1151,8 +1160,25 @@ Validated Code (after quote fixing):
 							file_content = file_system.display_file(file_name)
 							if file_content:
 								attachments.append(file_name)
+							elif os.path.exists(file_name):
+								attachments.append(file_name)
 
-				attachments = [str(file_system.get_dir() / file_name) for file_name in attachments]
+				# Convert relative paths to absolute paths - handle both FileSystem-managed and regular files
+				resolved_attachments = []
+				for file_name in attachments:
+					if os.path.isabs(file_name):
+						# Already absolute
+						resolved_attachments.append(file_name)
+					elif file_system.get_file(file_name):
+						# Managed by FileSystem
+						resolved_attachments.append(str(file_system.get_dir() / file_name))
+					elif os.path.exists(file_name):
+						# Regular file in current directory
+						resolved_attachments.append(os.path.abspath(file_name))
+					else:
+						# File doesn't exist, but include the path anyway for error visibility
+						resolved_attachments.append(str(file_system.get_dir() / file_name))
+				attachments = resolved_attachments
 
 				return ActionResult(
 					is_done=True,
