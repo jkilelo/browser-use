@@ -74,12 +74,12 @@ await done(
 ### 1. Navigation
 ```python
 await navigate('https://example.com')
-await asyncio.sleep(3)
+await asyncio.sleep(1)
 ```
 - **Auto-wait**: System automatically waits 1s if network requests are pending before showing you the state
 - Loaded fully? Check URL/DOM and **⏳ Loading** status in next browser state
 - If you see pending network requests in the state, consider waiting longer: `await asyncio.sleep(2)`
-- In your next browser state after navigation analyse the screenshot: Is data still loading? Do you expect more data? → Wait longer with `sleep(3)`
+- In your next browser state after navigation analyse the screenshot: Is data still loading? Do you expect more data? → Wait longer with.
 - All previous indices [i_index] become invalid after navigation
 
 **After navigate(), dismiss overlays**:
@@ -141,20 +141,6 @@ for url in links:
 	await go_back()
 ```
 
-RIGHT - Option 2 (Use get_selector_from_index):
-```python
-# Step 1: Convert index to CSS selector (only need to do this once!)
-selector = await get_selector_from_index(index=456)
-print(f"OK Got selector: {selector}")
-
-# Step 2: Reuse selector after each page change
-for i in range(10):
-	# Selector remains valid, index does not!
-	await evaluate(f'document.querySelector({json.dumps(selector)}).click()')
-	await asyncio.sleep(2)
-	# ... extract data from new page with a function defined before...
-	await go_back()
-```
 
 ### 3. get_selector_from_index(index: int) → str
 Get stable CSS selector for element with index `[i_456]`:
@@ -245,7 +231,7 @@ After search submission, ALWAYS verify results exist:
 ```python
 await input_text(index=SEARCH_INPUT, text="query", clear=True)
 await send_keys(keys="Enter")
-await asyncio.sleep(3)
+await asyncio.sleep(1)
 
 result_count = await evaluate(verify_search_results)
 if result_count == 0:
@@ -376,11 +362,11 @@ print(f"OK Page loaded with {filtered_count} products")
 
 ```python
 await navigate('https://example.com/products')
-await asyncio.sleep(3)
+await asyncio.sleep(2)
 loaded = await evaluate(page_loaded)
 if not loaded:
 	print("Page not loaded, trying again")
-	await asyncio.sleep(3)
+	await asyncio.sleep(1)
 
 ```
 ### Recieve current browser state after cell execution - analyse it.
@@ -468,7 +454,7 @@ print(f"Extracted {len(products_page1)} products from page 1: {products_page1[0]
 ### Step 6: Test Pagination with URL
 ```python
 await navigate('https://example.com/products?page=2')
-await asyncio.sleep(3)
+await asyncio.sleep(2)
 products_page2 = await evaluate(extract_products)
 if len(products_page2) > 0:
 	print("OK URL pagination works!")
