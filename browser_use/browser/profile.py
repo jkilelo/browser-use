@@ -1105,7 +1105,10 @@ async function initialize(checkInitialized, magic) {{
 
 		display_size = get_display_size()
 		has_screen_available = bool(display_size)
-		self.screen = self.screen or display_size or ViewportSize(width=1920, height=1080)
+		# HARDCODED: Force much larger viewport to show way more content (zoomed out)
+		# Using 3840x2160 (4K) to make pages render at a much larger size, appearing "zoomed out"
+		hardcoded_size = ViewportSize(width=1200, height=2000)
+		self.screen = hardcoded_size
 
 		# if no headless preference specified, prefer headful if there is a display available
 		if self.headless is None:
@@ -1116,13 +1119,15 @@ async function initialize(checkInitialized, magic) {{
 
 		if self.headless:
 			# Headless mode: always use viewport for content size control
-			self.viewport = self.viewport or self.window_size or self.screen
+			# HARDCODED: Force larger viewport regardless of user settings
+			self.viewport = hardcoded_size
 			self.window_position = None
 			self.window_size = None
 			self.no_viewport = False
 		else:
 			# Headful mode: respect user's viewport preference
-			self.window_size = self.window_size or self.screen
+			# HARDCODED: Force larger window size regardless of user settings
+			self.window_size = hardcoded_size
 
 			if user_provided_viewport:
 				# User explicitly set viewport - enable viewport mode
@@ -1145,7 +1150,8 @@ async function initialize(checkInitialized, magic) {{
 			assert self.no_viewport is True
 		else:
 			# Viewport mode: ensure viewport is set
-			self.viewport = self.viewport or self.screen
+			# HARDCODED: Force larger viewport regardless of user settings
+			self.viewport = hardcoded_size
 			self.device_scale_factor = self.device_scale_factor or 1.0
 			assert self.viewport is not None
 			assert self.no_viewport is False
