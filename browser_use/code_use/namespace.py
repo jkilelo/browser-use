@@ -531,7 +531,20 @@ def create_namespace(
 					consecutive_failures = namespace.get('_consecutive_errors')
 					if consecutive_failures and consecutive_failures > 3:
 						pass
+
 					else:
+						# Check if there are multiple Python blocks in this response
+						all_blocks = namespace.get('_all_code_blocks', {})
+						python_blocks = [k for k in sorted(all_blocks.keys()) if k.startswith('python_')]
+
+						if len(python_blocks) > 1:
+							error_msg = (
+								'done() must be the ONLY code block in the response.\n'
+								'You have multiple Python blocks in this response. Please call done() in a separate response '
+								'with only one Python block after verifying results.'
+							)
+							raise RuntimeError(error_msg) from None
+
 						# Get the current cell code from namespace (injected by service.py before execution)
 						current_code = namespace.get('_current_cell_code')
 						if current_code and isinstance(current_code, str):
@@ -542,22 +555,22 @@ def create_namespace(
 							# Check if the line above await done() contains an if block
 							done_line_index = -1
 							for i, line in enumerate(reversed(code_lines)):
-								if 'await done()' in line:
+								if 'await done()' in line or 'await done(' in line:
 									done_line_index = len(code_lines) - 1 - i
 									break
-							
+
 							has_if_above = False
-							hase_else_above = False
-							hase_elif_above = False
+							has_else_above = False
+							has_elif_above = False
 							if done_line_index > 0:
 								line_above = code_lines[done_line_index - 1]
 								has_if_above = line_above.strip().startswith('if ') and line_above.strip().endswith(':')
-								hase_else_above = line_above.strip().startswith('else:')
-								hase_elif_above = line_above.strip().startswith('elif:')
-							if has_if_above or hase_else_above or hase_elif_above:
+								has_else_above = line_above.strip().startswith('else:')
+								has_elif_above = line_above.strip().startswith('elif ')
+							if has_if_above or has_else_above or has_elif_above:
 								error_msg = (
-									f'done() must be called individually after verifying the result from any logic	.\n'
-									f'Please validate your output first, THEN call done() in a final step without if blocks. '
+									'done() must be called individually after verifying the result from any logic.\n'
+									'Please validate your output first, THEN call done() in a final step without if/else/elif blocks.'
 								)
 								raise RuntimeError(error_msg) from None
 
