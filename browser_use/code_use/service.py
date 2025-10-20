@@ -787,6 +787,63 @@ __code_exec_coro__ = __code_exec__()
 				# Return immediately - do not continue executing code
 				return output, error, browser_state
 
+			# Handle NameError specially - check for code block variable confusion
+			if isinstance(e, NameError):
+				error_msg = str(e)
+
+				# Check if user tried to use 'js' but there are named blocks instead
+				if "'js' is not defined" in error_msg or '"js" is not defined' in error_msg:
+					code_block_vars = self.namespace.get('_code_block_vars', set())
+					js_vars = [v for v in code_block_vars if v != 'js' and v not in {'bash', 'markdown'}]
+
+					if js_vars:
+						hint = f"\n\n💡 HINT: You defined named code blocks: {', '.join(sorted(js_vars))}\n"
+						hint += f"   Use the EXACT variable name shown in the output:\n"
+						for var in sorted(js_vars):
+							hint += f"   → await evaluate({var})  # NOT await evaluate(js)\n"
+						error = f'{type(e).__name__}: {error_msg}{hint}'
+					else:
+						error = f'{type(e).__name__}: {error_msg}'
+				else:
+					# Generic NameError - check if variable exists but was mistyped
+					var_match = re.search(r"name '(\w+)' is not defined", error_msg)
+					if var_match:
+						missing_var = var_match.group(1)
+						code_block_vars = self.namespace.get('_code_block_vars', set())
+
+						# Find similar variable names
+						all_vars = [v for v in self.namespace.keys() if not v.startswith('_')]
+						similar = [v for v in all_vars if v.lower().startswith(missing_var[0].lower()) or missing_var.lower() in v.lower()]
+
+						if similar:
+							hint = f"\n\n💡 Did you mean one of these variables?\n"
+							for var in sorted(similar)[:5]:
+								if var in code_block_vars:
+									hint += f"   → {var} (code block variable)\n"
+								else:
+									hint += f"   → {var}\n"
+							error = f'{type(e).__name__}: {error_msg}{hint}'
+						else:
+							error = f'{type(e).__name__}: {error_msg}'
+					else:
+						error = f'{type(e).__name__}: {error_msg}'
+
+				cell.status = ExecutionStatus.ERROR
+				cell.error = error
+
+				# Get browser state after error
+				await asyncio.sleep(0.5)
+				if self.browser_session and self.dom_service:
+					try:
+						browser_state_text, screenshot = await self._get_browser_state()
+						self._last_browser_state_text = browser_state_text
+						self._last_screenshot = screenshot
+						browser_state = browser_state_text
+					except Exception as browser_state_error:
+						logger.warning(f'Failed to get browser state after error: {browser_state_error}')
+
+				return output, error, browser_state
+
 			# For syntax errors and common parsing errors, show just the error message
 			# without the full traceback to keep output clean
 			if isinstance(e, SyntaxError):
