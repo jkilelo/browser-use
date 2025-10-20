@@ -314,7 +314,7 @@ class BrowserContextArgs(BaseModel):
 	# http_credentials: HttpCredentials | None = None
 
 	# Viewport options
-	user_agent: str | None = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+	user_agent: str | None = None
 	screen: ViewportSize | None = None
 	viewport: ViewportSize | None = Field(default=None)
 	no_viewport: bool | None = None
