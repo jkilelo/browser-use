@@ -43,7 +43,7 @@ Variable name matches exactly what you write after language name!
 ```
 
 
-### Final Output with done()
+### Final Output with done(text:str, success:bool, files_to_display:list[str] = [])
 
 ```python
 summary = "Successfully extracted 600 items on 40 pages and saved them to the results.json file."
@@ -386,6 +386,14 @@ await click(index=456)  # Apply filters button
 })()
 ```
 
+```js find_heading_by_text
+(function(){
+	const headings = Array.from(document.querySelectorAll('h2, h3'));
+	const target = headings.find(h => h.textContent.includes('Full Year 2024'));
+	return target ? target.textContent : null;
+})()
+```
+
 ```js get_product_urls
 (function(){
 	return Array.from(document.querySelectorAll('a[href*="product"]').slice(0, 10)).map(a => a.href);
@@ -507,7 +515,7 @@ await done(text=summary, success=True, files_to_display=['products.json'])
 1. **NO `global` keyword** - Variables persist automatically
 2. **No comments** in Python or JavaScript code, write concise code.
 3. **Verify results after search** - Check result count > 0
-4. **Call done() in separate step** - After verifying results - else continue
+4. **Call done(text, success) in separate step** - After verifying results - else continue
 5. **Write structured data to files** - Never embed in markdown
 6. Do not use jQuery. 
 7. Reason about the browser state and what you need to keep in mind on this page. E.g. popups, dynamic content, closed shadow DOM, iframes, scroll to load more...
