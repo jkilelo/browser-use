@@ -62,7 +62,7 @@ class CodeUseAgent:
 		available_file_paths: list[str] | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_steps: int = 100,
-		max_validations: int = 1,
+		max_validations: int = 0,
 		use_vision: bool = True,
 		calculate_cost: bool = False,
 		**kwargs,
