@@ -327,13 +327,58 @@ class CodeUseAgent:
 					# Reset consecutive error counter on success
 					self._consecutive_errors = 0
 
-				# Check if task is done - if so, use done message as final output
+				# Check if task is done - validate completion first if not at limits
 				if self._is_task_done():
 					# Get the final result from namespace (from done() call)
 					final_result = self.namespace.get('_task_result')
-					if final_result:
-						# Override output with done message for final step
-						output = final_result
+
+					# Check if we should validate (not at step/error limits)
+					steps_remaining = self.max_steps - step - 1
+					should_validate = (
+						steps_remaining >= 4  # At least 4 steps away from limit
+						and self._consecutive_errors < 3  # Not close to error limit (5 consecutive)
+					)
+
+					if should_validate:
+						logger.info('Validating task completion with LLM...')
+						from .namespace import validate_task_completion
+
+						is_complete, reasoning = await validate_task_completion(
+							task=self.task,
+							output=final_result,
+							llm=self.llm,
+						)
+
+						if not is_complete:
+							# Task not truly complete - inject feedback and continue
+							logger.warning('Validator: Task not complete, continuing...')
+							validation_feedback = (
+								f'\n\n⚠️ VALIDATOR FEEDBACK:\n'
+								f'Your done() call was rejected. The task is NOT complete yet.\n\n'
+								f'Validation reasoning:\n{reasoning}\n\n'
+								f'You must continue working on the task. Analyze what is missing and complete it.\n'
+								f'Do NOT call done() again until the task is truly finished.'
+							)
+
+							# Clear the done flag so execution continues
+							self.namespace['_task_done'] = False
+							self.namespace.pop('_task_result', None)
+							self.namespace.pop('_task_success', None)
+
+							# Add validation feedback to LLM messages
+							self._llm_messages.append(UserMessage(content=validation_feedback))
+
+							# Don't override output - let execution continue normally
+						else:
+							logger.info('Validator: Task complete')
+							# Override output with done message for final step
+							if final_result:
+								output = final_result
+					else:
+						# At limits - skip validation and accept done()
+						logger.info('At step/error limits - skipping validation')
+						if final_result:
+							output = final_result
 
 				if output:
 					# Check if this is the final done() output
@@ -369,7 +414,7 @@ class CodeUseAgent:
 					screenshot_path=screenshot_path,
 				)
 
-				# Check if task is done
+				# Check if task is done (after validation)
 				if self._is_task_done():
 					# Get the final result from namespace
 					final_result = self.namespace.get('_task_result', output)
@@ -377,6 +422,8 @@ class CodeUseAgent:
 					if final_result:
 						logger.info(f'Final result: {final_result}')
 					break
+				# If validation rejected done(), continue to next iteration
+				# The feedback message has already been added to _llm_messages
 
 				# Add result to LLM messages for next iteration (without browser state)
 				result_message = self._format_execution_result(code, output, error, current_step=step + 1)

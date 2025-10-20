@@ -90,6 +90,85 @@ class EvaluateError(Exception):
 	pass
 
 
+async def validate_task_completion(
+	task: str,
+	output: str | None,
+	llm: BaseChatModel,
+) -> tuple[bool, str]:
+	"""
+	Validate if task is truly complete by asking LLM without system prompt or history.
+
+	Args:
+		task: The original task description
+		output: The output from the done() call
+		llm: The LLM to use for validation
+
+	Returns:
+		Tuple of (is_complete, reasoning)
+	"""
+	from browser_use.llm.messages import UserMessage
+
+	# Build validation prompt
+	validation_prompt = f"""You are a task completion validator. Analyze if the agent has truly completed the user's task.
+
+**Original Task:**
+{task}
+
+**Agent's Output:**
+{output[:100000] if output else "(No output provided)"}
+
+**Your Task:**
+Determine if the agent has successfully completed the user's task. Consider:
+1. Has the agent delivered what the user requested?
+2. If data extraction was requested, is there actual data?
+3. If the task is impossible (e.g., localhost website, login required but no credentials), is it truly impossible?
+4. Could the agent continue and make meaningful progress?
+
+**Response Format:**
+Reasoning: [Your analysis of whether the task is complete]
+Verdict: [YES or NO]
+
+YES = Task is complete OR truly impossible to complete
+NO = Agent should continue working"""
+
+	try:
+		# Call LLM with just the validation prompt (no system prompt, no history)
+		response = await llm.ainvoke([UserMessage(content=validation_prompt)])
+		response_text = response.completion
+
+		# Parse the response
+		reasoning = ""
+		verdict = "NO"
+
+		# Extract reasoning and verdict
+		lines = response_text.split('\n')
+		for line in lines:
+			if line.strip().lower().startswith('reasoning:'):
+				reasoning = line.split(':', 1)[1].strip()
+			elif line.strip().lower().startswith('verdict:'):
+				verdict_text = line.split(':', 1)[1].strip().upper()
+				if 'YES' in verdict_text:
+					verdict = "YES"
+				elif 'NO' in verdict_text:
+					verdict = "NO"
+
+		# If we couldn't parse, try to find YES/NO in the response
+		if not reasoning:
+			reasoning = response_text
+
+		is_complete = verdict == "YES"
+
+		logger.info(f"Task validation: {verdict}")
+		logger.debug(f"Validation reasoning: {reasoning}")
+
+		return is_complete, reasoning
+
+	except Exception as e:
+		logger.warning(f"Failed to validate task completion: {e}")
+		# On error, assume the agent knows what they're doing
+		return True, f"Validation failed: {e}"
+
+
 async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 	"""
 	Execute JavaScript code in the browser and return the result.
