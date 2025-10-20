@@ -1067,6 +1067,7 @@ __code_exec_coro__ = __code_exec__()
 				for req in unique_requests[:20]:
 					duration_sec = req.loading_duration_ms / 1000
 					url_display = req.url if len(req.url) <= 30 else req.url[:27] + '...'
+					logger.info(f'  - [{duration_sec:.1f}s] {url_display}')
 					lines.append(f'  - [{duration_sec:.1f}s] {url_display}')
 				if len(unique_requests) > 20:
 					lines.append(f'  - ... and {len(unique_requests) - 20} more')

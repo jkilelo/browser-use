@@ -134,8 +134,12 @@ class DOMWatchdog(BaseWatchdog):
 	];
 
 	// Get resources that are still loading (responseEnd is 0)
+	let totalResourcesChecked = 0;
+	let filteredByResponseEnd = 0;
 	for (const entry of resources) {
+		totalResourcesChecked++;
 		if (entry.responseEnd === 0) {
+			filteredByResponseEnd++;
 			const url = entry.name;
 
 			// Filter out ads and tracking
@@ -148,7 +152,7 @@ class DOMWatchdog(BaseWatchdog):
 			const loadingDuration = now - entry.startTime;
 
 			// Skip requests that have been loading for >10 seconds (likely stuck/polling)
-			if (loadingDuration > 10000) continue;
+			if (loadingDuration > 100000) continue;
 
 			const resourceType = entry.initiatorType || 'unknown';
 
@@ -172,7 +176,12 @@ class DOMWatchdog(BaseWatchdog):
 	return {
 		pending_requests: pending,
 		document_loading: docLoading,
-		document_ready_state: document.readyState
+		document_ready_state: document.readyState,
+		debug: {
+			total_resources: totalResourcesChecked,
+			with_response_end_zero: filteredByResponseEnd,
+			after_all_filters: pending.length
+		}
 	};
 })()
 """
@@ -184,6 +193,17 @@ class DOMWatchdog(BaseWatchdog):
 			if result.get('result', {}).get('type') == 'object':
 				data = result['result'].get('value', {})
 				pending = data.get('pending_requests', [])
+				doc_state = data.get('document_ready_state', 'unknown')
+				doc_loading = data.get('document_loading', False)
+				debug_info = data.get('debug', {})
+
+				# Debug logging
+				self.logger.info(
+					f'🔍 Network check: document.readyState={doc_state}, loading={doc_loading}, '
+					f'total_resources={debug_info.get("total_resources", 0)}, '
+					f'responseEnd=0: {debug_info.get("with_response_end_zero", 0)}, '
+					f'after_filters={len(pending)}'
+				)
 
 				# Convert to NetworkRequest objects
 				network_requests = []
@@ -242,12 +262,13 @@ class DOMWatchdog(BaseWatchdog):
 					)
 			except Exception as e:
 				self.logger.debug(f'Failed to get pending requests before wait: {e}')
-
+		pending_requests = pending_requests_before_wait
 		# Wait for page stability using browser profile settings (main branch pattern)
 		if not not_a_meaningful_website:
 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for page stability...')
 			try:
-				await self._wait_for_stable_network()
+				if pending_requests_before_wait:
+					await asyncio.sleep(1)
 				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Page stability complete')
 			except Exception as e:
 				self.logger.warning(
@@ -430,21 +451,7 @@ class DOMWatchdog(BaseWatchdog):
 					pixels_right=0,
 				)
 
-			# Use pending requests captured BEFORE stability wait (so we see what was loading)
-			# If we didn't capture any, fetch now
-			if pending_requests_before_wait:
-				pending_requests = pending_requests_before_wait
-				self.logger.debug(
-					f'📊 Using {len(pending_requests)} pending requests captured before stability wait'
-				)
-			else:
-				# Fallback: check now (though likely everything already loaded)
-				pending_requests = await self._get_pending_network_requests()
-				if pending_requests:
-					self.logger.debug(
-						f'📊 Found {len(pending_requests)} pending requests after stability wait (late check)'
-					)
-
+			
 			# Check for PDF viewer
 			is_pdf_viewer = page_url.endswith('.pdf') or '/pdf/' in page_url
 
