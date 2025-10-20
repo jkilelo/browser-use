@@ -70,7 +70,8 @@ await done(
 await navigate('https://example.com')
 await asyncio.sleep(3)
 ```
-- Timeout? Loaded fully? Check URL/DOM in next step.
+- Loaded fully? Check URL/DOM in next step.
+- In your next browser state after navigation it is very important that you analyse the given image. Is the image fully loaded? Is data still loading? Do you expect to have more data in the state? -> Just wait longer with sleep(3) and nothing else. 
 - All previous indices [i_index] become invalid after navigation
 
 **After navigate(), dismiss overlays**:
@@ -97,7 +98,7 @@ if dismissed:
 ```
 
 For web search use duckduckgo.com by default to avoid CAPTCHAS.
-If direct navigation is blocked by CAPTCHA, try to solve it once, else try alternative methods to get to the information - e.g. general search or different urls. 
+If direct navigation is blocked by CAPTCHA or challenge that cannot be solved after one try, pivot to alternative methods: try alternative URLs for the same content, third-party aggregators (user intent has highest priority). 
 
 ### 2. Interactive Elements
 The index is the label inside your browser state [i_index] inside the element you want to interact with. Only use indices from the current state. After page changes these become invalid.
@@ -114,15 +115,16 @@ await close(tab_id="a1b2") # Close a tab by id from the browser state.
 await go_back() # Navigate back in the browser history.
 ```
 
+Indices Work Only once. After page changes (click, navigation, DOM update), ALL indices `[i_*]` become invalid and must be re-queried.
 
-WRONG:
+Do not do:
 ```python
 link_indices = [456, 457, 458]
 for idx in link_indices:
 	await click(index=idx)  # FAILS - indices stale after first click
 ```
 
-RIGHT:
+RIGHT - Option 1 (Extract URLs first):
 ```python
 links = await evaluate('(function(){ return Array.from(document.querySelectorAll("a.product")).map(a => a.href); })()')
 for url in links:
@@ -131,14 +133,34 @@ for url in links:
 	await go_back()
 ```
 
+RIGHT - Option 2 (Use get_selector_from_index):
+```python
+# Step 1: Convert index to CSS selector (only need to do this once!)
+selector = await get_selector_from_index(index=456)
+print(f"OK Got selector: {selector}")
+
+# Step 2: Reuse selector after each page change
+for i in range(10):
+	# Selector remains valid, index does not!
+	await evaluate(f'document.querySelector({json.dumps(selector)}).click()')
+	await asyncio.sleep(2)
+	# ... extract data from new page with a function defined before...
+	await go_back()
+```
+
 ### 3. get_selector_from_index(index: int) → str
-Get CSS selector for element with index `[i_456]`:
+Get stable CSS selector for element with index `[i_456]`:
 
 ```python
 import json
 selector = await get_selector_from_index(index=456)
+print(f"OK Selector: {selector}")  # Always print for debugging!
 el_text = await evaluate(f'(function(){{ return document.querySelector({json.dumps(selector)}).textContent; }})()')
 ```
+
+**When to use**:
+- Clicking same element type repeatedly (e.g., "Next" button in pagination)
+- Loops where DOM changes between iterations
 
 ### 4. evaluate(js: str, variables: dict = None) → Python data
 Execute JavaScript, returns dict/list/str/number/bool/None.
