@@ -1052,6 +1052,27 @@ __code_exec_coro__ = __code_exec__()
 				lines.append(scroll_info)
 				lines.append('')
 
+			# Add network loading info if there are pending requests
+			if state.pending_network_requests:
+				# Remove duplicates by URL (keep first occurrence with earliest duration)
+				seen_urls = set()
+				unique_requests = []
+				for req in state.pending_network_requests:
+					if req.url not in seen_urls:
+						seen_urls.add(req.url)
+						unique_requests.append(req)
+
+				lines.append(f'**⏳ Loading:** {len(unique_requests)} network requests still loading')
+				# Show up to 20 unique requests with truncated URLs (30 chars max)
+				for req in unique_requests[:20]:
+					duration_sec = req.loading_duration_ms / 1000
+					url_display = req.url if len(req.url) <= 30 else req.url[:27] + '...'
+					lines.append(f'  - [{duration_sec:.1f}s] {url_display}')
+				if len(unique_requests) > 20:
+					lines.append(f'  - ... and {len(unique_requests) - 20} more')
+				lines.append('**Tip:** Content may still be loading. Consider waiting with `await asyncio.sleep(1)` if data is missing.')
+				lines.append('')
+
 			# Check if jQuery is available on the page
 			has_jquery = False
 			try:
@@ -1108,7 +1129,32 @@ __code_exec_coro__ = __code_exec__()
 			# Build available line with code blocks and variables
 			parts = []
 			if code_block_vars_sorted:
-				parts.append(f'**Code block variables:** {", ".join(code_block_vars_sorted)}')
+				# Show detailed info for code block variables
+				code_block_details = []
+				for var_name in code_block_vars_sorted:
+					value = self.namespace.get(var_name)
+					if value is not None:
+						type_name = type(value).__name__
+						value_str = str(value) if not isinstance(value, str) else value
+
+						# Check if it's a function (starts with "(function" or "(async function")
+						is_function = value_str.strip().startswith('(function') or value_str.strip().startswith('(async function')
+
+						if is_function:
+							# For functions, only show name and type
+							detail = f'{var_name}({type_name})'
+						else:
+							# For non-functions, show first and last 20 chars
+							first_20 = value_str[:20].replace('\n', '\\n').replace('\t', '\\t')
+							last_20 = value_str[-20:].replace('\n', '\\n').replace('\t', '\\t') if len(value_str) > 20 else ''
+
+							if last_20 and first_20 != last_20:
+								detail = f'{var_name}({type_name}): "{first_20}...{last_20}"'
+							else:
+								detail = f'{var_name}({type_name}): "{first_20}"'
+						code_block_details.append(detail)
+
+				parts.append(f'**Code block variables:** {" | ".join(code_block_details)}')
 			if available_vars_sorted:
 				parts.append(f'**Variables:** {", ".join(available_vars_sorted)}')
 

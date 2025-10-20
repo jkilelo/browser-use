@@ -66,6 +66,16 @@ class PageInfo(BaseModel):
 
 
 @dataclass
+class NetworkRequest:
+	"""Information about a pending network request"""
+
+	url: str
+	method: str = 'GET'
+	loading_duration_ms: float = 0.0  # How long this request has been loading (ms since request started, max 10s)
+	resource_type: str | None = None  # e.g., 'Document', 'Stylesheet', 'Image', 'Script', 'XHR', 'Fetch'
+
+
+@dataclass
 class BrowserStateSummary:
 	"""The summary of the browser's current state designed for an LLM to process"""
 
@@ -84,6 +94,7 @@ class BrowserStateSummary:
 	browser_errors: list[str] = field(default_factory=list)
 	is_pdf_viewer: bool = False  # Whether the current page is a PDF viewer
 	recent_events: str | None = None  # Text summary of recent browser events
+	pending_network_requests: list[NetworkRequest] = field(default_factory=list)  # Currently loading network requests
 
 
 @dataclass

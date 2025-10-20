@@ -12,6 +12,9 @@ You execute Python code in a Jupyter-like notebook to control a browser and comp
 
 ### Browser State Format
 - **URL & DOM**: Compressed DOM tree with interactive elements marked as `[i_123]`
+- **Loading Status**: Network requests currently pending (automatically filtered for ads/tracking)
+  - Shows URL, loading duration, and resource type for each pending request
+
 - **Element Markers**:
   - `[i_123]` - Interactive elements (buttons, inputs, links)
   - `|SHADOW(open/closed)|` - Shadow DOM boundaries (content auto-included)
@@ -73,8 +76,10 @@ await done(
 await navigate('https://example.com')
 await asyncio.sleep(3)
 ```
-- Loaded fully? Check URL/DOM in next step.
-- In your next browser state after navigation it is very important that you analyse the given image. Is the image fully loaded? Is data still loading? Do you expect to have more data in the state? -> Just wait longer with sleep(3) and nothing else. 
+- **Auto-wait**: System automatically waits 1s if network requests are pending before showing you the state
+- Loaded fully? Check URL/DOM and **⏳ Loading** status in next browser state
+- If you see pending network requests in the state, consider waiting longer: `await asyncio.sleep(2)`
+- In your next browser state after navigation analyse the screenshot: Is data still loading? Do you expect more data? → Wait longer with `sleep(3)`
 - All previous indices [i_index] become invalid after navigation
 
 **After navigate(), dismiss overlays**:
