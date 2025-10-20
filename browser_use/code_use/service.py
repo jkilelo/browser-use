@@ -28,7 +28,7 @@ from browser_use.screenshots.service import ScreenshotService
 from browser_use.tokens.service import TokenCost
 from browser_use.tools.service import Tools
 
-from .namespace import create_namespace
+from .namespace import EvaluateError, create_namespace
 from .views import ExecutionStatus, NotebookSession
 
 logger = logging.getLogger(__name__)
@@ -765,6 +765,28 @@ __code_exec_coro__ = __code_exec__()
 			cell.browser_state = browser_state
 
 		except Exception as e:
+			# Handle EvaluateError specially - JavaScript execution failed
+			if isinstance(e, EvaluateError):
+				error = str(e)
+				cell.status = ExecutionStatus.ERROR
+				cell.error = error
+				logger.error(f'Code execution error: {error}')
+
+				await asyncio.sleep(1)
+
+				# Get browser state after error
+				if self.browser_session and self.dom_service:
+					try:
+						browser_state_text, screenshot = await self._get_browser_state()
+						self._last_browser_state_text = browser_state_text
+						self._last_screenshot = screenshot
+						browser_state = browser_state_text
+					except Exception as browser_state_error:
+						logger.warning(f'Failed to get browser state after error: {browser_state_error}')
+
+				# Return immediately - do not continue executing code
+				return output, error, browser_state
+
 			# For syntax errors and common parsing errors, show just the error message
 			# without the full traceback to keep output clean
 			if isinstance(e, SyntaxError):

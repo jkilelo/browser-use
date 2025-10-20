@@ -85,6 +85,11 @@ def _strip_js_comments(js_code: str) -> str:
 	return js_code
 
 
+class EvaluateError(Exception):
+	"""Special exception raised by evaluate() to stop Python execution immediately."""
+	pass
+
+
 async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 	"""
 	Execute JavaScript code in the browser and return the result.
@@ -94,6 +99,9 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 
 	Returns:
 		The result of the JavaScript execution
+
+	Raises:
+		EvaluateError: If JavaScript execution fails. This stops Python execution immediately.
 
 	Example:
 		result = await evaluate('''
@@ -136,10 +144,8 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 			if error_details:
 				error_msg += f'\nDetails: {" | ".join(error_details)}'
 
-
-
-
-			raise RuntimeError(error_msg)
+			# Raise special exception that will stop Python execution immediately
+			raise EvaluateError(error_msg)
 
 		# Get the result data
 		result_data = result.get('result', {})
@@ -157,8 +163,12 @@ async def evaluate(code: str, browser_session: BrowserSession) -> Any:
 			# Primitive values
 			return value
 
+	except EvaluateError:
+		# Re-raise EvaluateError as-is to stop Python execution
+		raise
 	except Exception as e:
-		raise RuntimeError(f'Failed to execute JavaScript: {type(e).__name__}: {e}') from e
+		# Wrap other exceptions in EvaluateError
+		raise EvaluateError(f'Failed to execute JavaScript: {type(e).__name__}: {e}') from e
 
 
 def create_namespace(
