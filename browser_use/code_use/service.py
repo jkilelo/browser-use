@@ -62,6 +62,7 @@ class CodeUseAgent:
 		available_file_paths: list[str] | None = None,
 		sensitive_data: dict[str, str | dict[str, str]] | None = None,
 		max_steps: int = 100,
+		max_validations: int = 1,
 		use_vision: bool = True,
 		calculate_cost: bool = False,
 		**kwargs,
@@ -80,6 +81,7 @@ class CodeUseAgent:
 			available_file_paths: Optional list of available file paths
 			sensitive_data: Optional sensitive data dictionary
 			max_steps: Maximum number of execution steps
+			max_validations: Maximum number of times to run the validator agent (default: 1)
 			use_vision: Whether to include screenshots in LLM messages (default: True)
 			**kwargs: Additional keyword arguments for compatibility (ignored)
 		"""
@@ -96,6 +98,7 @@ class CodeUseAgent:
 		self.available_file_paths = available_file_paths or []
 		self.sensitive_data = sensitive_data
 		self.max_steps = max_steps
+		self.max_validations = max_validations
 		self.use_vision = use_vision
 
 		self.session = NotebookSession()
@@ -107,6 +110,7 @@ class CodeUseAgent:
 		self._last_screenshot: str | None = None  # Track last screenshot (base64)
 		self._consecutive_errors = 0  # Track consecutive errors for auto-termination
 		self._max_consecutive_errors = 5  # Maximum consecutive errors before termination
+		self._validation_count = 0  # Track number of validator runs
 		self._last_llm_usage: Any | None = None  # Track last LLM call usage stats
 		self._step_start_time: float = 0.0  # Track step start time for duration calculation
 		self.usage_summary = None  # Track usage summary across run for history property
@@ -332,14 +336,16 @@ class CodeUseAgent:
 					# Get the final result from namespace (from done() call)
 					final_result = self.namespace.get('_task_result')
 
-					# Check if we should validate (not at step/error limits)
+					# Check if we should validate (not at step/error limits and under max validations)
 					steps_remaining = self.max_steps - step - 1
 					should_validate = (
-						steps_remaining >= 4  # At least 4 steps away from limit
+						self._validation_count < self.max_validations  # Haven't exceeded max validations
+						and steps_remaining >= 4  # At least 4 steps away from limit
 						and self._consecutive_errors < 3  # Not close to error limit (5 consecutive)
 					)
 
 					if should_validate:
+						self._validation_count += 1
 						logger.info('Validating task completion with LLM...')
 						from .namespace import validate_task_completion
 
@@ -376,7 +382,10 @@ class CodeUseAgent:
 								output = final_result
 					else:
 						# At limits - skip validation and accept done()
-						logger.info('At step/error limits - skipping validation')
+						if self._validation_count >= self.max_validations:
+							logger.info(f'Reached max validations ({self.max_validations}) - skipping validation and accepting done()')
+						else:
+							logger.info('At step/error limits - skipping validation')
 						if final_result:
 							output = final_result
 
