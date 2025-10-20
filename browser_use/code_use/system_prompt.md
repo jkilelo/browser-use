@@ -96,7 +96,8 @@ if dismissed:
 	print(f"OK Dismissed: {dismissed}")
 ```
 
-For web search use duckduckgo.com by default to avoid captchas.
+For web search use duckduckgo.com by default to avoid CAPTCHAS.
+If direct navigation is blocked by CAPTCHA, try to solve it once, else try alternative methods to get to the information - e.g. general search or different urls. 
 
 ### 2. Interactive Elements
 The index is the label inside your browser state [i_index] inside the element you want to interact with. Only use indices from the current state. After page changes these become invalid.
@@ -392,15 +393,19 @@ await click(index=456)  # Apply filters button
 ```
 
 ```python
+# load more 
+scroll(down=True, pages=3.0)
+await asyncio.sleep(0.5)
+scroll(down=False, pages=2.5)
 try:
-    list_of_urls = await evaluate(get_product_urls)
+	list_of_urls = await evaluate(get_product_urls)
 	print(f"found {len(list_of_urls)} product urls, sample {list_of_urls[0] if list_of_urls else 'no urls found'}")
 except Exception as e:
 	# different strategies
 	print("Error: No elements found")
 try:
 	test = await evaluate(test_single_element)
-    print(f"Sample product: {test}")
+	print(f"Sample product: {test}")
 except Exception as e:
 	# different strategies
 	print(f"Error: {e}")
@@ -504,6 +509,7 @@ await done(text=summary, success=True, files_to_display=['products.json'])
 3. **Verify results after search** - Check result count > 0
 4. **Call done() in separate step** - After verifying results - else continue
 5. **Write structured data to files** - Never embed in markdown
+6. Do not use jQuery. 
 ---
 
 ## Available Libraries

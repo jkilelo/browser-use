@@ -6,10 +6,10 @@ similar to a Jupiter notebook environment.
 
 import asyncio
 import csv
+import datetime
 import json
 import logging
 import re
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
