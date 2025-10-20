@@ -231,6 +231,18 @@ class DOMWatchdog(BaseWatchdog):
 		# check if we should skip DOM tree build for pointless pages
 		not_a_meaningful_website = page_url.lower().split(':', 1)[0] not in ('http', 'https')
 
+		# Check for pending network requests BEFORE waiting (so we can see what's loading)
+		pending_requests_before_wait = []
+		if not not_a_meaningful_website:
+			try:
+				pending_requests_before_wait = await self._get_pending_network_requests()
+				if pending_requests_before_wait:
+					self.logger.debug(
+						f'🔍 Found {len(pending_requests_before_wait)} pending requests before stability wait'
+					)
+			except Exception as e:
+				self.logger.debug(f'Failed to get pending requests before wait: {e}')
+
 		# Wait for page stability using browser profile settings (main branch pattern)
 		if not not_a_meaningful_website:
 			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for page stability...')
@@ -418,18 +430,20 @@ class DOMWatchdog(BaseWatchdog):
 					pixels_right=0,
 				)
 
-			# Get pending network requests (filter out ads automatically)
-			pending_requests = await self._get_pending_network_requests()
-
-			# Auto-wait logic: if there are pending requests, wait 1 second
-			if pending_requests and not not_a_meaningful_website:
+			# Use pending requests captured BEFORE stability wait (so we see what was loading)
+			# If we didn't capture any, fetch now
+			if pending_requests_before_wait:
+				pending_requests = pending_requests_before_wait
 				self.logger.debug(
-					f'⏳ Found {len(pending_requests)} pending network requests, waiting 1s for content to load...'
+					f'📊 Using {len(pending_requests)} pending requests captured before stability wait'
 				)
-				await asyncio.sleep(1.0)
-				# Re-fetch after waiting to get updated list
+			else:
+				# Fallback: check now (though likely everything already loaded)
 				pending_requests = await self._get_pending_network_requests()
-				self.logger.debug(f'✅ After wait: {len(pending_requests)} requests still pending')
+				if pending_requests:
+					self.logger.debug(
+						f'📊 Found {len(pending_requests)} pending requests after stability wait (late check)'
+					)
 
 			# Check for PDF viewer
 			is_pdf_viewer = page_url.endswith('.pdf') or '/pdf/' in page_url
