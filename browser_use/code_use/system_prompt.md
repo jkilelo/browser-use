@@ -251,36 +251,76 @@ else:
 ### Wait for Dynamic Content (CRITICAL)
 Modern sites load prices/data asynchronously. ALWAYS wait for real content before extraction:
 
-```js wait_for_element
+```js wait_for_content_loaded
 (function(params){
 	const selector = params.selector;
 	const maxWaitMs = params.max_wait_ms || 10000;
+	const minElements = params.min_elements || 1;
 	const checkIntervalMs = 500;
 	const startTime = Date.now();
 
-	const checkElement = () => {
-		const el = document.querySelector(selector);
-		if (!el) return false;
-
-		const text = el.textContent.trim();
-		const isPlaceholder = !text ||
+	const isPlaceholder = (text) => {
+		if (!text) return true;
+		text = text.trim();
+		return text === '' ||
 			text === '$0.00' ||
 			text === '0.00' ||
 			text === 'Loading...' ||
 			text === '...' ||
-			text.includes('placeholder');
+			text === 'undefined' ||
+			text === 'null' ||
+			text.includes('placeholder') ||
+			text.includes('loading');
+	};
 
-		return !isPlaceholder;
+	const checkContent = () => {
+		const elements = document.querySelectorAll(selector);
+
+		if (elements.length < minElements) {
+			return {ready: false, reason: 'not_enough_elements', count: elements.length};
+		}
+
+		let realContentCount = 0;
+		let placeholderCount = 0;
+
+		elements.forEach(el => {
+			const text = el.textContent || el.value || el.getAttribute('data-price') || '';
+			if (isPlaceholder(text)) {
+				placeholderCount++;
+			} else {
+				realContentCount++;
+			}
+		});
+
+		if (realContentCount >= minElements) {
+			return {ready: true, real: realContentCount, placeholders: placeholderCount};
+		}
+
+		return {ready: false, reason: 'placeholders', real: realContentCount, placeholders: placeholderCount};
 	};
 
 	return new Promise((resolve) => {
 		const interval = setInterval(() => {
-			if (checkElement()) {
+			const status = checkContent();
+
+			if (status.ready) {
 				clearInterval(interval);
-				resolve({success: true, elapsed_ms: Date.now() - startTime});
-			} else if (Date.now() - startTime > maxWaitMs) {
+				resolve({
+					success: true,
+					elapsed_ms: Date.now() - startTime,
+					elements: status.real,
+					placeholders: status.placeholders || 0
+				});
+			} else if (Date.now() - startTime >= maxWaitMs) {
 				clearInterval(interval);
-				resolve({success: false, elapsed_ms: Date.now() - startTime});
+				resolve({
+					success: false,
+					elapsed_ms: Date.now() - startTime,
+					reason: status.reason,
+					elements: status.real || 0,
+					placeholders: status.placeholders || 0,
+					count: status.count || 0
+				});
 			}
 		}, checkIntervalMs);
 	});
@@ -289,19 +329,51 @@ Modern sites load prices/data asynchronously. ALWAYS wait for real content befor
 
 **Usage pattern for extraction**:
 ```python
-result = await evaluate(wait_for_element, variables={
-	'selector': '.price',
-	'max_wait_ms': 10000
+result = await evaluate(wait_for_content_loaded, variables={
+	'selector': '.product .price',
+	'max_wait_ms': 10000,
+	'min_elements': 1
 })
 
 if result['success']:
-	print(f"OK Element loaded in {result['elapsed_ms']}ms")
+	print(f"OK {result['elements']} elements loaded in {result['elapsed_ms']}ms")
 	products = await evaluate(extract_products)
 else:
-	print(f"WARN Element not loaded after {result['elapsed_ms']}ms, trying fallback")
+	if result.get('reason') == 'not_enough_elements':
+		print(f"WARN Only {result['count']} elements found after {result['elapsed_ms']}ms")
+	else:
+		print(f"WARN {result['placeholders']} placeholders, {result['elements']} real")
+
 	await scroll(down=True, pages=0.5)
 	await asyncio.sleep(2)
 	products = await evaluate(extract_products)
+```
+
+**Check page ready state BEFORE waiting for specific content**:
+```js check_page_ready
+(function(){
+	const readyState = document.readyState;
+	const hasActiveRequests = window.performance.getEntriesByType('resource')
+		.some(r => !r.responseEnd);
+
+	return {
+		ready_state: readyState,
+		is_complete: readyState === 'complete',
+		has_active_requests: hasActiveRequests
+	};
+})()
+```
+
+```python
+await navigate('https://example.com/products')
+await asyncio.sleep(2)
+
+page_ready = await evaluate(check_page_ready)
+if not page_ready['is_complete']:
+	print(f"WARN Page not complete: {page_ready['ready_state']}, waiting...")
+	await asyncio.sleep(3)
+
+print(f"OK Page ready: {page_ready['ready_state']}")
 ```
 
 ### Handle Dynamic/Obfuscated Classes
@@ -368,11 +440,14 @@ filtered_count = await evaluate(product_count)
 print(f"OK Page loaded with {filtered_count} products")
 
 if filtered_count > 0:
-	wait_result = await evaluate(wait_for_element, variables={'selector': '.product .price'})
+	wait_result = await evaluate(wait_for_content_loaded, variables={
+		'selector': '.product .price',
+		'min_elements': 3
+	})
 	if wait_result['success']:
-		print(f"OK Content loaded, ready to extract")
+		print(f"OK {wait_result['elements']} prices loaded, ready to extract")
 	else:
-		print(f"WARN Prices still loading after {wait_result['elapsed_ms']}ms")
+		print(f"WARN {wait_result.get('reason')}: {wait_result.get('count', 0)} elements")
 		await asyncio.sleep(2)
 ```
 ---
@@ -508,17 +583,22 @@ except Exception as e:
 	print(f"Error: {e}")
 ```
 
-### Step 5: Wait for Dynamic Content if needed, Then Extract
+### Step 5: Wait for Dynamic Content, Then Extract
 ```python
-wait_result = await evaluate(wait_for_element, variables={
+page_ready = await evaluate(check_page_ready)
+print(f"Page state: {page_ready['ready_state']}")
+
+wait_result = await evaluate(wait_for_content_loaded, variables={
 	'selector': '.product .price',
-	'max_wait_ms': 10000
+	'max_wait_ms': 10000,
+	'min_elements': 3
 })
 
 if wait_result['success']:
-	print(f"OK Prices loaded in {wait_result['elapsed_ms']}ms")
+	print(f"OK {wait_result['elements']} prices loaded in {wait_result['elapsed_ms']}ms")
 else:
-	print(f"WARN Timeout after {wait_result['elapsed_ms']}ms, checking if data present anyway")
+	print(f"WARN {wait_result.get('reason')}: only {wait_result.get('elements', 0)} real")
+	await asyncio.sleep(2)
 ```
 
 ### Step 6: Write General Extraction Function
