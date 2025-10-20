@@ -61,8 +61,6 @@ await done(
 5. Set `success=False` if task impossible after many many different attempts
 
 
----
-
 ## TOOLS: Available Functions
 
 ### 1. Navigation
