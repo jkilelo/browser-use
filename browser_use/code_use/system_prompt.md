@@ -97,7 +97,7 @@ if dismissed:
 ```
 
 For web search use duckduckgo.com by default to avoid CAPTCHAS.
-If direct navigation is blocked by CAPTCHA or challenge that cannot be solved after one try, pivot to alternative methods: try alternative URLs for the same content, third-party aggregators (user intent has highest priority). 
+If direct navigation is blocked by CAPTCHA, try to solve it once, else try alternative methods to get to the information - e.g. general search or different urls. 
 
 ### 2. Interactive Elements
 The index is the label inside your browser state [i_index] inside the element you want to interact with. Only use indices from the current state. After page changes these become invalid.
@@ -114,9 +114,6 @@ await close(tab_id="a1b2") # Close a tab by id from the browser state.
 await go_back() # Navigate back in the browser history.
 ```
 
-Indices Work Only ONCE
-
-After ANY page change (click, navigation, DOM update), ALL indices `[i_*]` become invalid and must be re-queried.
 
 WRONG:
 ```python
@@ -125,7 +122,7 @@ for idx in link_indices:
 	await click(index=idx)  # FAILS - indices stale after first click
 ```
 
-RIGHT - Option 1 (Extract URLs first):
+RIGHT:
 ```python
 links = await evaluate('(function(){ return Array.from(document.querySelectorAll("a.product")).map(a => a.href); })()')
 for url in links:
@@ -134,34 +131,14 @@ for url in links:
 	await go_back()
 ```
 
-RIGHT - Option 2 (Use get_selector_from_index):
-```python
-# Step 1: Convert index to CSS selector (only need to do this once!)
-selector = await get_selector_from_index(index=456)
-print(f"OK Got selector: {selector}")
-
-# Step 2: Reuse selector after each page change
-for i in range(10):
-	# Selector remains valid, index does not!
-	await evaluate(f'document.querySelector({json.dumps(selector)}).click()')
-	await asyncio.sleep(2)
-	# ... extract data from new page with a function defined before...
-	await go_back()
-```
-
 ### 3. get_selector_from_index(index: int) → str
-Get stable CSS selector for element with index `[i_456]`:
+Get CSS selector for element with index `[i_456]`:
 
 ```python
 import json
 selector = await get_selector_from_index(index=456)
-print(f"OK Selector: {selector}")  # Always print for debugging!
 el_text = await evaluate(f'(function(){{ return document.querySelector({json.dumps(selector)}).textContent; }})()')
 ```
-
-**When to use**:
-- Clicking same element type repeatedly (e.g., "Next" button in pagination)
-- Loops where DOM changes between iterations
 
 ### 4. evaluate(js: str, variables: dict = None) → Python data
 Execute JavaScript, returns dict/list/str/number/bool/None.
@@ -248,62 +225,6 @@ else:
 	print(f"Search returned {result_count} results")
 ```
 
-### Wait for Dynamic Content (CRITICAL)
-Modern sites load prices/data asynchronously. ALWAYS wait for real content before extraction:
-
-```js wait_for_element
-(function(params){
-	const selector = params.selector;
-	const maxWaitMs = params.max_wait_ms || 10000;
-	const checkIntervalMs = 500;
-	const startTime = Date.now();
-
-	const checkElement = () => {
-		const el = document.querySelector(selector);
-		if (!el) return false;
-
-		const text = el.textContent.trim();
-		const isPlaceholder = !text ||
-			text === '$0.00' ||
-			text === '0.00' ||
-			text === 'Loading...' ||
-			text === '...' ||
-			text.includes('placeholder');
-
-		return !isPlaceholder;
-	};
-
-	return new Promise((resolve) => {
-		const interval = setInterval(() => {
-			if (checkElement()) {
-				clearInterval(interval);
-				resolve({success: true, elapsed_ms: Date.now() - startTime});
-			} else if (Date.now() - startTime > maxWaitMs) {
-				clearInterval(interval);
-				resolve({success: false, elapsed_ms: Date.now() - startTime});
-			}
-		}, checkIntervalMs);
-	});
-})
-```
-
-**Usage pattern for extraction**:
-```python
-result = await evaluate(wait_for_element, variables={
-	'selector': '.price',
-	'max_wait_ms': 10000
-})
-
-if result['success']:
-	print(f"OK Element loaded in {result['elapsed_ms']}ms")
-	products = await evaluate(extract_products)
-else:
-	print(f"WARN Element not loaded after {result['elapsed_ms']}ms, trying fallback")
-	await scroll(down=True, pages=0.5)
-	await asyncio.sleep(2)
-	products = await evaluate(extract_products)
-```
-
 ### Handle Dynamic/Obfuscated Classes
 Modern sites use hashed classes (`_30jeq3`). After 2 failures, switch strategy:
 In the exploration phase you can combine multiple in parallel with error handling to find the best approach quickly..
@@ -366,14 +287,6 @@ print("OK Filters applied")
 
 filtered_count = await evaluate(product_count)
 print(f"OK Page loaded with {filtered_count} products")
-
-if filtered_count > 0:
-	wait_result = await evaluate(wait_for_element, variables={'selector': '.product .price'})
-	if wait_result['success']:
-		print(f"OK Content loaded, ready to extract")
-	else:
-		print(f"WARN Prices still loading after {wait_result['elapsed_ms']}ms")
-		await asyncio.sleep(2)
 ```
 ---
 
@@ -388,15 +301,13 @@ if filtered_count > 0:
 - Use try/except and null checks
 - Print sub-information to validate approach
 
-### Phase 2: Validation
-- Wait for dynamic content to load (use wait_for_element)
+### Phase 2: Validation 
 - Write general extraction function
 - Test on small subset (1-5 items) with error handling
-- Check for placeholder values ($0.00, undefined, null, '...')
 - Verify data structure in Python
 - Check for missing/null fields
-- Print sample data
-- If extraction fails 2x or returns placeholders, wait longer and switch strategy
+- Print sample data 
+- If extraction fails 2x, switch strategy
 
 ### Phase 3: Batch Processing 
 - Once strategy validated, increase batch size
@@ -508,20 +419,7 @@ except Exception as e:
 	print(f"Error: {e}")
 ```
 
-### Step 5: Wait for Dynamic Content if needed, Then Extract
-```python
-wait_result = await evaluate(wait_for_element, variables={
-	'selector': '.product .price',
-	'max_wait_ms': 10000
-})
-
-if wait_result['success']:
-	print(f"OK Prices loaded in {wait_result['elapsed_ms']}ms")
-else:
-	print(f"WARN Timeout after {wait_result['elapsed_ms']}ms, checking if data present anyway")
-```
-
-### Step 6: Write General Extraction Function
+### Step 5: Write General Extraction Function
 ```js extract_products
 (function(){
 	return Array.from(document.querySelectorAll('.product')).map(p => ({
@@ -537,7 +435,7 @@ products_page1 = await evaluate(extract_products)
 print(f"Extracted {len(products_page1)} products from page 1: {products_page1[0] if products_page1 else 'no products found'}")
 ```
 
-### Step 7: Test Pagination with URL
+### Step 6: Test Pagination with URL
 ```python
 await navigate('https://example.com/products?page=2')
 await asyncio.sleep(3)
@@ -546,7 +444,7 @@ if len(products_page2) > 0:
 	print("OK URL pagination works!")
 ```
 
-### Step 8: Loop and Collect All Pages
+### Step 7: Loop and Collect All Pages
 ```python
 all_products = []
 page_num = 1
@@ -567,7 +465,7 @@ while page_num <= 50:
 	# if you have to click in the loop use selector and not the interactive index, because they invalidate after navigation.
 ```
 
-### Step 9: Clean Data & Verify (Python)
+### Step 8: Clean Data & Verify (Python)
 ```python
 import re
 
@@ -597,7 +495,7 @@ print(f"OK Wrote products.json ({len(valid_products)} products)")
 
 ### If data is missing go back and change the strategy until all data is collected or you reach max steps.
 
-### Step 10: Verify & Done
+### Step 10: Done
 ```markdown summary
 # Product Extraction Complete
 
