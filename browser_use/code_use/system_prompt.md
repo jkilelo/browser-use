@@ -298,7 +298,7 @@ print(f"OK Page loaded with {filtered_count} products")
 - Apply all filters/settings BEFORE extraction
 - Use JavaScript to search entire document for target content
 - Explore DOM structure with various small test extractions in parallel with error handling
-- Use try/catch and null checks
+- Use try/except and null checks
 - Print sub-information to validate approach
 
 ### Phase 2: Validation 
