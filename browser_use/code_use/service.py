@@ -289,7 +289,7 @@ class CodeUseAgent:
 					browser_state = None
 
 					for i, block_key in enumerate(python_blocks):
-						logger.info(f'Executing Python block {i+1}/{len(python_blocks)}')
+						logger.info(f'Executing Python block {i + 1}/{len(python_blocks)}')
 						block_code = all_blocks[block_key]
 						block_output, block_error, block_browser_state = await self._execute_code(block_code)
 
@@ -383,7 +383,9 @@ class CodeUseAgent:
 					else:
 						# At limits - skip validation and accept done()
 						if self._validation_count >= self.max_validations:
-							logger.info(f'Reached max validations ({self.max_validations}) - skipping validation and accepting done()')
+							logger.info(
+								f'Reached max validations ({self.max_validations}) - skipping validation and accepting done()'
+							)
 						else:
 							logger.info('At step/error limits - skipping validation')
 						if final_result:
@@ -595,7 +597,22 @@ class CodeUseAgent:
 	def _print_variable_info(self, var_name: str, value: Any) -> None:
 		"""Print compact info about a variable assignment."""
 		# Skip built-in modules and known imports
-		skip_names = {'json', 'asyncio', 'csv', 're', 'datetime', 'Path', 'pd', 'np', 'plt', 'requests', 'BeautifulSoup', 'PdfReader', 'browser', 'file_system'}
+		skip_names = {
+			'json',
+			'asyncio',
+			'csv',
+			're',
+			'datetime',
+			'Path',
+			'pd',
+			'np',
+			'plt',
+			'requests',
+			'BeautifulSoup',
+			'PdfReader',
+			'browser',
+			'file_system',
+		}
 		if var_name in skip_names:
 			return
 
@@ -1063,15 +1080,41 @@ __code_exec_coro__ = __code_exec__()
 						unique_requests.append(req)
 
 				lines.append(f'**⏳ Loading:** {len(unique_requests)} network requests still loading')
-				# Show up to 20 unique requests with truncated URLs (30 chars max)
+				# Show up to 20 unique requests with smart URL shortening (75 chars max, domain kept intact)
 				for req in unique_requests[:20]:
 					duration_sec = req.loading_duration_ms / 1000
-					url_display = req.url if len(req.url) <= 30 else req.url[:27] + '...'
+
+					# Smart URL shortening - keep domain intact, shorten path
+					if len(req.url) <= 75:
+						url_display = req.url
+					else:
+						try:
+							from urllib.parse import urlparse
+
+							parsed = urlparse(req.url)
+							base = f'{parsed.scheme}://{parsed.netloc}'
+							path = parsed.path
+
+							# Shorten path: first 8 chars + ... + last 4 chars
+							# Note: query strings will be lost when shortening
+							if len(path) > 12:
+								path = path[:8] + '...' + path[-4:]
+
+							url_display = base + path
+							# Cap at 75 chars total
+							if len(url_display) > 75:
+								url_display = url_display[:72] + '...'
+						except Exception:
+							# Fallback to simple truncation if URL parsing fails
+							url_display = req.url[:72] + '...'
+
 					logger.info(f'  - [{duration_sec:.1f}s] {url_display}')
 					lines.append(f'  - [{duration_sec:.1f}s] {url_display}')
 				if len(unique_requests) > 20:
 					lines.append(f'  - ... and {len(unique_requests) - 20} more')
-				lines.append('**Tip:** Content may still be loading. Consider waiting with `await asyncio.sleep(1)` if data is missing.')
+				lines.append(
+					'**Tip:** Content may still be loading. Consider waiting with `await asyncio.sleep(1)` if data is missing.'
+				)
 				lines.append('')
 
 			# Check if jQuery is available on the page
@@ -1125,7 +1168,6 @@ __code_exec_coro__ = __code_exec__()
 			code_block_vars_sorted = sorted(code_block_vars)
 
 			# Add jQuery availability info alongside variables
-
 
 			# Build available line with code blocks and variables
 			parts = []

@@ -360,6 +360,7 @@ class BrowserSession(BaseModel):
 	_screenshot_watchdog: Any | None = PrivateAttr(default=None)
 	_permissions_watchdog: Any | None = PrivateAttr(default=None)
 	_recording_watchdog: Any | None = PrivateAttr(default=None)
+	_traffic_watchdog: Any | None = PrivateAttr(default=None)
 
 	_logger: Any = PrivateAttr(default=None)
 
@@ -427,6 +428,7 @@ class BrowserSession(BaseModel):
 		self._screenshot_watchdog = None
 		self._permissions_watchdog = None
 		self._recording_watchdog = None
+		self._traffic_watchdog = None
 
 	def model_post_init(self, __context) -> None:
 		"""Register event handlers after model initialization."""
@@ -1187,6 +1189,7 @@ class BrowserSession(BaseModel):
 		from browser_use.browser.watchdogs.screenshot_watchdog import ScreenshotWatchdog
 		from browser_use.browser.watchdogs.security_watchdog import SecurityWatchdog
 		from browser_use.browser.watchdogs.storage_state_watchdog import StorageStateWatchdog
+		from browser_use.browser.watchdogs.traffic_watchdog import TrafficWatchdog
 
 		# Initialize CrashWatchdog
 		# CrashWatchdog.model_rebuild()
@@ -1236,6 +1239,11 @@ class BrowserSession(BaseModel):
 		# self.event_bus.on(BrowserKillEvent, self._local_browser_watchdog.on_BrowserKillEvent)
 		# self.event_bus.on(BrowserStopEvent, self._local_browser_watchdog.on_BrowserStopEvent)
 		self._local_browser_watchdog.attach_to_session()
+
+		# Initialize TrafficWatchdog (CDP-based network request tracking for detecting page load stability)
+		TrafficWatchdog.model_rebuild()
+		self._traffic_watchdog = TrafficWatchdog(event_bus=self.event_bus, browser_session=self)
+		self._traffic_watchdog.attach_to_session()
 
 		# Initialize SecurityWatchdog (hooks NavigationWatchdog and implements allowed_domains restriction)
 		SecurityWatchdog.model_rebuild()

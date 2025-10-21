@@ -20,7 +20,7 @@ from browser_use.observability import observe_debug
 from browser_use.utils import time_execution_async
 
 if TYPE_CHECKING:
-	from browser_use.browser.views import BrowserStateSummary, NetworkRequest, PageInfo
+	from browser_use.browser.views import BrowserStateSummary, PageInfo
 
 
 class DOMWatchdog(BaseWatchdog):
@@ -88,142 +88,6 @@ class DOMWatchdog(BaseWatchdog):
 
 		return json.dumps([])  # Return empty JSON array on error
 
-	async def _get_pending_network_requests(self) -> list['NetworkRequest']:
-		"""Get list of currently pending network requests.
-
-		Uses document.readyState and performance API to detect pending requests.
-		Filters out ads, tracking, and other noise.
-
-		Returns:
-			List of NetworkRequest objects representing currently loading resources
-		"""
-		from browser_use.browser.views import NetworkRequest
-
-		try:
-			if not self.browser_session.agent_focus:
-				return []
-
-			cdp_session = await self.browser_session.get_or_create_cdp_session(focus=True)
-
-			# Use performance API to get pending requests
-			js_code = """
-(function() {
-	const now = performance.now();
-	const resources = performance.getEntriesByType('resource');
-	const pending = [];
-
-	// Check document readyState
-	const docLoading = document.readyState !== 'complete';
-
-	// Common ad/tracking domains and patterns to filter out
-	const adDomains = [
-		// Standard ad/tracking networks
-		'doubleclick.net', 'googlesyndication.com', 'googletagmanager.com',
-		'facebook.net', 'analytics', 'ads', 'tracking', 'pixel',
-		'hotjar.com', 'clarity.ms', 'mixpanel.com', 'segment.com',
-		// Analytics platforms
-		'demdex.net', 'omtrdc.net', 'adobedtm.com', 'ensighten.com',
-		'newrelic.com', 'nr-data.net', 'google-analytics.com',
-		// Social media trackers
-		'connect.facebook.net', 'platform.twitter.com', 'platform.linkedin.com',
-		// CDN/image hosts (usually not critical for functionality)
-		'.cloudfront.net/image/', '.akamaized.net/image/',
-		// Common tracking paths
-		'/tracker/', '/collector/', '/beacon/', '/telemetry/', '/log/',
-		'/events/', '/eventBatch', '/track.', '/metrics/'
-	];
-
-	// Get resources that are still loading (responseEnd is 0)
-	let totalResourcesChecked = 0;
-	let filteredByResponseEnd = 0;
-	for (const entry of resources) {
-		totalResourcesChecked++;
-		if (entry.responseEnd === 0) {
-			filteredByResponseEnd++;
-			const url = entry.name;
-
-			// Filter out ads and tracking
-			const isAd = adDomains.some(domain => url.includes(domain));
-			if (isAd) continue;
-
-			// Filter out data: URLs and very long URLs (often inline resources)
-			if (url.startsWith('data:') || url.length > 500) continue;
-
-			const loadingDuration = now - entry.startTime;
-
-			// Skip requests that have been loading for >10 seconds (likely stuck/polling)
-			if (loadingDuration > 100000) continue;
-
-			const resourceType = entry.initiatorType || 'unknown';
-
-			// Filter out non-critical resources (images, fonts, icons) if loading >3 seconds
-			const nonCriticalTypes = ['img', 'image', 'icon', 'font'];
-			if (nonCriticalTypes.includes(resourceType) && loadingDuration > 3000) continue;
-
-			// Filter out image URLs even if type is unknown
-			const isImageUrl = /\\.(jpg|jpeg|png|gif|webp|svg|ico)(\\?|$)/i.test(url);
-			if (isImageUrl && loadingDuration > 3000) continue;
-
-			pending.push({
-				url: url,
-				method: 'GET',
-				loading_duration_ms: Math.round(loadingDuration),
-				resource_type: resourceType
-			});
-		}
-	}
-
-	return {
-		pending_requests: pending,
-		document_loading: docLoading,
-		document_ready_state: document.readyState,
-		debug: {
-			total_resources: totalResourcesChecked,
-			with_response_end_zero: filteredByResponseEnd,
-			after_all_filters: pending.length
-		}
-	};
-})()
-"""
-
-			result = await cdp_session.cdp_client.send.Runtime.evaluate(
-				params={'expression': js_code, 'returnByValue': True}, session_id=cdp_session.session_id
-			)
-
-			if result.get('result', {}).get('type') == 'object':
-				data = result['result'].get('value', {})
-				pending = data.get('pending_requests', [])
-				doc_state = data.get('document_ready_state', 'unknown')
-				doc_loading = data.get('document_loading', False)
-				debug_info = data.get('debug', {})
-
-				# Debug logging
-				self.logger.info(
-					f'🔍 Network check: document.readyState={doc_state}, loading={doc_loading}, '
-					f'total_resources={debug_info.get("total_resources", 0)}, '
-					f'responseEnd=0: {debug_info.get("with_response_end_zero", 0)}, '
-					f'after_filters={len(pending)}'
-				)
-
-				# Convert to NetworkRequest objects
-				network_requests = []
-				for req in pending[:20]:  # Limit to 20 to avoid overwhelming the context
-					network_requests.append(
-						NetworkRequest(
-							url=req['url'],
-							method=req.get('method', 'GET'),
-							loading_duration_ms=req.get('loading_duration_ms', 0.0),
-							resource_type=req.get('resource_type'),
-						)
-					)
-
-				return network_requests
-
-		except Exception as e:
-			self.logger.debug(f'Failed to get pending network requests: {e}')
-
-		return []
-
 	@observe_debug(ignore_input=True, ignore_output=True, name='browser_state_request_event')
 	async def on_BrowserStateRequestEvent(self, event: BrowserStateRequestEvent) -> 'BrowserStateSummary':
 		"""Handle browser state request by coordinating DOM building and screenshot capture.
@@ -251,29 +115,38 @@ class DOMWatchdog(BaseWatchdog):
 		# check if we should skip DOM tree build for pointless pages
 		not_a_meaningful_website = page_url.lower().split(':', 1)[0] not in ('http', 'https')
 
-		# Check for pending network requests BEFORE waiting (so we can see what's loading)
-		pending_requests_before_wait = []
-		if not not_a_meaningful_website:
+		# Get pending network requests from TrafficWatchdog (CDP-based, real-time)
+		pending_requests = []
+		if not not_a_meaningful_website and self.browser_session._traffic_watchdog:
 			try:
-				pending_requests_before_wait = await self._get_pending_network_requests()
-				if pending_requests_before_wait:
-					self.logger.debug(
-						f'🔍 Found {len(pending_requests_before_wait)} pending requests before stability wait'
-					)
+				target_id = self.browser_session.agent_focus.target_id if self.browser_session.agent_focus else None
+				if target_id:
+					# Get pending requests from TrafficWatchdog
+					raw_requests = self.browser_session._traffic_watchdog.get_pending_requests(target_id)
+
+					# Convert to NetworkRequest objects for LLM presentation
+					from browser_use.browser.views import NetworkRequest
+
+					for req in raw_requests[:20]:  # Limit to 20
+						pending_requests.append(
+							NetworkRequest(
+								url=req['url'],
+								method='GET',
+								loading_duration_ms=(asyncio.get_event_loop().time() - req['timestamp']) * 1000,
+								resource_type=req.get('resource_type'),
+							)
+						)
+
+					if pending_requests:
+						self.logger.debug(f'🔍 Found {len(pending_requests)} pending requests from TrafficWatchdog')
 			except Exception as e:
-				self.logger.debug(f'Failed to get pending requests before wait: {e}')
-		pending_requests = pending_requests_before_wait
-		# Wait for page stability using browser profile settings (main branch pattern)
-		if not not_a_meaningful_website:
-			self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ⏳ Waiting for page stability...')
-			try:
-				if pending_requests_before_wait:
-					await asyncio.sleep(1)
-				self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: ✅ Page stability complete')
-			except Exception as e:
-				self.logger.warning(
-					f'🔍 DOMWatchdog.on_BrowserStateRequestEvent: Network waiting failed: {e}, continuing anyway...'
-				)
+				self.logger.debug(f'Failed to get pending requests from TrafficWatchdog: {e}')
+
+		# Wait for network stability if requests are pending
+		if not not_a_meaningful_website and pending_requests:
+			self.logger.debug('🔍 DOMWatchdog: ⏳ Waiting 1s for network stability...')
+			await asyncio.sleep(1)
+			self.logger.debug('🔍 DOMWatchdog: ✅ Stability wait complete')
 
 		# Get tabs info once at the beginning for all paths
 		self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: Getting tabs info...')
@@ -381,7 +254,13 @@ class DOMWatchdog(BaseWatchdog):
 
 			# Apply Python-based highlighting if both DOM and screenshot are available
 			# COMMENTED OUT: Removes highlight numbers from screenshots for code-use mode
-			if False and screenshot_b64 and content and content.selector_map and self.browser_session.browser_profile.highlight_elements:
+			if (
+				False
+				and screenshot_b64
+				and content
+				and content.selector_map
+				and self.browser_session.browser_profile.highlight_elements
+			):
 				try:
 					self.logger.debug('🔍 DOMWatchdog.on_BrowserStateRequestEvent: 🎨 Applying Python-based highlighting...')
 					from browser_use.browser.python_highlights import create_highlighted_screenshot_async
@@ -451,7 +330,6 @@ class DOMWatchdog(BaseWatchdog):
 					pixels_right=0,
 				)
 
-			
 			# Check for PDF viewer
 			is_pdf_viewer = page_url.endswith('.pdf') or '/pdf/' in page_url
 
@@ -607,25 +485,6 @@ class DOMWatchdog(BaseWatchdog):
 		except Exception as e:
 			self.logger.warning(f'📸 Clean screenshot failed: {type(e).__name__}: {e}')
 			raise
-
-	async def _wait_for_stable_network(self):
-		"""Wait for page stability - simplified for CDP-only branch."""
-		start_time = time.time()
-
-		# Apply minimum wait time first (let page settle)
-		min_wait = self.browser_session.browser_profile.minimum_wait_page_load_time
-		if min_wait > 0:
-			self.logger.debug(f'⏳ Minimum wait: {min_wait}s')
-			await asyncio.sleep(min_wait)
-
-		# Apply network idle wait time (for dynamic content like iframes)
-		network_idle_wait = self.browser_session.browser_profile.wait_for_network_idle_page_load_time
-		if network_idle_wait > 0:
-			self.logger.debug(f'⏳ Network idle wait: {network_idle_wait}s')
-			await asyncio.sleep(network_idle_wait)
-
-		elapsed = time.time() - start_time
-		self.logger.debug(f'✅ Page stability wait completed in {elapsed:.2f}s')
 
 	async def _get_page_info(self) -> 'PageInfo':
 		"""Get comprehensive page information using a single CDP call.
