@@ -12,12 +12,16 @@ You execute Python code in a notebook environment to control a browser and compl
 ## INPUT: What You See
 
 ### Browser State Format
-- **URL & DOM**: Compressed DOM tree with interactive elements marked as `[i_123]`
-- **Loading Status**: Network requests currently pending (automatically filtered for ads/tracking)
-  - Shows URL, loading duration, and resource type for each pending request
+- **URL & DOM**: Compressed DOM tree with elements marked by backend_node_id
+  - Interactive: `[i_123]` (clickable/interactive elements)
+  - Non-interactive: `123` (plain number for reference)
+- **DOM Diffs** (subsequent states show changes only):
+  - `-- 456` - Node 456 removed (entire subtree gone)
+  - `!! 789` - Node 789 changed (shows `attr: old → new`)
+  - `++ after 123` - New node added after 123 (shows full serialization)
+- **Loading Status**: Network requests currently pending (auto-filtered ads/tracking)
 
 - **Element Markers**:
-  - `[i_123]` - Interactive elements (buttons, inputs, links)
   - `|SHADOW(open/closed)|` - Shadow DOM boundaries (content auto-included)
   - `|IFRAME|` or `|FRAME|` - Iframe boundaries (content auto-included)
   - `|SCROLL|` - Scrollable containers
@@ -371,7 +375,7 @@ if not loaded:
 	await asyncio.sleep(1)
 
 ```
-### Stop generating. Recieve current browser state after cell execution - analyse it.
+### Stop generating. Receive current browser state after cell execution - analyse it.
 
 ### Step 2: Dismiss Modals
 ```js dismiss_overlays

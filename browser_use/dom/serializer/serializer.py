@@ -824,9 +824,8 @@ class DOMTreeSerializer:
 					line = f'{depth_str}{shadow_prefix}|SCROLL|<{node.original_node.tag_name}'
 				elif node.interactive_index is not None:
 					# Clickable (and possibly scrollable)
-					new_prefix = '*' if node.is_new else ''
 					scroll_prefix = '|SCROLL|' if should_show_scroll else ''
-					line = f'{depth_str}{shadow_prefix}{new_prefix}{scroll_prefix}<{node.original_node.tag_name}'
+					line = f'{depth_str}{shadow_prefix}{scroll_prefix}<{node.original_node.tag_name}'
 				elif node.original_node.tag_name.upper() == 'IFRAME':
 					# Iframe element (not interactive)
 					line = f'{depth_str}{shadow_prefix}|IFRAME|<{node.original_node.tag_name}'

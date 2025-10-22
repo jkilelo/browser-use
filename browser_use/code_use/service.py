@@ -119,6 +119,12 @@ class CodeUseAgent:
 		self._step_start_time: float = 0.0  # Track step start time for duration calculation
 		self.usage_summary = None  # Track usage summary across run for history property
 
+		# Diff chain management
+		self._diff_chain_count = 0  # Track number of diffs in current chain
+		self._max_diff_chain_length = 5  # Maximum number of diffs before breaking chain
+		self._diff_chain_threshold = 0.5  # Break chain if diff size exceeds 50% of full state
+		self._base_state_size: int | None = None  # Size of base full state for comparison
+
 		# Initialize screenshot service for eval tracking
 		self.id = uuid7str()
 		timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -196,7 +202,8 @@ class CodeUseAgent:
 					try:
 						state = await self._get_browser_state()
 						if state and state.dom_state:
-							cell.browser_state = self._serialize_browser_state(state)
+							dom_structure, metadata = self._serialize_browser_state(state)
+							cell.browser_state = f'{dom_structure}\n\n{metadata}'
 							cell.dom_tree = state.dom_state._root
 					except Exception as state_error:
 						logger.debug(f'Failed to capture browser state for initial navigation cell: {state_error}')
@@ -526,9 +533,11 @@ class CodeUseAgent:
 		"""
 		# Prepare messages for this request
 		# Add browser state to permanent history if available
+		# NOTE: We only add the DOM structure to history, NOT the metadata
+		# The metadata (URL, title, variables, etc.) is only sent for the CURRENT state
 		if self._last_browser_state_summary:
-			# Serialize browser state to text (with diff if we have previous tree)
-			browser_state_text = self._serialize_browser_state(
+			# Serialize browser state to TWO messages (DOM structure, then metadata)
+			dom_structure_text, metadata_text = self._serialize_browser_state(
 				self._last_browser_state_summary, previous_tree=self._previous_dom_tree
 			)
 
@@ -536,14 +545,14 @@ class CodeUseAgent:
 			if self._last_browser_state_summary.dom_state and self._last_browser_state_summary.dom_state._root:
 				self._previous_dom_tree = self._last_browser_state_summary.dom_state._root
 
-			# Create message with optional screenshot
+			# Add DOM structure to permanent history (with screenshot if available)
 			if self.use_vision and self._last_browser_state_summary.screenshot:
-				# Build content with text + screenshot
+				# Build content with DOM structure + screenshot
 				content_parts: list[ContentPartTextParam | ContentPartImageParam] = [
-					ContentPartTextParam(text=browser_state_text)
+					ContentPartTextParam(text=dom_structure_text)
 				]
 
-				# Add screenshot
+				# Add screenshot to DOM message
 				content_parts.append(
 					ContentPartImageParam(
 						image_url=ImageURL(
@@ -554,17 +563,25 @@ class CodeUseAgent:
 					)
 				)
 
-				# Add to permanent history
 				self._llm_messages.append(UserMessage(content=content_parts))
 			else:
-				# Text only - add to permanent history
-				self._llm_messages.append(UserMessage(content=browser_state_text))
+				# Text only DOM structure
+				self._llm_messages.append(UserMessage(content=dom_structure_text))
+
+			# Store metadata separately to send ONLY for current request (not in permanent history)
+			self._current_metadata = metadata_text
 
 			# Clear browser state after adding to history
 			self._last_browser_state_summary = None
 
-		# Call LLM with message history (now includes browser state in permanent history)
-		response = await self.llm.ainvoke(self._llm_messages)
+		# Now add the metadata message ONLY for the current state (not stored in history)
+		messages_for_llm = self._llm_messages.copy()
+		if hasattr(self, '_current_metadata') and self._current_metadata:
+			# Add metadata as temporary message for THIS request only (text only, no screenshot)
+			messages_for_llm.append(UserMessage(content=self._current_metadata))
+
+		# Call LLM with temporary messages (includes current metadata, not in permanent history)
+		response = await self.llm.ainvoke(messages_for_llm)
 
 		# Store usage stats from this LLM call
 		self._last_llm_usage = response.usage
@@ -868,7 +885,8 @@ __code_exec_coro__ = __code_exec__()
 					state = await self._get_browser_state()
 					self._last_browser_state_summary = state
 					if state and state.dom_state:
-						browser_state = self._serialize_browser_state(state)
+						dom_structure, metadata = self._serialize_browser_state(state)
+						browser_state = f'{dom_structure}\n\n{metadata}'
 						cell.dom_tree = state.dom_state._root
 				except Exception as e:
 					logger.warning(f'Failed to get browser state: {e}')
@@ -893,7 +911,8 @@ __code_exec_coro__ = __code_exec__()
 						state = await self._get_browser_state()
 						self._last_browser_state_summary = state
 						if state:
-							browser_state = self._serialize_browser_state(state)
+							dom_structure, metadata = self._serialize_browser_state(state)
+							browser_state = f'{dom_structure}\n\n{metadata}'
 					except Exception as browser_state_error:
 						logger.warning(f'Failed to get browser state after error: {browser_state_error}')
 
@@ -913,7 +932,8 @@ __code_exec_coro__ = __code_exec__()
 						state = await self._get_browser_state()
 						self._last_browser_state_summary = state
 						if state:
-							browser_state = self._serialize_browser_state(state)
+							dom_structure, metadata = self._serialize_browser_state(state)
+							browser_state = f'{dom_structure}\n\n{metadata}'
 					except Exception as browser_state_error:
 						logger.warning(f'Failed to get browser state after error: {browser_state_error}')
 
@@ -1018,7 +1038,8 @@ __code_exec_coro__ = __code_exec__()
 					state = await self._get_browser_state()
 					self._last_browser_state_summary = state
 					if state:
-						browser_state = self._serialize_browser_state(state)
+						dom_structure, metadata = self._serialize_browser_state(state)
+						browser_state = f'{dom_structure}\n\n{metadata}'
 				except Exception as browser_state_error:
 					logger.warning(f'Failed to get browser state after error: {browser_state_error}')
 
@@ -1042,7 +1063,7 @@ __code_exec_coro__ = __code_exec__()
 			logger.error(f'Failed to get browser state: {e}')
 			return None
 
-	def _serialize_browser_state(self, state: Any, previous_tree: 'SimplifiedNode | None' = None) -> str:
+	def _serialize_browser_state(self, state: Any, previous_tree: 'SimplifiedNode | None' = None) -> tuple[str, str]:
 		"""Serialize BrowserStateSummary to text for LLM.
 
 		Args:
@@ -1050,32 +1071,102 @@ __code_exec_coro__ = __code_exec__()
 			previous_tree: Optional previous SimplifiedNode tree for diff computation
 
 		Returns:
-			Formatted browser state text (full state or diff if previous_tree provided)
+			Tuple of (dom_structure_text, metadata_text) - two separate messages
 		"""
 		if not state or not state.dom_state:
-			return 'Browser state not available'
+			return ('Browser state not available', '')
 
 		dom_state = state.dom_state
 		current_tree = dom_state._root
 
-		# Compute diff if we have both current and previous trees
+		# Determine if we should use diff or full state
+		should_use_diff = False
+		force_full_state = False
+
+		# Check if we should break the chain
 		if previous_tree and current_tree:
-			dom_html = self._compute_dom_diff(previous_tree, current_tree)
-		else:
-			# No previous tree - use full eval_representation
+			# Check chain length limit
+			if self._diff_chain_count >= self._max_diff_chain_length:
+				logger.debug(f'Breaking diff chain: reached max length {self._max_diff_chain_length}')
+				force_full_state = True
+			else:
+				# Compute diff to check size
+				diff_html = self._compute_dom_diff(previous_tree, current_tree)
+				diff_size = len(diff_html)
+
+				# Check if diff is too large compared to base state
+				if self._base_state_size is not None:
+					diff_ratio = diff_size / self._base_state_size if self._base_state_size > 0 else 1.0
+					if diff_ratio > self._diff_chain_threshold:
+						logger.debug(
+							f'Breaking diff chain: diff size {diff_size} is {diff_ratio:.1%} of base state {self._base_state_size} (threshold: {self._diff_chain_threshold:.1%})'
+						)
+						force_full_state = True
+					else:
+						should_use_diff = True
+						dom_html = diff_html
+				else:
+					# No base state size yet, use diff anyway
+					should_use_diff = True
+					dom_html = diff_html
+
+		# Use full state if forced or no previous tree
+		if force_full_state or not should_use_diff:
+			# Break the chain: remove ALL previous [Start of page] messages
+			if force_full_state:
+				self._remove_all_dom_messages()
+
+			# Generate full state
 			dom_html = dom_state.eval_representation()
 			if dom_html == '':
 				dom_html = 'Empty DOM tree (you might have to wait for the page to load)'
 
-		# Format with URL and title header
-		lines = ['## Browser State']
-		lines.append(f'**URL:** {state.url}')
-		lines.append(f'**Title:** {state.title}')
-		lines.append('')
+			# Reset chain tracking
+			self._diff_chain_count = 0
+			self._base_state_size = len(dom_html)
+		else:
+			# Using diff - increment chain counter
+			self._diff_chain_count += 1
+
+		# MESSAGE 1: DOM Structure (clean, no markdown formatting)
+		dom_lines = []
+
+		# Add scroll position hints for DOM
+		if state.page_info:
+			pi = state.page_info
+			pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
+			pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
+
+			if pages_above > 0:
+				dom_html = f'... {pages_above:.1f} pages above \n{dom_html}'
+			else:
+				dom_html = '[Start of page]\n' + dom_html
+
+			if pages_below > 0:
+				dom_html += f'\n... {pages_below:.1f} pages below '
+			else:
+				dom_html += '\n[End of page]'
+
+		# Truncate DOM if too long and notify LLM
+		max_dom_length = 60000
+		if len(dom_html) > max_dom_length:
+			dom_lines.append(dom_html[:max_dom_length])
+			dom_lines.append(
+				f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]'
+			)
+		else:
+			dom_lines.append(dom_html)
+
+		dom_structure_text = '\n'.join(dom_lines)
+
+		# MESSAGE 2: Browser State Metadata
+		metadata_lines = ['## Browser State']
+		metadata_lines.append(f'URL: {state.url}')
+		metadata_lines.append(f'Title: {state.title}')
+		metadata_lines.append('')
 
 		# Add tabs info if multiple tabs exist
 		if len(state.tabs) > 1:
-			lines.append('**Tabs:**')
 			current_target_candidates = []
 			# Find tabs that match current URL and title
 			for tab in state.tabs:
@@ -1085,8 +1176,8 @@ __code_exec_coro__ = __code_exec__()
 
 			for tab in state.tabs:
 				is_current = ' (current)' if tab.target_id == current_target_id else ''
-				lines.append(f'  - Tab {tab.target_id[-4:]}: {tab.url} - {tab.title[:30]}{is_current}')
-			lines.append('')
+				metadata_lines.append(f'Tab {tab.target_id[-4:]}: {tab.url} - {tab.title[:30]}{is_current}')
+			metadata_lines.append('')
 
 		# Add page scroll info if available
 		if state.page_info:
@@ -1095,11 +1186,11 @@ __code_exec_coro__ = __code_exec__()
 			pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
 			total_pages = pi.page_height / pi.viewport_height if pi.viewport_height > 0 else 0
 
-			scroll_info = f'**Page:** {pages_above:.1f} pages above, {pages_below:.1f} pages below'
+			scroll_info = f'Page: {pages_above:.1f} pages above, {pages_below:.1f} pages below'
 			if total_pages > 1.2:  # Only mention total if significantly > 1 page
 				scroll_info += f', {total_pages:.1f} total pages'
-			lines.append(scroll_info)
-			lines.append('')
+			metadata_lines.append(scroll_info)
+			metadata_lines.append('')
 
 		# Add network loading info if there are pending requests
 		if state.pending_network_requests:
@@ -1111,21 +1202,21 @@ __code_exec_coro__ = __code_exec__()
 					seen_urls.add(req.url)
 					unique_requests.append(req)
 
-			lines.append(f'**⏳ Loading:** {len(unique_requests)} network requests still loading')
+			metadata_lines.append(f'⏳ Loading: {len(unique_requests)} network requests still loading')
 			# Show up to 20 unique requests with truncated URLs (30 chars max)
 			for req in unique_requests[:20]:
 				duration_sec = req.loading_duration_ms / 1000
 				url_display = req.url if len(req.url) <= 30 else req.url[:27] + '...'
 				logger.info(f'  - [{duration_sec:.1f}s] {url_display}')
-				lines.append(f'  - [{duration_sec:.1f}s] {url_display}')
+				metadata_lines.append(f'  [{duration_sec:.1f}s] {url_display}')
 			if len(unique_requests) > 20:
-				lines.append(f'  - ... and {len(unique_requests) - 20} more')
-			lines.append(
-				'**Tip:** Content may still be loading. Consider waiting with `await asyncio.sleep(1)` if data is missing.'
+				metadata_lines.append(f'  ... and {len(unique_requests) - 20} more')
+			metadata_lines.append(
+				'Tip: Content may still be loading. Consider waiting with `await asyncio.sleep(1)` if data is missing.'
 			)
-			lines.append('')
+			metadata_lines.append('')
 
-		# Add available variables and functions BEFORE DOM structure
+		# Add available variables and functions
 		# Show useful utilities (json, asyncio, etc.) and user-defined vars, but hide system objects
 		skip_vars = {
 			'browser',
@@ -1188,44 +1279,55 @@ __code_exec_coro__ = __code_exec__()
 							detail = f'{var_name}({type_name}): "{first_20}"'
 					code_block_details.append(detail)
 
-			parts.append(f'**Code block variables:** {" | ".join(code_block_details)}')
+			parts.append(f'Code block variables: {" | ".join(code_block_details)}')
 		if available_vars_sorted:
-			parts.append(f'**Variables:** {", ".join(available_vars_sorted)}')
+			parts.append(f'Variables: {", ".join(available_vars_sorted)}')
 
-		lines.append(f'**Available:** {" | ".join(parts)}')
-		lines.append('')
+		metadata_lines.append(f'Available: {" | ".join(parts)}')
 
-		# Add DOM structure
-		lines.append('**DOM Structure:**')
+		metadata_text = '\n'.join(metadata_lines)
+		return (dom_structure_text, metadata_text)
 
-		# Add scroll position hints for DOM
-		if state.page_info:
-			pi = state.page_info
-			pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
-			pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
+	def _remove_all_dom_messages(self) -> None:
+		"""Remove all [Start of page] messages from LLM history when breaking the diff chain."""
+		# Filter out messages that contain [Start of page] or are DOM-related
+		# We identify DOM messages by checking if they contain "[Start of page]" or are UserMessages with images
+		filtered_messages = []
+		for msg in self._llm_messages:
+			# Keep system messages and task messages
+			if isinstance(msg, SystemMessage):
+				filtered_messages.append(msg)
+			elif isinstance(msg, UserMessage):
+				# Check if this is a DOM message
+				is_dom_message = False
 
-			if pages_above > 0:
-				dom_html = f'... {pages_above:.1f} pages above \n{dom_html}'
+				# Check for text content with [Start of page]
+				if isinstance(msg.content, str):
+					if (
+						'[Start of page]' in msg.content
+						or '## Removed' in msg.content
+						or '## Added' in msg.content
+						or '## Changed' in msg.content
+					):
+						is_dom_message = True
+				# Check for list content (multi-part messages with images)
+				elif isinstance(msg.content, list):
+					for part in msg.content:
+						if isinstance(part, dict) and part.get('type') == 'text':
+							text = part.get('text', '')
+							if '[Start of page]' in text or '## Removed' in text or '## Added' in text or '## Changed' in text:
+								is_dom_message = True
+								break
+
+				# Only keep non-DOM messages
+				if not is_dom_message:
+					filtered_messages.append(msg)
 			else:
-				dom_html = '[Start of page]\n' + dom_html
+				# Keep assistant messages and other message types
+				filtered_messages.append(msg)
 
-			if pages_below > 0:
-				dom_html += f'\n... {pages_below:.1f} pages below '
-			else:
-				dom_html += '\n[End of page]'
-
-		# Truncate DOM if too long and notify LLM
-		max_dom_length = 60000
-		if len(dom_html) > max_dom_length:
-			lines.append(dom_html[:max_dom_length])
-			lines.append(
-				f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]'
-			)
-		else:
-			lines.append(dom_html)
-
-		browser_state_text = '\n'.join(lines)
-		return browser_state_text
+		self._llm_messages = filtered_messages
+		logger.debug(f'Removed DOM messages from history: {len(self._llm_messages)} messages remaining')
 
 	def _compute_dom_diff(self, previous_tree: 'SimplifiedNode', current_tree: 'SimplifiedNode') -> str:
 		"""Compute diff between two SimplifiedNode trees.
