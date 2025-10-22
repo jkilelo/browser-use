@@ -6,7 +6,7 @@ import logging
 import re
 import traceback
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from uuid_extensions import uuid7str
 
@@ -14,6 +14,10 @@ from browser_use.browser import BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.dom.service import DomService
 from browser_use.filesystem.file_system import FileSystem
+
+if TYPE_CHECKING:
+	from browser_use.dom.views import SimplifiedNode
+
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.messages import (
 	AssistantMessage,
@@ -106,8 +110,8 @@ class CodeUseAgent:
 		self._llm_messages: list[BaseMessage] = []  # Internal LLM conversation history
 		self.complete_history: list[dict] = []  # Eval system history with model_output and result
 		self.dom_service: DomService | None = None
-		self._last_browser_state_text: str | None = None  # Track last browser state text
-		self._last_screenshot: str | None = None  # Track last screenshot (base64)
+		self._last_browser_state_summary: Any | None = None  # Track last BrowserStateSummary for serialization
+		self._previous_dom_tree: 'SimplifiedNode | None' = None  # Track previous DOM tree for diffing
 		self._consecutive_errors = 0  # Track consecutive errors for auto-termination
 		self._max_consecutive_errors = 5  # Maximum consecutive errors before termination
 		self._validation_count = 0  # Track number of validator runs
@@ -190,8 +194,10 @@ class CodeUseAgent:
 				# Get browser state after navigation for the cell
 				if self.dom_service:
 					try:
-						browser_state_text, _ = await self._get_browser_state()
-						cell.browser_state = browser_state_text
+						state = await self._get_browser_state()
+						if state and state.dom_state:
+							cell.browser_state = self._serialize_browser_state(state)
+							cell.dom_tree = state.dom_state._root
 					except Exception as state_error:
 						logger.debug(f'Failed to capture browser state for initial navigation cell: {state_error}')
 
@@ -207,9 +213,8 @@ class CodeUseAgent:
 		# Get initial browser state before first LLM call
 		if self.browser_session and self.dom_service:
 			try:
-				browser_state_text, screenshot = await self._get_browser_state()
-				self._last_browser_state_text = browser_state_text
-				self._last_screenshot = screenshot
+				state = await self._get_browser_state()
+				self._last_browser_state_summary = state
 			except Exception as e:
 				logger.warning(f'Failed to get initial browser state: {e}')
 
@@ -270,9 +275,8 @@ class CodeUseAgent:
 					# new state
 					if self.browser_session and self.dom_service:
 						try:
-							browser_state_text, screenshot = await self._get_browser_state()
-							self._last_browser_state_text = browser_state_text
-							self._last_screenshot = screenshot
+							state = await self._get_browser_state()
+							self._last_browser_state_summary = state
 						except Exception as e:
 							logger.warning(f'Failed to get new browser state: {e}')
 					continue
@@ -289,7 +293,7 @@ class CodeUseAgent:
 					browser_state = None
 
 					for i, block_key in enumerate(python_blocks):
-						logger.info(f'Executing Python block {i+1}/{len(python_blocks)}')
+						logger.info(f'Executing Python block {i + 1}/{len(python_blocks)}')
 						block_code = all_blocks[block_key]
 						block_output, block_error, block_browser_state = await self._execute_code(block_code)
 
@@ -383,7 +387,9 @@ class CodeUseAgent:
 					else:
 						# At limits - skip validation and accept done()
 						if self._validation_count >= self.max_validations:
-							logger.info(f'Reached max validations ({self.max_validations}) - skipping validation and accepting done()')
+							logger.info(
+								f'Reached max validations ({self.max_validations}) - skipping validation and accepting done()'
+							)
 						else:
 							logger.info('At step/error limits - skipping validation')
 						if final_result:
@@ -519,39 +525,46 @@ class CodeUseAgent:
 			Tuple of (extracted_code, full_llm_response)
 		"""
 		# Prepare messages for this request
-		# Include browser state as separate message if available (not accumulated in history)
-		messages_to_send = self._llm_messages.copy()
+		# Add browser state to permanent history if available
+		if self._last_browser_state_summary:
+			# Serialize browser state to text (with diff if we have previous tree)
+			browser_state_text = self._serialize_browser_state(
+				self._last_browser_state_summary, previous_tree=self._previous_dom_tree
+			)
 
-		if self._last_browser_state_text:
+			# Update previous tree for next diff
+			if self._last_browser_state_summary.dom_state and self._last_browser_state_summary.dom_state._root:
+				self._previous_dom_tree = self._last_browser_state_summary.dom_state._root
+
 			# Create message with optional screenshot
-			if self.use_vision and self._last_screenshot:
+			if self.use_vision and self._last_browser_state_summary.screenshot:
 				# Build content with text + screenshot
 				content_parts: list[ContentPartTextParam | ContentPartImageParam] = [
-					ContentPartTextParam(text=self._last_browser_state_text)
+					ContentPartTextParam(text=browser_state_text)
 				]
 
 				# Add screenshot
 				content_parts.append(
 					ContentPartImageParam(
 						image_url=ImageURL(
-							url=f'data:image/jpeg;base64,{self._last_screenshot}',
+							url=f'data:image/jpeg;base64,{self._last_browser_state_summary.screenshot}',
 							media_type='image/jpeg',
 							detail='auto',
 						),
 					)
 				)
 
-				messages_to_send.append(UserMessage(content=content_parts))
+				# Add to permanent history
+				self._llm_messages.append(UserMessage(content=content_parts))
 			else:
-				# Text only
-				messages_to_send.append(UserMessage(content=self._last_browser_state_text))
+				# Text only - add to permanent history
+				self._llm_messages.append(UserMessage(content=browser_state_text))
 
-			# Clear browser state after including it so it's only in this request
-			self._last_browser_state_text = None
-			self._last_screenshot = None
+			# Clear browser state after adding to history
+			self._last_browser_state_summary = None
 
-		# Call LLM with message history (including temporary browser state message)
-		response = await self.llm.ainvoke(messages_to_send)
+		# Call LLM with message history (now includes browser state in permanent history)
+		response = await self.llm.ainvoke(self._llm_messages)
 
 		# Store usage stats from this LLM call
 		self._last_llm_usage = response.usage
@@ -595,7 +608,22 @@ class CodeUseAgent:
 	def _print_variable_info(self, var_name: str, value: Any) -> None:
 		"""Print compact info about a variable assignment."""
 		# Skip built-in modules and known imports
-		skip_names = {'json', 'asyncio', 'csv', 're', 'datetime', 'Path', 'pd', 'np', 'plt', 'requests', 'BeautifulSoup', 'PdfReader', 'browser', 'file_system'}
+		skip_names = {
+			'json',
+			'asyncio',
+			'csv',
+			're',
+			'datetime',
+			'Path',
+			'pd',
+			'np',
+			'plt',
+			'requests',
+			'BeautifulSoup',
+			'PdfReader',
+			'browser',
+			'file_system',
+		}
 		if var_name in skip_names:
 			return
 
@@ -837,11 +865,11 @@ __code_exec_coro__ = __code_exec__()
 			# Get browser state after execution
 			if self.browser_session and self.dom_service:
 				try:
-					browser_state_text, screenshot = await self._get_browser_state()
-					# Store as last browser state for use in next message
-					self._last_browser_state_text = browser_state_text
-					self._last_screenshot = screenshot
-					browser_state = browser_state_text  # For logging and cell storage
+					state = await self._get_browser_state()
+					self._last_browser_state_summary = state
+					if state and state.dom_state:
+						browser_state = self._serialize_browser_state(state)
+						cell.dom_tree = state.dom_state._root
 				except Exception as e:
 					logger.warning(f'Failed to get browser state: {e}')
 
@@ -862,10 +890,10 @@ __code_exec_coro__ = __code_exec__()
 				# Get browser state after error
 				if self.browser_session and self.dom_service:
 					try:
-						browser_state_text, screenshot = await self._get_browser_state()
-						self._last_browser_state_text = browser_state_text
-						self._last_screenshot = screenshot
-						browser_state = browser_state_text
+						state = await self._get_browser_state()
+						self._last_browser_state_summary = state
+						if state:
+							browser_state = self._serialize_browser_state(state)
 					except Exception as browser_state_error:
 						logger.warning(f'Failed to get browser state after error: {browser_state_error}')
 
@@ -882,10 +910,10 @@ __code_exec_coro__ = __code_exec__()
 				await asyncio.sleep(0.5)
 				if self.browser_session and self.dom_service:
 					try:
-						browser_state_text, screenshot = await self._get_browser_state()
-						self._last_browser_state_text = browser_state_text
-						self._last_screenshot = screenshot
-						browser_state = browser_state_text
+						state = await self._get_browser_state()
+						self._last_browser_state_summary = state
+						if state:
+							browser_state = self._serialize_browser_state(state)
 					except Exception as browser_state_error:
 						logger.warning(f'Failed to get browser state after error: {browser_state_error}')
 
@@ -987,218 +1015,235 @@ __code_exec_coro__ = __code_exec__()
 			# Get browser state after error (important for LLM to see state after failure)
 			if self.browser_session and self.dom_service:
 				try:
-					browser_state_text, screenshot = await self._get_browser_state()
-					# Store as last browser state for use in next message
-					self._last_browser_state_text = browser_state_text
-					self._last_screenshot = screenshot
-					browser_state = browser_state_text  # For logging and cell storage
+					state = await self._get_browser_state()
+					self._last_browser_state_summary = state
+					if state:
+						browser_state = self._serialize_browser_state(state)
 				except Exception as browser_state_error:
 					logger.warning(f'Failed to get browser state after error: {browser_state_error}')
 
 		return output, error, browser_state
 
-	async def _get_browser_state(self) -> tuple[str, str | None]:
-		"""Get the current browser state as text with ultra-minimal DOM structure for code agents.
+	async def _get_browser_state(self) -> Any:
+		"""Get the current browser state (BrowserStateSummary).
 
 		Returns:
-			Tuple of (browser_state_text, screenshot_base64)
+			BrowserStateSummary object (or None if not available)
 		"""
 		if not self.browser_session or not self.dom_service:
-			return 'Browser state not available', None
+			return None
 
 		try:
 			# Get full browser state including screenshot if use_vision is enabled
 			include_screenshot = True
 			state = await self.browser_session.get_browser_state_summary(include_screenshot=include_screenshot)
-			assert state.dom_state is not None
-			dom_state = state.dom_state
+			return state
+		except Exception as e:
+			logger.error(f'Failed to get browser state: {e}')
+			return None
 
-			# Use eval_representation (compact serializer for code agents)
+	def _serialize_browser_state(self, state: Any, previous_tree: 'SimplifiedNode | None' = None) -> str:
+		"""Serialize BrowserStateSummary to text for LLM.
+
+		Args:
+			state: BrowserStateSummary object
+			previous_tree: Optional previous SimplifiedNode tree for diff computation
+
+		Returns:
+			Formatted browser state text (full state or diff if previous_tree provided)
+		"""
+		if not state or not state.dom_state:
+			return 'Browser state not available'
+
+		dom_state = state.dom_state
+		current_tree = dom_state._root
+
+		# Compute diff if we have both current and previous trees
+		if previous_tree and current_tree:
+			dom_html = self._compute_dom_diff(previous_tree, current_tree)
+		else:
+			# No previous tree - use full eval_representation
 			dom_html = dom_state.eval_representation()
 			if dom_html == '':
 				dom_html = 'Empty DOM tree (you might have to wait for the page to load)'
 
-			# Format with URL and title header
-			lines = ['## Browser State']
-			lines.append(f'**URL:** {state.url}')
-			lines.append(f'**Title:** {state.title}')
+		# Format with URL and title header
+		lines = ['## Browser State']
+		lines.append(f'**URL:** {state.url}')
+		lines.append(f'**Title:** {state.title}')
+		lines.append('')
+
+		# Add tabs info if multiple tabs exist
+		if len(state.tabs) > 1:
+			lines.append('**Tabs:**')
+			current_target_candidates = []
+			# Find tabs that match current URL and title
+			for tab in state.tabs:
+				if tab.url == state.url and tab.title == state.title:
+					current_target_candidates.append(tab.target_id)
+			current_target_id = current_target_candidates[0] if len(current_target_candidates) == 1 else None
+
+			for tab in state.tabs:
+				is_current = ' (current)' if tab.target_id == current_target_id else ''
+				lines.append(f'  - Tab {tab.target_id[-4:]}: {tab.url} - {tab.title[:30]}{is_current}')
 			lines.append('')
 
-			# Add tabs info if multiple tabs exist
-			if len(state.tabs) > 1:
-				lines.append('**Tabs:**')
-				current_target_candidates = []
-				# Find tabs that match current URL and title
-				for tab in state.tabs:
-					if tab.url == state.url and tab.title == state.title:
-						current_target_candidates.append(tab.target_id)
-				current_target_id = current_target_candidates[0] if len(current_target_candidates) == 1 else None
+		# Add page scroll info if available
+		if state.page_info:
+			pi = state.page_info
+			pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
+			pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
+			total_pages = pi.page_height / pi.viewport_height if pi.viewport_height > 0 else 0
 
-				for tab in state.tabs:
-					is_current = ' (current)' if tab.target_id == current_target_id else ''
-					lines.append(f'  - Tab {tab.target_id[-4:]}: {tab.url} - {tab.title[:30]}{is_current}')
-				lines.append('')
+			scroll_info = f'**Page:** {pages_above:.1f} pages above, {pages_below:.1f} pages below'
+			if total_pages > 1.2:  # Only mention total if significantly > 1 page
+				scroll_info += f', {total_pages:.1f} total pages'
+			lines.append(scroll_info)
+			lines.append('')
 
-			# Add page scroll info if available
-			if state.page_info:
-				pi = state.page_info
-				pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
-				pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
-				total_pages = pi.page_height / pi.viewport_height if pi.viewport_height > 0 else 0
+		# Add network loading info if there are pending requests
+		if state.pending_network_requests:
+			# Remove duplicates by URL (keep first occurrence with earliest duration)
+			seen_urls = set()
+			unique_requests = []
+			for req in state.pending_network_requests:
+				if req.url not in seen_urls:
+					seen_urls.add(req.url)
+					unique_requests.append(req)
 
-				scroll_info = f'**Page:** {pages_above:.1f} pages above, {pages_below:.1f} pages below'
-				if total_pages > 1.2:  # Only mention total if significantly > 1 page
-					scroll_info += f', {total_pages:.1f} total pages'
-				lines.append(scroll_info)
-				lines.append('')
+			lines.append(f'**⏳ Loading:** {len(unique_requests)} network requests still loading')
+			# Show up to 20 unique requests with truncated URLs (30 chars max)
+			for req in unique_requests[:20]:
+				duration_sec = req.loading_duration_ms / 1000
+				url_display = req.url if len(req.url) <= 30 else req.url[:27] + '...'
+				logger.info(f'  - [{duration_sec:.1f}s] {url_display}')
+				lines.append(f'  - [{duration_sec:.1f}s] {url_display}')
+			if len(unique_requests) > 20:
+				lines.append(f'  - ... and {len(unique_requests) - 20} more')
+			lines.append(
+				'**Tip:** Content may still be loading. Consider waiting with `await asyncio.sleep(1)` if data is missing.'
+			)
+			lines.append('')
 
-			# Add network loading info if there are pending requests
-			if state.pending_network_requests:
-				# Remove duplicates by URL (keep first occurrence with earliest duration)
-				seen_urls = set()
-				unique_requests = []
-				for req in state.pending_network_requests:
-					if req.url not in seen_urls:
-						seen_urls.add(req.url)
-						unique_requests.append(req)
+		# Add available variables and functions BEFORE DOM structure
+		# Show useful utilities (json, asyncio, etc.) and user-defined vars, but hide system objects
+		skip_vars = {
+			'browser',
+			'file_system',  # System objects
+			'np',
+			'pd',
+			'plt',
+			'numpy',
+			'pandas',
+			'matplotlib',
+			'requests',
+			'BeautifulSoup',
+			'bs4',
+			'pypdf',
+			'PdfReader',
+			'wait',
+		}
 
-				lines.append(f'**⏳ Loading:** {len(unique_requests)} network requests still loading')
-				# Show up to 20 unique requests with truncated URLs (30 chars max)
-				for req in unique_requests[:20]:
-					duration_sec = req.loading_duration_ms / 1000
-					url_display = req.url if len(req.url) <= 30 else req.url[:27] + '...'
-					logger.info(f'  - [{duration_sec:.1f}s] {url_display}')
-					lines.append(f'  - [{duration_sec:.1f}s] {url_display}')
-				if len(unique_requests) > 20:
-					lines.append(f'  - ... and {len(unique_requests) - 20} more')
-				lines.append('**Tip:** Content may still be loading. Consider waiting with `await asyncio.sleep(1)` if data is missing.')
-				lines.append('')
+		# Highlight code block variables separately from regular variables
+		code_block_vars = []
+		regular_vars = []
+		tracked_code_blocks = self.namespace.get('_code_block_vars', set())
+		for name in self.namespace.keys():
+			# Skip private vars and system objects/actions
+			if not name.startswith('_') and name not in skip_vars:
+				if name in tracked_code_blocks:
+					code_block_vars.append(name)
+				else:
+					regular_vars.append(name)
 
-			# Check if jQuery is available on the page
-			has_jquery = False
-			try:
-				cdp_session = await self.browser_session.get_or_create_cdp_session()
-				jquery_check = await cdp_session.cdp_client.send.Runtime.evaluate(
-					params={
-						'expression': '(function(){ return typeof jQuery !== "undefined" && typeof $ !== "undefined"; })()',
-						'returnByValue': True,
-					},
-					session_id=cdp_session.session_id,
-				)
-				has_jquery = jquery_check.get('result', {}).get('value', False)
-			except Exception:
-				pass
+		# Sort for consistent display
+		available_vars_sorted = sorted(regular_vars)
+		code_block_vars_sorted = sorted(code_block_vars)
 
-			# Add available variables and functions BEFORE DOM structure
-			# Show useful utilities (json, asyncio, etc.) and user-defined vars, but hide system objects
-			skip_vars = {
-				'browser',
-				'file_system',  # System objects
-				'np',
-				'pd',
-				'plt',
-				'numpy',
-				'pandas',
-				'matplotlib',
-				'requests',
-				'BeautifulSoup',
-				'bs4',
-				'pypdf',
-				'PdfReader',
-				'wait',
-			}
+		# Build available line with code blocks and variables
+		parts = []
+		if code_block_vars_sorted:
+			# Show detailed info for code block variables
+			code_block_details = []
+			for var_name in code_block_vars_sorted:
+				value = self.namespace.get(var_name)
+				if value is not None:
+					type_name = type(value).__name__
+					value_str = str(value) if not isinstance(value, str) else value
 
-			# Highlight code block variables separately from regular variables
-			code_block_vars = []
-			regular_vars = []
-			tracked_code_blocks = self.namespace.get('_code_block_vars', set())
-			for name in self.namespace.keys():
-				# Skip private vars and system objects/actions
-				if not name.startswith('_') and name not in skip_vars:
-					if name in tracked_code_blocks:
-						code_block_vars.append(name)
+					# Check if it's a function (starts with "(function" or "(async function")
+					is_function = value_str.strip().startswith('(function') or value_str.strip().startswith('(async function')
+
+					if is_function:
+						# For functions, only show name and type
+						detail = f'{var_name}({type_name})'
 					else:
-						regular_vars.append(name)
+						# For non-functions, show first and last 20 chars
+						first_20 = value_str[:20].replace('\n', '\\n').replace('\t', '\\t')
+						last_20 = value_str[-20:].replace('\n', '\\n').replace('\t', '\\t') if len(value_str) > 20 else ''
 
-			# Sort for consistent display
-			available_vars_sorted = sorted(regular_vars)
-			code_block_vars_sorted = sorted(code_block_vars)
-
-			# Add jQuery availability info alongside variables
-
-
-			# Build available line with code blocks and variables
-			parts = []
-			if code_block_vars_sorted:
-				# Show detailed info for code block variables
-				code_block_details = []
-				for var_name in code_block_vars_sorted:
-					value = self.namespace.get(var_name)
-					if value is not None:
-						type_name = type(value).__name__
-						value_str = str(value) if not isinstance(value, str) else value
-
-						# Check if it's a function (starts with "(function" or "(async function")
-						is_function = value_str.strip().startswith('(function') or value_str.strip().startswith('(async function')
-
-						if is_function:
-							# For functions, only show name and type
-							detail = f'{var_name}({type_name})'
+						if last_20 and first_20 != last_20:
+							detail = f'{var_name}({type_name}): "{first_20}...{last_20}"'
 						else:
-							# For non-functions, show first and last 20 chars
-							first_20 = value_str[:20].replace('\n', '\\n').replace('\t', '\\t')
-							last_20 = value_str[-20:].replace('\n', '\\n').replace('\t', '\\t') if len(value_str) > 20 else ''
+							detail = f'{var_name}({type_name}): "{first_20}"'
+					code_block_details.append(detail)
 
-							if last_20 and first_20 != last_20:
-								detail = f'{var_name}({type_name}): "{first_20}...{last_20}"'
-							else:
-								detail = f'{var_name}({type_name}): "{first_20}"'
-						code_block_details.append(detail)
+			parts.append(f'**Code block variables:** {" | ".join(code_block_details)}')
+		if available_vars_sorted:
+			parts.append(f'**Variables:** {", ".join(available_vars_sorted)}')
 
-				parts.append(f'**Code block variables:** {" | ".join(code_block_details)}')
-			if available_vars_sorted:
-				parts.append(f'**Variables:** {", ".join(available_vars_sorted)}')
+		lines.append(f'**Available:** {" | ".join(parts)}')
+		lines.append('')
 
-			lines.append(f'**Available:** {" | ".join(parts)}')
-			lines.append('')
+		# Add DOM structure
+		lines.append('**DOM Structure:**')
 
-			# Add DOM structure
-			lines.append('**DOM Structure:**')
+		# Add scroll position hints for DOM
+		if state.page_info:
+			pi = state.page_info
+			pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
+			pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
 
-			# Add scroll position hints for DOM
-			if state.page_info:
-				pi = state.page_info
-				pages_above = pi.pixels_above / pi.viewport_height if pi.viewport_height > 0 else 0
-				pages_below = pi.pixels_below / pi.viewport_height if pi.viewport_height > 0 else 0
-
-				if pages_above > 0:
-					dom_html = f'... {pages_above:.1f} pages above \n{dom_html}'
-				else:
-					dom_html = '[Start of page]\n' + dom_html
-
-				if pages_below > 0:
-					dom_html += f'\n... {pages_below:.1f} pages below '
-				else:
-					dom_html += '\n[End of page]'
-
-			# Truncate DOM if too long and notify LLM
-			max_dom_length = 60000
-			if len(dom_html) > max_dom_length:
-				lines.append(dom_html[:max_dom_length])
-				lines.append(
-					f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]'
-				)
+			if pages_above > 0:
+				dom_html = f'... {pages_above:.1f} pages above \n{dom_html}'
 			else:
-				lines.append(dom_html)
+				dom_html = '[Start of page]\n' + dom_html
 
-			browser_state_text = '\n'.join(lines)
-			screenshot = state.screenshot if include_screenshot else None
+			if pages_below > 0:
+				dom_html += f'\n... {pages_below:.1f} pages below '
+			else:
+				dom_html += '\n[End of page]'
 
-			return browser_state_text, screenshot
+		# Truncate DOM if too long and notify LLM
+		max_dom_length = 60000
+		if len(dom_html) > max_dom_length:
+			lines.append(dom_html[:max_dom_length])
+			lines.append(
+				f'\n[DOM truncated after {max_dom_length} characters. Full page contains {len(dom_html)} characters total. Use evaluate to explore more.]'
+			)
+		else:
+			lines.append(dom_html)
 
-		except Exception as e:
-			logger.error(f'Failed to get browser state: {e}')
-			return f'Error getting browser state: {e}', None
+		browser_state_text = '\n'.join(lines)
+		return browser_state_text
+
+	def _compute_dom_diff(self, previous_tree: 'SimplifiedNode', current_tree: 'SimplifiedNode') -> str:
+		"""Compute diff between two SimplifiedNode trees.
+
+		Args:
+			previous_tree: Previous SimplifiedNode tree
+			current_tree: Current SimplifiedNode tree
+
+		Returns:
+			Formatted diff text showing what changed
+		"""
+		from browser_use.dom.serializer.diff_serializer import compute_tree_diff
+
+		# Compute the diff
+		diff = compute_tree_diff(previous_tree, current_tree)
+
+		# Format diff for LLM
+		return diff
 
 	def _format_execution_result(self, code: str, output: str | None, error: str | None, current_step: int | None = None) -> str:
 		"""Format the execution result for the LLM (without browser state)."""

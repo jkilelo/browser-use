@@ -1,10 +1,15 @@
 """Data models for code-use mode."""
 
+from __future__ import annotations
+
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from uuid_extensions import uuid7str
+
+if TYPE_CHECKING:
+	from browser_use.dom.views import SimplifiedNode
 
 
 class CellType(str, Enum):
@@ -26,7 +31,7 @@ class ExecutionStatus(str, Enum):
 class CodeCell(BaseModel):
 	"""Represents a code cell in the notebook-like execution."""
 
-	model_config = ConfigDict(extra='forbid')
+	model_config = ConfigDict(extra='forbid', arbitrary_types_allowed=True)
 
 	id: str = Field(default_factory=uuid7str)
 	cell_type: CellType = CellType.CODE
@@ -36,6 +41,7 @@ class CodeCell(BaseModel):
 	status: ExecutionStatus = Field(default=ExecutionStatus.PENDING)
 	error: str | None = Field(default=None, description='Error message if execution failed')
 	browser_state: str | None = Field(default=None, description='Browser state after execution')
+	dom_tree: SimplifiedNode | None = Field(default=None, description='SimplifiedNode DOM tree after execution')
 
 
 class NotebookSession(BaseModel):
@@ -82,3 +88,19 @@ class NotebookExport(BaseModel):
 	nbformat_minor: int = Field(default=5)
 	metadata: dict[str, Any] = Field(default_factory=dict)
 	cells: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# Rebuild models after SimplifiedNode import is available at runtime
+def _rebuild_models() -> None:
+	"""Rebuild pydantic models to resolve forward references."""
+	try:
+		from browser_use.dom.views import SimplifiedNode  # noqa: F401
+
+		CodeCell.model_rebuild()
+		NotebookSession.model_rebuild()
+	except Exception:
+		# SimplifiedNode not available yet, models will be rebuilt on first use
+		pass
+
+
+_rebuild_models()
