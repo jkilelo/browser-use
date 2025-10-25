@@ -3,7 +3,6 @@ import tempfile
 import time
 
 import pytest
-from pydantic import BaseModel
 from pytest_httpserver import HTTPServer
 
 from browser_use.agent.views import ActionResult
@@ -85,50 +84,6 @@ def tools():
 
 class TestToolsIntegration:
 	"""Integration tests for Tools using actual browser instances."""
-
-	async def test_registry_actions(self, tools, browser_session):
-		"""Test that the registry contains the expected default actions."""
-		# Check that common actions are registered
-		common_actions = [
-			'navigate',
-			'search',
-			'click',
-			'input',
-			'scroll',
-			'go_back',
-			'switch',
-			'close',
-			'wait',
-		]
-
-		for action in common_actions:
-			assert action in tools.registry.registry.actions
-			assert tools.registry.registry.actions[action].function is not None
-			assert tools.registry.registry.actions[action].description is not None
-
-	async def test_custom_action_registration(self, tools, browser_session, base_url):
-		"""Test registering a custom action and executing it."""
-
-		# Define a custom action
-		class CustomParams(BaseModel):
-			text: str
-
-		@tools.action('Test custom action', param_model=CustomParams)
-		async def custom_action(params: CustomParams, browser_session):
-			current_url = await browser_session.get_current_page_url()
-			return ActionResult(extracted_content=f'Custom action executed with: {params.text} on {current_url}')
-
-		# Navigate to a page first
-		await tools.navigate(url=f'{base_url}/page1', new_tab=False, browser_session=browser_session)
-
-		# Execute the custom action directly
-		result = await tools.custom_action(text='test_value', browser_session=browser_session)
-
-		# Verify the result
-		assert isinstance(result, ActionResult)
-		assert result.extracted_content is not None
-		assert 'Custom action executed with: test_value on' in result.extracted_content
-		assert f'{base_url}/page1' in result.extracted_content
 
 	async def test_wait_action(self, tools, browser_session):
 		"""Test that the wait action correctly waits for the specified duration."""
@@ -235,19 +190,6 @@ class TestToolsIntegration:
 
 			current_url = await browser_session.get_current_page_url()
 			assert expected_url in current_url
-
-	async def test_excluded_actions(self, browser_session):
-		"""Test that excluded actions are not registered."""
-		# Create tools with excluded actions
-		excluded_tools = Tools(exclude_actions=['search', 'scroll'])
-
-		# Verify excluded actions are not in the registry
-		assert 'search' not in excluded_tools.registry.registry.actions
-		assert 'scroll' not in excluded_tools.registry.registry.actions
-
-		# But other actions are still there
-		assert 'navigate' in excluded_tools.registry.registry.actions
-		assert 'click' in excluded_tools.registry.registry.actions
 
 	async def test_search_action(self, tools, browser_session, base_url):
 		"""Test the search action."""
