@@ -495,9 +495,7 @@ class DOMTreeSerializer:
 			is_interactive = self._is_interactive_cached(node)
 
 			# For hidden elements, only include if part of interactive pattern
-			is_hidden_but_interactive = (
-				not is_visible and is_interactive and self._is_part_of_interactive_pattern(node)
-			)
+			is_hidden_but_interactive = not is_visible and is_interactive and self._is_part_of_interactive_pattern(node)
 
 			# Override visibility for elements with validation attributes
 			if not is_visible and node.attributes:
@@ -553,9 +551,7 @@ class DOMTreeSerializer:
 		is_interactive = self._is_interactive_cached(node.original_node)
 
 		# Only keep hidden interactive elements if they're part of interactive patterns
-		is_hidden_but_interactive = (
-			not is_visible and is_interactive and self._is_part_of_interactive_pattern(node.original_node)
-		)
+		is_hidden_but_interactive = not is_visible and is_interactive and self._is_part_of_interactive_pattern(node.original_node)
 
 		if (
 			is_visible  # Keep all visible nodes
