@@ -491,14 +491,22 @@ class DOMTreeSerializer:
 			# ENHANCED SHADOW DOM DETECTION: Include shadow hosts even if not visible
 			is_shadow_host = any(child.node_type == NodeType.DOCUMENT_FRAGMENT_NODE for child in node.children_and_shadow_roots)
 
+			# Check if element is interactive (for dropdowns, tabs, hidden buttons)
+			is_interactive = self._is_interactive_cached(node)
+
+			# For hidden elements, only include if part of interactive pattern
+			is_hidden_but_interactive = (
+				not is_visible and is_interactive and self._is_part_of_interactive_pattern(node)
+			)
+
 			# Override visibility for elements with validation attributes
 			if not is_visible and node.attributes:
 				has_validation_attrs = any(attr.startswith(('aria-', 'pseudo')) for attr in node.attributes.keys())
 				if has_validation_attrs:
 					is_visible = True  # Force visibility for validation elements
 
-			# Include if visible, scrollable, has children, or is shadow host
-			if is_visible or is_scrollable or has_shadow_content or is_shadow_host:
+			# Include if visible, scrollable, has children, is shadow host, OR is hidden interactive in pattern
+			if is_visible or is_scrollable or has_shadow_content or is_shadow_host or is_hidden_but_interactive:
 				simplified = SimplifiedNode(original_node=node, children=[], is_shadow_host=is_shadow_host)
 
 				# Process ALL children including shadow roots with enhanced logging
@@ -515,8 +523,8 @@ class DOMTreeSerializer:
 				if is_shadow_host and simplified.children:
 					return simplified
 
-				# Return if meaningful or has meaningful children
-				if is_visible or is_scrollable or simplified.children:
+				# Return if meaningful, has meaningful children, or is hidden interactive in pattern
+				if is_visible or is_scrollable or simplified.children or is_hidden_but_interactive:
 					return simplified
 		elif node.node_type == NodeType.TEXT_NODE:
 			# Include meaningful text nodes
@@ -542,31 +550,37 @@ class DOMTreeSerializer:
 
 		# Keep meaningful nodes
 		is_visible = node.original_node.snapshot_node and node.original_node.is_visible
+		is_interactive = self._is_interactive_cached(node.original_node)
+
+		# Only keep hidden interactive elements if they're part of interactive patterns
+		is_hidden_but_interactive = (
+			not is_visible and is_interactive and self._is_part_of_interactive_pattern(node.original_node)
+		)
 
 		if (
 			is_visible  # Keep all visible nodes
 			or node.original_node.is_actually_scrollable
 			or node.original_node.node_type == NodeType.TEXT_NODE
 			or node.children
+			or is_hidden_but_interactive  # Keep hidden interactive in patterns (dropdowns, tabs)
 		):
 			return node
 
 		return None
 
 	def _collect_interactive_elements(self, node: SimplifiedNode, elements: list[SimplifiedNode]) -> None:
-		"""Recursively collect interactive elements that are also visible."""
+		"""Recursively collect interactive elements including hidden ones (dropdowns, tabs)."""
 		is_interactive = self._is_interactive_cached(node.original_node)
-		is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 
-		# Only collect elements that are both interactive AND visible
-		if is_interactive and is_visible:
+		# Include all interactive elements even if hidden (for dropdowns, tabs, modals)
+		if is_interactive:
 			elements.append(node)
 
 		for child in node.children:
 			self._collect_interactive_elements(child, elements)
 
 	def _assign_interactive_indices_and_mark_new_nodes(self, node: SimplifiedNode | None) -> None:
-		"""Assign interactive indices to clickable elements that are also visible."""
+		"""Assign interactive indices to clickable elements including hidden ones (dropdowns, tabs)."""
 		if not node:
 			return
 
@@ -576,8 +590,10 @@ class DOMTreeSerializer:
 			is_interactive_assign = self._is_interactive_cached(node.original_node)
 			is_visible = node.original_node.snapshot_node and node.original_node.is_visible
 
-			# Only add to selector map if element is both interactive AND visible
-			if is_interactive_assign and is_visible:
+			# Include interactive elements even if not visible (for dropdowns, tabs, hidden modals)
+			# The ClickableElementDetector already filters for truly interactive elements
+			# Elements like dropdown items, tab content, etc. should be accessible even when hidden
+			if is_interactive_assign:
 				# Mark node as interactive
 				node.is_interactive = True
 				# Store backend_node_id in selector map (model outputs backend_node_id)
@@ -747,6 +763,50 @@ class DOMTreeSerializer:
 			check = [pattern.get(key) is None or pattern.get(key) == attributes.get(key) for key in keys_to_check]
 			if all(check):
 				return True
+
+		return False
+
+	def _is_part_of_interactive_pattern(self, node: EnhancedDOMTreeNode) -> bool:
+		"""
+		Check if a hidden element is part of an interactive pattern (dropdown, tab, modal).
+		Returns True only if the element is in a context where hidden elements are expected.
+		"""
+		# Check the node itself and its ancestors for interactive patterns
+		current = node
+		depth = 0
+		max_depth = 5  # Only check up to 5 ancestors to avoid performance issues
+
+		while current and depth < max_depth:
+			if current.attributes:
+				role = current.attributes.get('role', '').lower()
+				aria_haspopup = current.attributes.get('aria-haspopup')
+				classes = current.attributes.get('class', '').lower()
+
+				# Dropdown/menu patterns
+				if role in ['menu', 'menubar', 'listbox', 'combobox']:
+					return True
+				if aria_haspopup:
+					return True
+				if any(pattern in classes for pattern in ['dropdown', 'menu', 'popover', 'select']):
+					return True
+
+				# Tab patterns
+				if role in ['tabpanel', 'tablist']:
+					return True
+				if any(pattern in classes for pattern in ['tab-content', 'tab-panel', 'tabs']):
+					return True
+
+				# Modal/dialog patterns
+				if role in ['dialog', 'alertdialog']:
+					return True
+				if current.attributes.get('aria-modal') == 'true':
+					return True
+				if any(pattern in classes for pattern in ['modal', 'dialog', 'overlay']):
+					return True
+
+			# Move to parent
+			current = current.parent_node
+			depth += 1
 
 		return False
 

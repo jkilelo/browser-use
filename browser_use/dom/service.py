@@ -192,7 +192,27 @@ class DomService:
 		current_bounds = node.snapshot_node.bounds
 
 		if not current_bounds:
-			return False  # If there are no bounds, the element is not visible
+			# FIX: Fallback for elements without bounds (common in SPAs)
+			# Many valid visible elements don't get bounding boxes from CDP's DOMSnapshot
+			# Use accessibility tree and node content as heuristics
+
+			# 1. If element is in accessibility tree with a meaningful role, it's likely visible
+			if node.ax_node:
+				# Elements with explicit roles are interactive/semantic
+				if node.ax_node.role and node.ax_node.role not in ['none', 'presentation']:
+					return True
+				# Elements with accessible names are meaningful content
+				if node.ax_node.name and len(node.ax_node.name.strip()) > 0:
+					return True
+
+			# 2. Text nodes with content are visible by definition (if we got this far)
+			# These passed CSS checks (display != 'none', visibility != 'hidden', opacity > 0)
+			if node.node_type == NodeType.TEXT_NODE:
+				if node.node_value and len(node.node_value.strip()) > 1:
+					return True
+
+			# No bounds and no other indicators of visibility
+			return False
 
 		"""
 		Reverse iterate through the html frames (that can be either iframe or document -> if it's a document frame compare if the current bounds interest with it (taking scroll into account) otherwise move the current bounds by the iframe offset)
