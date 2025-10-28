@@ -56,6 +56,57 @@ class DOMTreeSerializer:
 	]
 	DEFAULT_CONTAINMENT_THRESHOLD = 0.99  # 99% containment by default
 
+	@staticmethod
+	def _find_related_hidden_checkbox(node: EnhancedDOMTreeNode) -> tuple[bool, str | None]:
+		"""
+		Find if this node is related to a hidden checkbox.
+
+		Returns:
+			(is_related, state) where state is 'checked' or 'unchecked'
+		"""
+		# Check children for hidden checkbox
+		for child in node.children:
+			if child.tag_name == 'input' and child.attributes.get('type') == 'checkbox':
+				# Check if it's hidden (common patterns)
+				is_hidden = False
+				if child.snapshot_node and child.snapshot_node.computed_styles:
+					opacity = child.snapshot_node.computed_styles.get('opacity', '1')
+					if opacity == '0' or opacity == '0.0':
+						is_hidden = True
+
+				if is_hidden or not child.is_visible:
+					# Get checkbox state
+					is_checked = child.attributes.get('checked', 'false').lower() in ['true', 'checked', '']
+					# Also check AX node
+					if child.ax_node and child.ax_node.properties:
+						for prop in child.ax_node.properties:
+							if prop.name == 'checked':
+								is_checked = prop.value is True or prop.value == 'true'
+								break
+					state = 'checked' if is_checked else 'unchecked'
+					return (True, state)
+
+			# Check grandchildren (one level deep)
+			for grandchild in child.children:
+				if grandchild.tag_name == 'input' and grandchild.attributes.get('type') == 'checkbox':
+					is_hidden = False
+					if grandchild.snapshot_node and grandchild.snapshot_node.computed_styles:
+						opacity = grandchild.snapshot_node.computed_styles.get('opacity', '1')
+						if opacity == '0' or opacity == '0.0':
+							is_hidden = True
+
+					if is_hidden or not grandchild.is_visible:
+						is_checked = grandchild.attributes.get('checked', 'false').lower() in ['true', 'checked', '']
+						if grandchild.ax_node and grandchild.ax_node.properties:
+							for prop in grandchild.ax_node.properties:
+								if prop.name == 'checked':
+									is_checked = prop.value is True or prop.value == 'true'
+									break
+						state = 'checked' if is_checked else 'unchecked'
+						return (True, state)
+
+		return (False, None)
+
 	def __init__(
 		self,
 		root_node: EnhancedDOMTreeNode,
@@ -475,6 +526,9 @@ class DOMTreeSerializer:
 			if node.node_name.lower() in SVG_ELEMENTS:
 				return None
 
+			# Note: We DON'T skip inert subtrees entirely - they may contain important context text
+			# Instead, we mark inert descendants as non-interactive in ClickableElementDetector
+
 			if node.node_name == 'IFRAME' or node.node_name == 'FRAME':
 				if node.content_document:
 					simplified = SimplifiedNode(original_node=node, children=[])
@@ -500,6 +554,12 @@ class DOMTreeSerializer:
 			# Include if visible, scrollable, has children, or is shadow host
 			if is_visible or is_scrollable or has_shadow_content or is_shadow_host:
 				simplified = SimplifiedNode(original_node=node, children=[], is_shadow_host=is_shadow_host)
+
+				# Check if this label/span/div is related to a hidden checkbox
+				if node.tag_name in ['label', 'span', 'div']:
+					is_related, checkbox_state = self._find_related_hidden_checkbox(node)
+					if is_related:
+						simplified.related_checkbox_state = checkbox_state
 
 				# Process ALL children including shadow roots with enhanced logging
 				for child in node.children_and_shadow_roots:
@@ -820,6 +880,14 @@ class DOMTreeSerializer:
 				attributes_html_str = DOMTreeSerializer._build_attributes_string(
 					node.original_node, include_attributes, text_content
 				)
+
+				# Add related checkbox state if present
+				if node.related_checkbox_state:
+					checkbox_attr = f'checkbox-state={node.related_checkbox_state}'
+					if attributes_html_str:
+						attributes_html_str += f' {checkbox_attr}'
+					else:
+						attributes_html_str = checkbox_attr
 
 				# Add compound component information to attributes if present
 				if node.original_node._compound_children:

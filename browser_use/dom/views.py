@@ -164,6 +164,7 @@ class SimplifiedNode:
 	excluded_by_parent: bool = False  # New field for bbox filtering
 	is_shadow_host: bool = False  # New field for shadow DOM hosts
 	is_compound_component: bool = False  # True for virtual components of compound controls
+	related_checkbox_state: str | None = None  # 'checked' or 'unchecked' if this element is related to a hidden checkbox
 
 	def _clean_original_node_json(self, node_json: dict) -> dict:
 		"""Recursively remove children_nodes and shadow_roots from original_node JSON."""
