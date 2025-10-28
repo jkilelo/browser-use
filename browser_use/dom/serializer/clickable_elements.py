@@ -10,13 +10,24 @@ class ClickableElementDetector:
 		if node.node_type != NodeType.ELEMENT_NODE:
 			return False
 
-		# # if ax ignored skip
-		# if node.ax_node and node.ax_node.ignored:
-		# 	return False
+		# Skip elements ignored by accessibility tree (includes aria-hidden=true, display:none, etc.)
+		if node.ax_node and node.ax_node.ignored:
+			return False
 
 		# remove html and body nodes
 		if node.tag_name in {'html', 'body'}:
 			return False
+
+		# Skip inert elements - they are non-interactive (used by carousels, modals, etc.)
+		# We check ancestors because inert applies to all descendants
+		# We DON'T skip inert subtrees entirely so the agent can see context text
+		current = node
+		depth = 0
+		while current is not None and depth < 10:  # Limit depth for performance
+			if current.attributes and 'inert' in current.attributes:
+				return False
+			current = current.parent_node
+			depth += 1
 
 		# IFRAME elements should be interactive if they're large enough to potentially need scrolling
 		# Small iframes (< 100px width or height) are unlikely to have scrollable content
