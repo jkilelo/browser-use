@@ -206,17 +206,8 @@ class DomService:
 					return True
 
 			# 2. Text nodes with content are visible by definition (if we got this far)
+			# These passed CSS checks (display != 'none', visibility != 'hidden', opacity > 0)
 			if node.node_type == NodeType.TEXT_NODE:
-				if node.node_value and len(node.node_value.strip()) > 1:
-					return True
-
-			# 3. Elements with text content that passed style checks are likely visible
-			# (display != 'none', visibility != 'hidden', opacity > 0)
-			if node.node_type == NodeType.ELEMENT_NODE:
-				# If it has children, it might be a container that's visible
-				if node.children_nodes and len(node.children_nodes) > 0:
-					return True
-				# Check if element has any text content
 				if node.node_value and len(node.node_value.strip()) > 1:
 					return True
 
