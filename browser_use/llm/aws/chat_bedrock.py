@@ -9,6 +9,7 @@ from browser_use.llm.aws.serializer import AWSBedrockMessageSerializer
 from browser_use.llm.base import BaseChatModel
 from browser_use.llm.exceptions import ModelProviderError, ModelRateLimitError
 from browser_use.llm.messages import BaseMessage
+from browser_use.llm.schema import SchemaOptimizer
 from browser_use.llm.views import ChatInvokeCompletion, ChatInvokeUsage
 
 if TYPE_CHECKING:
@@ -115,28 +116,26 @@ class ChatAWSBedrock(BaseChatModel):
 		return config
 
 	def _format_tools_for_request(self, output_format: type[BaseModel]) -> list[dict[str, Any]]:
-		"""Format a Pydantic model as a tool for structured output."""
-		schema = output_format.model_json_schema()
-
-		# Convert Pydantic schema to Bedrock tool format
-		properties = {}
-		required = []
-
-		for prop_name, prop_info in schema.get('properties', {}).items():
-			properties[prop_name] = {
-				'type': prop_info.get('type', 'string'),
-				'description': prop_info.get('description', ''),
-			}
-
-		# Add required fields
-		required = schema.get('required', [])
+		"""
+		Format a Pydantic model as a tool for structured output.
+		
+		This method properly handles complex schemas with union types, $refs, and nested definitions
+		by using SchemaOptimizer to flatten and resolve all references before sending to Bedrock.
+		"""
+		# Use SchemaOptimizer to properly flatten and resolve all $refs and union types
+		# This is critical for AWS Bedrock to understand the full action schema
+		schema = SchemaOptimizer.create_optimized_json_schema(output_format)
+		
+		# Remove title if present (AWS Bedrock doesn't like it)
+		if 'title' in schema:
+			del schema['title']
 
 		return [
 			{
 				'toolSpec': {
 					'name': f'extract_{output_format.__name__.lower()}',
 					'description': f'Extract information in the format of {output_format.__name__}',
-					'inputSchema': {'json': {'type': 'object', 'properties': properties, 'required': required}},
+					'inputSchema': {'json': schema},
 				}
 			}
 		]
@@ -198,7 +197,11 @@ class ChatAWSBedrock(BaseChatModel):
 			# Handle structured output via tool calling
 			if output_format is not None:
 				tools = self._format_tools_for_request(output_format)
-				body['toolConfig'] = {'tools': tools}
+				# Force tool usage with toolChoice - this is critical for AWS Bedrock
+				body['toolConfig'] = {
+					'tools': tools,
+					'toolChoice': {'any': {}}  
+				}
 
 			# Add any additional request parameters
 			if self.request_params:
@@ -238,6 +241,12 @@ class ChatAWSBedrock(BaseChatModel):
 							tool_input = tool_use.get('input', {})
 
 							try:
+								# Filter out extra fields that AWS Bedrock Claude models might add
+								if isinstance(tool_input, dict):
+									model_fields = set(output_format.model_fields.keys())
+									filtered_input = {k: v for k, v in tool_input.items() if k in model_fields}
+									tool_input = filtered_input or tool_input
+								
 								# Validate and return the structured output
 								return ChatInvokeCompletion(
 									completion=output_format.model_validate(tool_input),
@@ -248,6 +257,10 @@ class ChatAWSBedrock(BaseChatModel):
 								if isinstance(tool_input, str):
 									try:
 										data = json.loads(tool_input)
+										# Filter extra fields from parsed JSON as well
+										if isinstance(data, dict):
+											model_fields = set(output_format.model_fields.keys())
+											data = {k: v for k, v in data.items() if k in model_fields}
 										return ChatInvokeCompletion(
 											completion=output_format.model_validate(data),
 											usage=usage,
