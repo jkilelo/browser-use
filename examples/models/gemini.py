@@ -16,14 +16,17 @@ if not api_key:
 
 
 async def run_search():
-	llm = ChatGoogle(model='gemini-flash-latest', api_key=api_key)
+	llm = ChatGoogle(model='gemini-2.0-flash', api_key=api_key)
 	agent = Agent(
 		llm=llm,
-		task='How many stars does the browser-use repo have?',
+		# task='How many stars does the browser-use repo have?',
+		task='Go to google flights, find a one way flight from Zurich to London on 2025-10-30 and return the url of the cheapest flight',
 		flash_mode=True,
 	)
 
-	await agent.run()
+	history = await agent.run()
+	# save history to ./tmp/gemini_history.json
+	history.save_to_file('./tmp/gemini_history.json')
 
 
 if __name__ == '__main__':

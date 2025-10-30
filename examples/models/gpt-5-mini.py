@@ -13,16 +13,19 @@ from browser_use import Agent, ChatOpenAI
 load_dotenv()
 
 # All the models are type safe from OpenAI in case you need a list of supported models
-llm = ChatOpenAI(model='gpt-5-mini')
+llm = ChatOpenAI(model='gpt-4.1-mini')
 agent = Agent(
 	llm=llm,
-	task='Find out which one is cooler: the monkey park or a dolphin tour in Tenerife?',
+	task='Go to google flights, find a one way flight from Zurich to London on 2025-10-30 and return the url of the cheapest flight',
 )
 
 
 async def main():
-	await agent.run(max_steps=20)
+	history = await agent.run(max_steps=20)
 	input('Press Enter to continue...')
+
+	# save history to ./tmp/gpt-4.1-mini_history.json
+	history.save_to_file('./tmp/gpt-4.1-mini_history.json')
 
 
 asyncio.run(main())

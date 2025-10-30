@@ -58,6 +58,7 @@ from browser_use.browser.views import BrowserStateSummary
 from browser_use.config import CONFIG
 from browser_use.dom.views import DOMInteractedElement
 from browser_use.filesystem.file_system import FileSystem
+from browser_use.indexer.service import IndexerService
 from browser_use.observability import observe, observe_debug
 from browser_use.telemetry.service import ProductTelemetry
 from browser_use.telemetry.views import AgentTelemetryEvent
@@ -179,6 +180,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
 		final_response_after_failure: bool = True,
 		_url_shortening_limit: int = 25,
+		indexer_service: 'IndexerService | None' = None,
 		**kwargs,
 	):
 		if llm is None:
@@ -261,6 +263,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		self.sensitive_data = sensitive_data
 
 		self.sample_images = sample_images
+
+		# Indexer service for providing interaction hints
+		self.indexer_service = indexer_service or IndexerService()
 
 		self.settings = AgentSettings(
 			use_vision=use_vision,
@@ -713,6 +718,15 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		# Get page-specific filtered actions
 		page_filtered_actions = self.tools.registry.get_prompt_description(browser_state_summary.url)
 
+		# Get indexer hints based on current task and URL
+		indexer_hints: list[str] | None = None
+		try:
+			indexer_hints = await self.indexer_service.get_hints(task=self.task, current_url=browser_state_summary.url)
+			if indexer_hints:
+				self.logger.debug(f'💡 Step {self.state.n_steps}: Got {len(indexer_hints)} indexer hints')
+		except Exception as e:
+			self.logger.debug(f'⚠️ Failed to get indexer hints: {e}')
+
 		# Page-specific actions will be included directly in the browser_state message
 		self.logger.debug(f'💬 Step {self.state.n_steps}: Creating state messages for context...')
 
@@ -725,6 +739,7 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 			page_filtered_actions=page_filtered_actions if page_filtered_actions else None,
 			sensitive_data=self.sensitive_data,
 			available_file_paths=self.available_file_paths,  # Always pass current available_file_paths
+			indexer_hints=indexer_hints,
 		)
 
 		await self._force_done_after_last_step(step_info)

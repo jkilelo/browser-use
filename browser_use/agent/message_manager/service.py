@@ -290,6 +290,7 @@ class MessageManager:
 		page_filtered_actions: str | None = None,
 		sensitive_data=None,
 		available_file_paths: list[str] | None = None,  # Always pass current available_file_paths
+		indexer_hints: list[str] | None = None,
 	) -> None:
 		"""Create single state message with all content"""
 
@@ -354,6 +355,7 @@ class MessageManager:
 			vision_detail_level=self.vision_detail_level,
 			include_recent_events=self.include_recent_events,
 			sample_images=self.sample_images,
+			indexer_hints=indexer_hints,
 		).get_user_message(effective_use_vision)
 
 		# Store state message text for history

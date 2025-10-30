@@ -84,6 +84,7 @@ class AgentMessagePrompt:
 		vision_detail_level: Literal['auto', 'low', 'high'] = 'auto',
 		include_recent_events: bool = False,
 		sample_images: list[ContentPartTextParam | ContentPartImageParam] | None = None,
+		indexer_hints: list[str] | None = None,
 	):
 		self.browser_state: 'BrowserStateSummary' = browser_state_summary
 		self.file_system: 'FileSystem | None' = file_system
@@ -100,6 +101,7 @@ class AgentMessagePrompt:
 		self.vision_detail_level = vision_detail_level
 		self.include_recent_events = include_recent_events
 		self.sample_images = sample_images or []
+		self.indexer_hints: list[str] | None = indexer_hints
 		assert self.browser_state
 
 	def _extract_page_statistics(self) -> dict[str, int]:
@@ -335,6 +337,12 @@ Available tabs:
 			state_description += '<page_specific_actions>\n'
 			state_description += self.page_filtered_actions + '\n'
 			state_description += '</page_specific_actions>\n'
+
+		if self.indexer_hints:
+			state_description += '<indexer_hints>\n'
+			for hint in self.indexer_hints:
+				state_description += f'- {hint}\n'
+			state_description += '</indexer_hints>\n'
 
 		if use_vision is True and self.screenshots:
 			# Start with text description
