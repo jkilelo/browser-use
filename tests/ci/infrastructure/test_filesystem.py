@@ -1001,3 +1001,129 @@ class TestFileSystemIntegration:
 				assert file_obj.content == f'Content for file {i}'
 
 			fs.nuke()
+
+
+class TestAgentDirectoryPath:
+	"""Test Agent's agent_directory initialization with default and custom paths."""
+
+	def test_agent_default_directory_in_cwd(self, mock_llm):
+		"""Test that Agent creates directory in current working directory by default."""
+		from browser_use.agent.service import Agent
+
+		agent = Agent(
+			llm=mock_llm,
+			task='Test task',
+		)
+
+		# Agent directory should be in current working directory
+		cwd = Path.cwd()
+		assert agent.agent_directory.parent == cwd
+		assert agent.agent_directory.name.startswith('browser_use_agent_')
+
+		# Clean up
+		if agent.agent_directory.exists():
+			import shutil
+
+			shutil.rmtree(agent.agent_directory)
+
+	def test_agent_custom_file_system_path(self, mock_llm):
+		"""Test that Agent uses custom file_system_path when provided."""
+		from browser_use.agent.service import Agent
+
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			custom_path = Path(tmp_dir) / 'custom_agent_dir'
+
+			agent = Agent(
+				llm=mock_llm,
+				task='Test task',
+				file_system_path=str(custom_path),
+			)
+
+			# Agent should use the custom path for file system
+			assert agent.file_system_path == str(custom_path)
+			# agent_directory may still be in CWD, but file_system uses custom_path
+			assert agent.file_system.base_dir == custom_path
+
+			# Clean up
+			if agent.agent_directory.exists():
+				import shutil
+
+				shutil.rmtree(agent.agent_directory)
+			if custom_path.exists():
+				import shutil
+
+				shutil.rmtree(custom_path)
+
+	async def test_agent_files_created_in_cwd(self, mock_llm):
+		"""Test that agent files are created in CWD by default."""
+		from browser_use.agent.service import Agent
+
+		# Use a subdirectory of CWD for this test to avoid cluttering
+		test_dir = Path.cwd() / 'test_agent_output'
+		test_dir.mkdir(exist_ok=True)
+
+		try:
+			# Change to test directory
+			original_cwd = Path.cwd()
+			import os
+
+			os.chdir(test_dir)
+
+			agent = Agent(
+				llm=mock_llm,
+				task='Test task',
+			)
+
+			# Verify agent directory is in test_dir (current CWD)
+			assert agent.agent_directory.parent == test_dir
+			assert str(test_dir) in str(agent.agent_directory)
+
+			# Test file creation in the filesystem
+			test_content = '# Test file'
+			await agent.file_system.write_file('test.md', test_content)
+
+			# Verify file exists in CWD-based path
+			file_path = agent.file_system.data_dir / 'test.md'
+			assert file_path.exists()
+			assert file_path.read_text() == test_content
+			assert str(test_dir) in str(file_path)
+
+		finally:
+			# Restore original directory
+			os.chdir(original_cwd)
+
+			# Clean up
+			if test_dir.exists():
+				import shutil
+
+				shutil.rmtree(test_dir)
+
+	async def test_agent_custom_path_file_creation(self, mock_llm):
+		"""Test that files are created in custom path when specified."""
+		from browser_use.agent.service import Agent
+
+		with tempfile.TemporaryDirectory() as tmp_dir:
+			custom_path = Path(tmp_dir) / 'custom_agent_workspace'
+
+			agent = Agent(
+				llm=mock_llm,
+				task='Test task',
+				file_system_path=str(custom_path),
+			)
+
+			# Test file creation
+			test_content = '# Custom path test'
+			await agent.file_system.write_file('custom_test.md', test_content)
+
+			# Verify file exists in custom path
+			file_path = agent.file_system.data_dir / 'custom_test.md'
+			assert file_path.exists()
+			assert file_path.read_text() == test_content
+			assert str(custom_path) in str(file_path)
+			assert str(tmp_dir) in str(file_path)
+
+			# Clean up
+			if agent.agent_directory.exists():
+				import shutil
+
+				shutil.rmtree(agent.agent_directory)
