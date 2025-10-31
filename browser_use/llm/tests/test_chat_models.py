@@ -3,7 +3,7 @@ import os
 import pytest
 from pydantic import BaseModel
 
-from browser_use.llm import ChatAnthropic, ChatGoogle, ChatGroq, ChatOpenAI, ChatOpenRouter
+from browser_use.llm import ChatAnthropic, ChatAWSBedrock, ChatGoogle, ChatGroq, ChatOpenAI, ChatOpenRouter
 from browser_use.llm.messages import ContentPartTextParam
 
 # Optional OCI import
@@ -249,6 +249,36 @@ class TestChatModels:
 			pytest.skip('OPENROUTER_API_KEY not set')
 
 		chat = ChatOpenRouter(model='openai/gpt-4o-mini', api_key=os.getenv('OPENROUTER_API_KEY'), temperature=0)
+		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
+		completion = response.completion
+
+		assert isinstance(completion, CapitalResponse)
+		assert completion.country.lower() == self.EXPECTED_FRANCE_COUNTRY
+		assert completion.capital.lower() == self.EXPECTED_FRANCE_CAPITAL
+
+	# AWS Bedrock Tests
+	@pytest.mark.asyncio
+	async def test_aws_bedrock_ainvoke_normal(self):
+		"""Test normal text response from AWS Bedrock"""
+		# Skip if no credentials
+		if not (os.getenv('AWS_ACCESS_KEY_ID') and os.getenv('AWS_SECRET_ACCESS_KEY') and os.getenv('AWS_REGION')):
+			pytest.skip('AWS credentials not set (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)')
+
+		chat = ChatAWSBedrock(model='anthropic.claude-3-5-haiku-20241022-v1:0', max_tokens=100, temperature=0)
+		response = await chat.ainvoke(self.CONVERSATION_MESSAGES)
+		completion = response.completion
+
+		assert isinstance(completion, str)
+		assert self.EXPECTED_GERMANY_CAPITAL in completion.lower()
+
+	@pytest.mark.asyncio
+	async def test_aws_bedrock_ainvoke_structured(self):
+		"""Test structured output from AWS Bedrock"""
+		# Skip if no credentials
+		if not (os.getenv('AWS_ACCESS_KEY_ID') and os.getenv('AWS_SECRET_ACCESS_KEY') and os.getenv('AWS_REGION')):
+			pytest.skip('AWS credentials not set (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION)')
+
+		chat = ChatAWSBedrock(model='anthropic.claude-3-5-haiku-20241022-v1:0', max_tokens=100, temperature=0)
 		response = await chat.ainvoke(self.STRUCTURED_MESSAGES, output_format=CapitalResponse)
 		completion = response.completion
 

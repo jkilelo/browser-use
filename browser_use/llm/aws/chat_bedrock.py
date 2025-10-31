@@ -118,14 +118,14 @@ class ChatAWSBedrock(BaseChatModel):
 	def _format_tools_for_request(self, output_format: type[BaseModel]) -> list[dict[str, Any]]:
 		"""
 		Format a Pydantic model as a tool for structured output.
-		
+
 		This method properly handles complex schemas with union types, $refs, and nested definitions
 		by using SchemaOptimizer to flatten and resolve all references before sending to Bedrock.
 		"""
 		# Use SchemaOptimizer to properly flatten and resolve all $refs and union types
 		# This is critical for AWS Bedrock to understand the full action schema
 		schema = SchemaOptimizer.create_optimized_json_schema(output_format)
-		
+
 		# Remove title if present (AWS Bedrock doesn't like it)
 		if 'title' in schema:
 			del schema['title']
@@ -139,6 +139,19 @@ class ChatAWSBedrock(BaseChatModel):
 				}
 			}
 		]
+
+	def _get_allowed_fields(self, output_format: type[BaseModel]) -> set[str]:
+		"""Get all allowed field names for the model, including aliases."""
+		allowed_fields = set(output_format.model_fields.keys())
+
+		# Add aliases and serialization names
+		for field_info in output_format.model_fields.values():
+			if hasattr(field_info, 'alias') and field_info.alias:
+				allowed_fields.add(field_info.alias)
+			if hasattr(field_info, 'serialization_alias') and field_info.serialization_alias:
+				allowed_fields.add(field_info.serialization_alias)
+
+		return allowed_fields
 
 	def _get_usage(self, response: dict[str, Any]) -> ChatInvokeUsage | None:
 		"""Extract usage information from the response."""
@@ -198,10 +211,7 @@ class ChatAWSBedrock(BaseChatModel):
 			if output_format is not None:
 				tools = self._format_tools_for_request(output_format)
 				# Force tool usage with toolChoice - this is critical for AWS Bedrock
-				body['toolConfig'] = {
-					'tools': tools,
-					'toolChoice': {'any': {}}  
-				}
+				body['toolConfig'] = {'tools': tools, 'toolChoice': {'any': {}}}
 
 			# Add any additional request parameters
 			if self.request_params:
@@ -243,10 +253,10 @@ class ChatAWSBedrock(BaseChatModel):
 							try:
 								# Filter out extra fields that AWS Bedrock Claude models might add
 								if isinstance(tool_input, dict):
-									model_fields = set(output_format.model_fields.keys())
-									filtered_input = {k: v for k, v in tool_input.items() if k in model_fields}
+									allowed_fields = self._get_allowed_fields(output_format)
+									filtered_input = {k: v for k, v in tool_input.items() if k in allowed_fields}
 									tool_input = filtered_input or tool_input
-								
+
 								# Validate and return the structured output
 								return ChatInvokeCompletion(
 									completion=output_format.model_validate(tool_input),
@@ -259,8 +269,8 @@ class ChatAWSBedrock(BaseChatModel):
 										data = json.loads(tool_input)
 										# Filter extra fields from parsed JSON as well
 										if isinstance(data, dict):
-											model_fields = set(output_format.model_fields.keys())
-											data = {k: v for k, v in data.items() if k in model_fields}
+											allowed_fields = self._get_allowed_fields(output_format)
+											data = {k: v for k, v in data.items() if k in allowed_fields}
 										return ChatInvokeCompletion(
 											completion=output_format.model_validate(data),
 											usage=usage,
