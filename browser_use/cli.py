@@ -1,11 +1,26 @@
 # pyright: reportMissingImports=false
 
 # Check for MCP mode early to prevent logging initialization
+import os
 import sys
+
+# Configure UTF-8 for cross-platform compatibility (Windows, Linux, macOS)
+# This ensures emoji and Unicode characters work correctly on all systems
+# Must be done BEFORE any I/O operations (print, logging, etc.)
+try:
+	# Set environment variable to enable UTF-8 mode globally (PEP 540)
+	os.environ.setdefault('PYTHONUTF8', '1')
+	# Reconfigure stdout/stderr to use UTF-8 encoding
+	if hasattr(sys.stdout, 'reconfigure'):
+		sys.stdout.reconfigure(encoding='utf-8', errors='replace')  # type: ignore
+	if hasattr(sys.stderr, 'reconfigure'):
+		sys.stderr.reconfigure(encoding='utf-8', errors='replace')  # type: ignore
+except Exception:
+	# Silently continue if reconfiguration fails (e.g., in some CI environments)
+	pass
 
 if '--mcp' in sys.argv:
 	import logging
-	import os
 
 	os.environ['BROWSER_USE_LOGGING_LEVEL'] = 'critical'
 	os.environ['BROWSER_USE_SETUP_LOGGING'] = 'false'
@@ -344,7 +359,7 @@ def setup_readline_history(history: list[str]) -> None:
 
 	# Add history items to readline
 	for item in history:
-		readline.add_history(item)
+		readline.add_history(item)  # type: ignore  # readline conditionally imported
 
 
 def get_llm(config: dict[str, Any]):
@@ -720,7 +735,7 @@ class BrowserUseApp(App):
 		try:
 			if READLINE_AVAILABLE and self.task_history:
 				for item in self.task_history:
-					readline.add_history(item)
+					readline.add_history(item)  # type: ignore  # readline conditionally imported
 				logger.debug(f'Added {len(self.task_history)} items to readline history')
 			else:
 				logger.debug('No readline history to set up')

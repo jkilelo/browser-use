@@ -4,7 +4,23 @@ Pytest configuration for browser-use CI tests.
 Sets up environment variables to ensure tests never connect to production services.
 """
 
+# Configure UTF-8 for cross-platform compatibility (Windows, Linux, macOS)
+# This ensures emoji and Unicode characters in tests work correctly on all systems
+# Must be done BEFORE any other imports that might do I/O
 import os
+import sys
+
+try:
+	# Set environment variable to enable UTF-8 mode globally (PEP 540)
+	os.environ.setdefault('PYTHONUTF8', '1')
+	# Reconfigure stdout/stderr to use UTF-8 encoding
+	if hasattr(sys.stdout, 'reconfigure'):
+		sys.stdout.reconfigure(encoding='utf-8', errors='replace')  # type: ignore
+	if hasattr(sys.stderr, 'reconfigure'):
+		sys.stderr.reconfigure(encoding='utf-8', errors='replace')  # type: ignore
+except Exception:
+	# Silently continue if reconfiguration fails (e.g., in some CI environments)
+	pass
 import socketserver
 import tempfile
 from unittest.mock import AsyncMock
