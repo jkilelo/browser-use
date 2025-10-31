@@ -1,4 +1,5 @@
 # Cache files
+live_llm_tests/
 .DS_Store
 __pycache__/
 *.py[cod]
@@ -81,3 +82,6 @@ todo.md
 product_extraction.ipynb
 product_extraction.py
 *report.md
+
+# Browser-use agent runtime directories
+browser_use_agent_*/

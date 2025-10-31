@@ -4,7 +4,6 @@ import inspect
 import json
 import logging
 import re
-import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -299,8 +298,9 @@ class Agent(Generic[Context, AgentStructuredOutput]):
 		import time
 
 		timestamp = int(time.time())
-		base_tmp = Path(tempfile.gettempdir())
-		self.agent_directory = base_tmp / f'browser_use_agent_{self.id}_{timestamp}'
+		# Use current working directory instead of temp by default
+		base_dir = Path.cwd()
+		self.agent_directory = base_dir / f'browser_use_agent_{self.id}_{timestamp}'
 
 		# Initialize file system and screenshot service
 		self._set_file_system(file_system_path)
