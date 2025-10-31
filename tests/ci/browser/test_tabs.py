@@ -102,7 +102,16 @@ async def browser_session():
 	)
 	await session.start()
 	yield session
+	# Ensure event bus is idle before teardown (increased timeout for cleanup)
+	try:
+		await session.event_bus.wait_until_idle(timeout=10.0)
+	except TimeoutError:
+		# Log which events are still pending for debugging
+		if session.event_bus.events_pending:
+			print(f'⚠️  Test teardown: {session.event_bus.events_pending} events still pending after 10s wait')
 	await session.kill()
+	# kill() already stops the bus and creates a new one, so stop that new one too
+	await session.event_bus.stop(clear=True, timeout=10)
 
 
 class TestMultiTabOperations:

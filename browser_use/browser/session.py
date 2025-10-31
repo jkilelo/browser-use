@@ -366,9 +366,11 @@ class BrowserSession(BaseModel):
 	async def reset(self) -> None:
 		"""Clear all cached CDP sessions with proper cleanup."""
 
-		# TODO: clear the event bus queue here, implement this helper
-		# await self.event_bus.wait_for_idle(timeout=5.0)
-		# await self.event_bus.clear()
+		# Wait for event bus to finish processing all pending events
+		try:
+			await self.event_bus.wait_until_idle(timeout=5.0)
+		except TimeoutError:
+			self.logger.warning(f'{self} Event bus did not become idle within 5s during reset')
 
 		# Clear session manager first (stops event monitoring)
 		if self._session_manager:

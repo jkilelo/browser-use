@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Browser-Use is an async python >= 3.11 library that implements AI browser driver abilities using LLMs + CDP (Chrome DevTools Protocol). The core architecture enables AI agents to autonomously navigate web pages, interact with elements, and complete complex tasks by processing HTML and making LLM-driven decisions.
+Browser-Use is an async python >= 3.11 library (tested on 3.11-3.14) that implements AI browser driver abilities using LLMs + CDP (Chrome DevTools Protocol). The core architecture enables AI agents to autonomously navigate web pages, interact with elements, and complete complex tasks by processing HTML and making LLM-driven decisions.
 
 ## High-Level Architecture
 
@@ -19,11 +19,14 @@ The library follows an event-driven architecture with several key components:
 ### Event-Driven Browser Management
 
 BrowserSession uses a `bubus` event bus to coordinate watchdog services:
-- **DownloadsWatchdog**: Handles PDF auto-download and file management
-- **PopupsWatchdog**: Manages JavaScript dialogs and popups
-- **SecurityWatchdog**: Enforces domain restrictions and security policies
-- **DOMWatchdog**: Processes DOM snapshots, screenshots, and element highlighting
-- **AboutBlankWatchdog**: Handles empty page redirects
+- **DownloadsWatchdog** (`browser_use/browser/watchdogs/downloads_watchdog.py`): Handles PDF auto-download and file management
+- **PopupsWatchdog** (`browser_use/browser/watchdogs/popups_watchdog.py`): Manages JavaScript dialogs and popups
+- **SecurityWatchdog** (`browser_use/browser/watchdogs/security_watchdog.py`): Enforces domain restrictions and security policies
+- **DOMWatchdog** (`browser_use/browser/watchdogs/dom_watchdog.py`): Processes DOM snapshots, screenshots, and element highlighting
+- **StorageStateWatchdog** (`browser_use/browser/watchdogs/storage_state_watchdog.py`): Manages cookie/localStorage persistence and auto-save
+- **AboutBlankWatchdog** (`browser_use/browser/watchdogs/aboutblank_watchdog.py`): Handles empty page redirects
+
+All watchdogs inherit from `BaseWatchdog` (`browser_use/browser/watchdog_base.py`) which provides event registration, logging, and error handling infrastructure.
 
 ### CDP Integration
 
@@ -35,10 +38,12 @@ We want our library APIs to be ergonomic, intuitive, and hard to get wrong.
 
 **Setup:**
 ```bash
-uv venv --python 3.11
-source .venv/bin/activate
+uv venv --python 3.11  # Or 3.12, 3.13, 3.14
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 uv sync
 ```
+
+**Note:** On Windows, UTF-8 support is automatically configured in `browser_use/cli.py` and `tests/ci/conftest.py` via PEP 540 (`PYTHONUTF8=1`) to ensure emoji and Unicode characters work correctly.
 
 **Testing:**
 - Run CI tests: `uv run pytest -vxs tests/ci`
@@ -88,6 +93,79 @@ We use a thin wrapper around CDP called cdp-use: https://github.com/browser-use/
 - Never mock anything in tests, always use real objects!! The **only** exception is the llm, for the llm you can use pytest fixtures and utils in `conftest.py` to set up LLM responses. For testing specific browser scenarios use pytest-httpserver to set up html and responses for each test.
 - Never use real remote URLs in tests (e.g. `https://google.com` or `https://example.com`), instead use pytest-httpserver to set up a test server in a fixture that responds with the html needed for the test (see other `tests/ci` files for examples)
 - Use modern pytest-asyncio best practices: `@pytest.mark.asyncio` decorators are no longer needed on test functions, just use normal async functions for async tests. Use `loop = asyncio.get_event_loop()` inside tests that need it instead of passing `event_loop` as a function argument. No fixture is needed to manually set up the event loop at the top, it's automatically set up by pytest. Fixture functions (even async ones) only need a simple `@pytest.fixture` decorator with no arguments.
+
+## Event Bus Cleanup in Test Fixtures
+
+**CRITICAL:** All `browser_session` fixtures (both module-scoped and local) must implement proper event bus cleanup to prevent test flakiness and timeouts. The pattern ensures the event bus drains all pending events before teardown.
+
+**Standard Cleanup Pattern:**
+```python
+@pytest.fixture
+async def browser_session():
+	session = BrowserSession(
+		browser_profile=BrowserProfile(headless=True, user_data_dir=None, keep_alive=True)
+	)
+	await session.start()
+	yield session
+
+	# Ensure event bus is idle before teardown (increased timeout for cleanup)
+	try:
+		await session.event_bus.wait_until_idle(timeout=10.0)
+	except asyncio.TimeoutError:
+		# Log which events are still pending for debugging
+		if session.event_bus.events_pending:
+			print(f'⚠️  Test teardown: {session.event_bus.events_pending} events still pending after 10s wait')
+
+	await session.kill()
+	# kill() already stops the bus and creates a new one, so stop that new one too
+	await session.event_bus.stop(clear=True, timeout=10)
+```
+
+**Why This Matters:**
+- Without `wait_until_idle()`, tests may complete while background event handlers are still running
+- Without `event_bus.stop(clear=True)`, the new event bus created by `kill()` won't be properly cleaned up
+- This pattern prevents the "Timeout waiting for event bus to be idle" warnings and test hangs
+
+**Key Files with Cleanup Pattern:**
+- `tests/ci/conftest.py:188-197` (module-scoped fixture)
+- All local `browser_session` fixtures in test files (see `tests/ci/browser/`, `tests/ci/interactions/`)
+
+## Performance Best Practices
+
+**1. Early Returns Before Expensive Operations**
+
+Always validate conditions and return early BEFORE acquiring locks, making CDP calls, or doing I/O:
+
+```python
+# ❌ BAD: Expensive operations before check
+async def _save_something(self, path: str | None = None):
+	async with self._lock:  # Lock acquired unnecessarily
+		await expensive_cdp_call()  # CDP call made unnecessarily
+		if not path:  # Check happens too late
+			return
+
+# ✅ GOOD: Check first, then expensive operations
+async def _save_something(self, path: str | None = None):
+	if not path:  # Early return - skip everything below
+		return
+	async with self._lock:
+		await expensive_cdp_call()
+```
+
+**Real Example:** `browser_use/browser/watchdogs/storage_state_watchdog.py:164-179` was optimized to check `storage_state` path before acquiring lock and making CDP calls, reducing test teardown time from 45+ seconds to <1ms.
+
+**2. Cross-Platform Path Handling**
+
+Use semantic path validation instead of string matching:
+
+```python
+# ❌ BAD: Unix-specific string matching
+assert '/.cache' in str(path)  # Fails on Windows (C:\Users\...)
+
+# ✅ GOOD: Semantic validation works everywhere
+assert path.name == '.cache'
+assert path.parent == Path.home()
+```
 
 ## Personality
 

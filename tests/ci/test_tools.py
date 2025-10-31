@@ -74,7 +74,16 @@ async def browser_session():
 	)
 	await browser_session.start()
 	yield browser_session
+	# Ensure event bus is idle before teardown (increased timeout for cleanup)
+	try:
+		await browser_session.event_bus.wait_until_idle(timeout=10.0)
+	except TimeoutError:
+		# Log which events are still pending for debugging
+		if browser_session.event_bus.events_pending:
+			print(f'⚠️  Test teardown: {browser_session.event_bus.events_pending} events still pending after 10s wait')
 	await browser_session.kill()
+	# kill() already stops the bus and creates a new one, so stop that new one too
+	await browser_session.event_bus.stop(clear=True, timeout=10)
 
 
 @pytest.fixture(scope='function')
